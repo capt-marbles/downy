@@ -165,3 +165,24 @@ export const SystemStatusResponseSchema = z.object({
   exaConfigured: z.boolean(),
 });
 export type SystemStatus = z.infer<typeof SystemStatusResponseSchema>;
+
+export const ModelStatusSchema = z.object({
+  provider: z.enum(["kimi", "pi-local", "pi-prod", "openrouter"]),
+  providerLabel: z.string(),
+  model: z.string(),
+  contextWindowTokens: z.number().nullable(),
+  compactionThresholdTokens: z.number(),
+  session: z.object({
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    totalTokens: z.number(),
+    turnCount: z.number(),
+    estimatedCostUsd: z.number().nullable(),
+    costNote: z.string(),
+  }),
+});
+export type ModelStatus = z.infer<typeof ModelStatusSchema>;
+
+export const ModelStatusResponseSchema = z.object({
+  modelStatus: ModelStatusSchema,
+});

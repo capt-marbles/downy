@@ -1,9 +1,11 @@
+/* eslint-disable max-lines -- sidebar section bundle keeps cross-section helpers colocated. */
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
   CornerDownLeft,
   FileText,
+  Gauge,
   IdCard,
   ListTodo,
   Lock,
@@ -25,6 +27,7 @@ import { withBack } from "../../lib/back-nav";
 import {
   useAgentSkills,
   useBackgroundTasks,
+  useModelStatus,
   useMcpServers,
   useMcpServersLiveSync,
   useWorkspaceFiles,
@@ -540,6 +543,75 @@ export function McpSection({
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(value);
+}
+
+function formatCost(value: number | null): string {
+  if (value == null) return "n/a";
+  if (value === 0) return "$0.00";
+  if (value < 0.01) return `<$0.01`;
+  return `$${value.toFixed(2)}`;
+}
+
+export function ModelStatusSection() {
+  const slug = useCurrentAgentSlug();
+  const { data: status, error } = useModelStatus(slug);
+
+  return (
+    <section className="flex flex-col gap-1">
+      <SectionHeader icon={Gauge} label="Model status" />
+      {error ? (
+        <div className="px-2 py-1.5 text-xs text-error/70">
+          Couldn't load model status.
+        </div>
+      ) : !status ? (
+        <div className="px-2 py-1.5 text-xs text-base-content/40">Loading…</div>
+      ) : (
+        <div className="rounded-lg border border-base-300/70 bg-base-200/40 px-2.5 py-2 text-[11px] text-base-content/65">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-base-content/80">
+              {status.providerLabel}
+            </span>
+            <span className="font-mono text-[10px] text-base-content/45">
+              {formatCost(status.session.estimatedCostUsd)}
+            </span>
+          </div>
+          <div
+            className="mt-0.5 truncate font-mono text-[10px] text-base-content/55"
+            title={status.model}
+          >
+            {status.model}
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-1 text-[10px]">
+            <div>
+              <div className="uppercase tracking-wide text-base-content/35">
+                Tokens
+              </div>
+              <div className="font-mono text-base-content/70">
+                {formatTokens(status.session.inputTokens)} in ·{" "}
+                {formatTokens(status.session.outputTokens)} out
+              </div>
+            </div>
+            <div>
+              <div className="uppercase tracking-wide text-base-content/35">
+                Context
+              </div>
+              <div className="font-mono text-base-content/70">
+                {status.contextWindowTokens == null
+                  ? `? / ${formatTokens(status.compactionThresholdTokens)}`
+                  : `${formatTokens(status.compactionThresholdTokens)} / ${formatTokens(status.contextWindowTokens)}`}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

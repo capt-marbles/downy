@@ -7,6 +7,7 @@ import {
   ListCoreFilesResponseSchema,
   ListBackgroundTasksResponseSchema,
   ListMcpServersResponseSchema,
+  ModelStatusResponseSchema,
   ListSkillsResponseSchema,
   ListWorkspaceFilesResponseSchema,
   OkResponseSchema,
@@ -18,6 +19,7 @@ import {
   type SystemStatus,
   type BackgroundTaskRecord,
   type McpServerSummary,
+  type ModelStatus,
   type SkillSummary,
   type WorkspaceFile,
 } from "./api-schemas";
@@ -277,6 +279,15 @@ export async function listMcpServers(
     withSlugHeader(slug),
   );
   return data.servers;
+}
+
+export async function getModelStatus(slug: string): Promise<ModelStatus> {
+  const data = await request(
+    "/api/model-status",
+    ModelStatusResponseSchema,
+    withSlugHeader(slug),
+  );
+  return data.modelStatus;
 }
 
 export async function deleteMcpServer(slug: string, id: string): Promise<void> {

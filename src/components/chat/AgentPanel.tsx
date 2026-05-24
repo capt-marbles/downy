@@ -15,6 +15,7 @@ import {
   BackgroundTasksSection,
   IdentitySection,
   McpSection,
+  ModelStatusSection,
   SettingsSection,
   SkillsSection,
   WorkspaceSection,
@@ -173,6 +174,7 @@ export default function AgentPanel({ agent }: Props) {
           <IdentitySection onNavigate={closeMobile} />
           <WorkspaceSection onNavigate={closeMobile} />
           <SkillsSection onNavigate={closeMobile} />
+          <ModelStatusSection />
           <McpSection agent={agent} onNavigate={closeMobile} />
           <BackgroundTasksSection agent={agent} onNavigate={closeMobile} />
           <SettingsSection onNavigate={closeMobile} />

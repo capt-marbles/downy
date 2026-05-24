@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import {
   deleteMcpServer,
   deleteWorkspaceFile,
+  getModelStatus,
   listBackgroundTasks,
   listCoreFiles,
   listMcpServers,
@@ -107,6 +108,14 @@ export function useMcpServers(slug: string) {
   return useQuery({
     queryKey: queryKeys.mcpServers(slug),
     queryFn: () => listMcpServers(slug),
+  });
+}
+
+export function useModelStatus(slug: string) {
+  return useQuery({
+    queryKey: queryKeys.modelStatus(slug),
+    queryFn: () => getModelStatus(slug),
+    refetchInterval: 10_000,
   });
 }
 

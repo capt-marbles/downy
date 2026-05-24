@@ -8,6 +8,7 @@ import { handleFilesRequest } from "./worker/handlers/files";
 import { handleBackgroundTasksRequest } from "./worker/handlers/background-tasks";
 import { handleMcpServersRequest } from "./worker/handlers/mcp-servers";
 import { handleMessagesRequest } from "./worker/handlers/messages";
+import { handleModelStatusRequest } from "./worker/handlers/model-status";
 import { handleProfileRequest } from "./worker/handlers/profile";
 import { handleSkillsRequest } from "./worker/handlers/skills";
 import { handleSystemStatusRequest } from "./worker/handlers/system";
@@ -147,6 +148,10 @@ export default {
 
     if (url.pathname === "/api/system-status") {
       return handleSystemStatusRequest(request, env);
+    }
+
+    if (url.pathname === "/api/model-status") {
+      return handleModelStatusRequest(request, env);
     }
 
     const agentResponse = await routeAgentRequest(request, env);

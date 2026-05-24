@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- central Durable Object agent class; split once Think lifecycle hooks settle. */
 import { Think } from "@cloudflare/think";
 import { CHAT_MESSAGE_TYPES } from "agents/chat";
 import { Workspace, type FileInfo } from "@cloudflare/shell";
@@ -59,6 +60,14 @@ import {
   listMcpToolDescriptors,
   type McpToolDescriptor,
 } from "./mcp-proxy";
+import {
+  EMPTY_MODEL_USAGE,
+  MODEL_USAGE_KEY,
+  buildModelStatus,
+  parseUsage,
+  type ModelStatus,
+  type ModelTokenUsage,
+} from "./model-status";
 import {
   rebuildMcpServer,
   restoreHeaderAuthServer,
@@ -251,6 +260,7 @@ export class DownyAgent extends Think {
     toolCalls: unknown[];
     toolResults: unknown[];
     finishReason: string;
+    usage?: unknown;
   }): void {
     this.#lastStepFinishAt = Date.now();
     console.log("[agent] step finished", {
@@ -268,6 +278,21 @@ export class DownyAgent extends Think {
         toolResults: ctx.toolResults,
       });
     }
+    void this.#recordModelUsage(ctx.usage);
+  }
+
+  async #recordModelUsage(rawUsage: unknown): Promise<void> {
+    const parsed = parseUsage(rawUsage);
+    if (!parsed) return;
+    const current =
+      (await this.ctx.storage.get<ModelTokenUsage>(MODEL_USAGE_KEY)) ??
+      EMPTY_MODEL_USAGE;
+    await this.ctx.storage.put(MODEL_USAGE_KEY, {
+      inputTokens: current.inputTokens + parsed.inputTokens,
+      outputTokens: current.outputTokens + parsed.outputTokens,
+      totalTokens: current.totalTokens + parsed.totalTokens,
+      turnCount: current.turnCount + 1,
+    } satisfies ModelTokenUsage);
   }
 
   // Token-level visibility, throttled so it doesn't flood. Also lets us see
@@ -856,6 +881,11 @@ export class DownyAgent extends Think {
     // eslint-disable-next-line unicorn/no-array-sort -- `records` is a fresh array from the Map iterator, not a shared reference.
     records.sort((a, b) => b.spawnedAt - a.spawnedAt);
     return records;
+  }
+
+  async getModelStatus(): Promise<ModelStatus> {
+    const usage = await this.ctx.storage.get<ModelTokenUsage>(MODEL_USAGE_KEY);
+    return buildModelStatus({ db: this.env.DB, env: this.env, usage });
   }
 
   #broadcastBackgroundTaskUpdate(record: BackgroundTaskRecord): void {

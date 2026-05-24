@@ -14,6 +14,7 @@ export const queryKeys = {
     ["workspaceFiles", slug, path] as const,
   skills: (slug: string) => ["skills", slug] as const,
   mcpServers: (slug: string) => ["mcpServers", slug] as const,
+  modelStatus: (slug: string) => ["modelStatus", slug] as const,
   backgroundTasks: (slug: string) => ["backgroundTasks", slug] as const,
   userFile: () => ["userFile"] as const,
 };
