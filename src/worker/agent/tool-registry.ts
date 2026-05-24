@@ -9,6 +9,12 @@ import type { ToolSet } from "ai";
 import { z } from "zod";
 
 import type { McpToolDescriptor } from "./mcp-proxy";
+import {
+  DESTRUCTIVE_MCP_CONFIRMATION,
+  assertMcpDestructiveActionConfirmed,
+  isLikelyDestructiveMcpTool,
+  stripMcpConfirmation,
+} from "./mcp-proxy";
 import { createReadPeerAgentTool } from "./tools/read-peer-agent";
 import {
   createCreateSkillTool,
@@ -278,14 +284,74 @@ export function buildMcpProxyTools(args: {
 }): ToolSet {
   const tools: ToolSet = {};
   for (const entry of args.descriptors) {
+    const destructive = isLikelyDestructiveMcpTool(entry.name);
     const baseKey = `tool_${mcpToolSegment(entry.serverName)}_${mcpToolSegment(entry.name)}`;
     const key = uniqueToolKey(tools, baseKey);
     tools[key] = dynamicTool({
-      description: `[${entry.serverName}] ${entry.description ?? entry.name}`,
-      inputSchema: jsonSchema(entry.inputSchema),
-      execute: async (input) =>
-        args.callTool(entry.serverId, entry.name, input),
+      description: destructive
+        ? `[${entry.serverName}] ${entry.description ?? entry.name}\n\nDESTRUCTIVE ACTION GATE: This MCP tool may mutate, deploy, delete, purge, execute, or otherwise change external state. Do not call it unless the user explicitly approved this exact action in the current conversation. When approved, include confirm_destructive_action exactly as ${JSON.stringify(DESTRUCTIVE_MCP_CONFIRMATION)}.`
+        : `[${entry.serverName}] ${entry.description ?? entry.name}`,
+      inputSchema: jsonSchema(
+        destructive
+          ? withMcpConfirmationField(entry.inputSchema)
+          : entry.inputSchema,
+      ),
+      execute: async (input) => {
+        if (destructive) assertMcpDestructiveActionConfirmed(input);
+        return args.callTool(
+          entry.serverId,
+          entry.name,
+          destructive ? stripMcpConfirmation(input) : input,
+        );
+      },
     });
   }
   return tools;
+}
+
+function withMcpConfirmationField(
+  schema: McpToolDescriptor["inputSchema"],
+): McpToolDescriptor["inputSchema"] {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return confirmationOnlySchema();
+  }
+  const entries = Object.entries(schema);
+  const propertiesValue = entries.find(([key]) => key === "properties")?.[1];
+  const properties = toPlainObject(propertiesValue) ?? {};
+  const requiredValue = entries.find(([key]) => key === "required")?.[1];
+  const required = Array.isArray(requiredValue)
+    ? requiredValue.filter((v) => typeof v === "string")
+    : [];
+  return {
+    ...Object.fromEntries(entries),
+    type: "object",
+    properties: {
+      ...properties,
+      confirm_destructive_action: {
+        type: "string",
+        const: DESTRUCTIVE_MCP_CONFIRMATION,
+        description:
+          "Required only for destructive MCP tools, after the user explicitly approves the exact action in the current conversation.",
+      },
+    },
+    required: Array.from(new Set([...required, "confirm_destructive_action"])),
+  };
+}
+
+function toPlainObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return Object.fromEntries(Object.entries(value));
+}
+
+function confirmationOnlySchema(): McpToolDescriptor["inputSchema"] {
+  return {
+    type: "object",
+    properties: {
+      confirm_destructive_action: {
+        type: "string",
+        const: DESTRUCTIVE_MCP_CONFIRMATION,
+      },
+    },
+    required: ["confirm_destructive_action"],
+  };
 }

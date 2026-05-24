@@ -39,6 +39,7 @@ import {
 } from "./background-task-types";
 import { ignoreClientCancels } from "./ignore-client-cancels";
 import {
+  createConnectCloudflareMcpServerTool,
   createConnectMcpServerTool,
   createDisconnectMcpServerTool,
   createListMcpServersTool,
@@ -116,6 +117,9 @@ export class DownyAgent extends Think {
         broadcastUpdate: (record) => {
           this.#broadcastBackgroundTaskUpdate(record);
         },
+      }),
+      connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
+        agent: this,
       }),
       connect_mcp_server: createConnectMcpServerTool({ agent: this }),
       list_mcp_servers: createListMcpServersTool({ agent: this }),

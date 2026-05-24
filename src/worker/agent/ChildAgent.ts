@@ -206,7 +206,7 @@ export class ChildAgent extends Think {
     taskId: string,
   ): Promise<McpToolDescriptor[]> {
     try {
-      return await parent.listMcpToolsForChild();
+      return parent.listMcpToolsForChild();
     } catch (err) {
       // Any failure here just means the child runs without MCP — keep
       // going. The most common cause is the parent still warming up its

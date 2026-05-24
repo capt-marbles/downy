@@ -1,5 +1,4 @@
 import type { MCPClientManager } from "agents/mcp/client";
-import type { jsonSchema } from "ai";
 
 const RECONNECTABLE_MCP_ERROR =
   /not initialized|disconnected|invalid state|connection.*closed|connection.*not.*open/i;
@@ -13,8 +12,47 @@ export type McpToolDescriptor = {
   serverName: string;
   name: string;
   description?: string;
-  inputSchema: Parameters<typeof jsonSchema>[0];
+  inputSchema: Record<string, unknown>;
 };
+
+export const DESTRUCTIVE_MCP_CONFIRMATION = "CONFIRM DESTRUCTIVE MCP ACTION";
+
+const DESTRUCTIVE_TOOL_NAME =
+  /(^|[_:\-\s/])(delete|remove|destroy|purge|drop|truncate|revoke|disable|detach|disconnect|deactivate|terminate|kill|rollback|deploy|publish|write|put|post|patch|update|edit|create|insert|upsert|send|execute|run|apply|set|grant|rotate|migrate)(s|d|ing)?($|[_:\-\s/])/i;
+
+const READONLY_TOOL_NAME =
+  /(^|[_:\-\s/])(get|list|read|search|find|query|fetch|describe|inspect|view|show|lookup|whoami|health|status|analyze|summarize|explain|tail)($|[_:\-\s/])/i;
+
+export function isLikelyDestructiveMcpTool(name: string): boolean {
+  if (READONLY_TOOL_NAME.test(name) && !DESTRUCTIVE_TOOL_NAME.test(name)) {
+    return false;
+  }
+  return DESTRUCTIVE_TOOL_NAME.test(name);
+}
+
+export function stripMcpConfirmation(args: unknown): unknown {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  const copy = Object.fromEntries(Object.entries(args));
+  delete copy.confirm_destructive_action;
+  return copy;
+}
+
+export function assertMcpDestructiveActionConfirmed(args: unknown): void {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new Error(
+      `This MCP tool appears destructive. Ask the user to explicitly approve it, then retry with confirm_destructive_action set to ${JSON.stringify(DESTRUCTIVE_MCP_CONFIRMATION)}.`,
+    );
+  }
+  const value =
+    "confirm_destructive_action" in args
+      ? args.confirm_destructive_action
+      : undefined;
+  if (value !== DESTRUCTIVE_MCP_CONFIRMATION) {
+    throw new Error(
+      `This MCP tool appears destructive. Do not call it until the user has explicitly confirmed the exact action. After confirmation, retry with confirm_destructive_action set to ${JSON.stringify(DESTRUCTIVE_MCP_CONFIRMATION)}.`,
+    );
+  }
+}
 
 // Snapshot the live tool list off a parent's MCPClientManager. Strips
 // to a serializable shape so it can cross the DO-RPC boundary.
