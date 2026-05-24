@@ -69,7 +69,7 @@ Set up env vars and deploy:
 
 ```
 cp .env.example .env          # then fill in EXA_API_KEY and ALCHEMY_PASSWORD (random string)
-pnpm deploy
+pnpm run deploy
 ```
 
 The Worker rejects every request until Cloudflare Access is in front of it — that's next.
@@ -91,7 +91,7 @@ Here is how you set it up:
 3. **Copy those values into `.env`:**
    - `TEAM_DOMAIN=https://<team>.cloudflareaccess.com`
    - `POLICY_AUD=<aud-tag>`
-4. `pnpm deploy`, then open your Worker URL and log in.
+4. `pnpm run deploy`, then open your Worker URL and log in.
 
 <details>
 <summary>Sign-in works but you still see "Authentication required"?</summary>

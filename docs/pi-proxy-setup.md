@@ -45,7 +45,7 @@ The proxy itself runs without auth because the network boundary _is_ the securit
 
    ```bash
    echo "PI_RELAY_VPC_SERVICE_ID=<service-id>" >> .env
-   pnpm deploy
+   pnpm run deploy
    ```
 
    `alchemy.run.ts` reads that env var and adds the `PI_RELAY_VPC` binding via `VpcServiceRef` only when it's set, so you can leave the line commented out on machines that don't have the proxy.

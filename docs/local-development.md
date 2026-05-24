@@ -1,6 +1,6 @@
 # Local development
 
-The same `.env` file you use for `pnpm deploy` (see [`.env.example`](../.env.example)) drives `pnpm dev` — Alchemy's vite plugin reads `alchemy.run.ts` plus `.env` and injects every binding, var, and secret into the local Worker.
+The same `.env` file you use for `pnpm run deploy` (see [`.env.example`](../.env.example)) drives `pnpm dev` — Alchemy's vite plugin reads `alchemy.run.ts` plus `.env` and injects every binding, var, and secret into the local Worker.
 
 Minimum `.env` for local dev:
 
@@ -21,7 +21,7 @@ Then:
 pnpm dev
 ```
 
-The first run needs the Alchemy state populated. If you've never deployed, run `pnpm alchemy login` once and either `pnpm deploy` (full deploy) or `pnpm alchemy run` (read-only — just stages local config without pushing) before `pnpm dev`.
+The first run needs the Alchemy state populated. If you've never deployed, run `pnpm alchemy login` once and either `pnpm run deploy` (full deploy) or `pnpm alchemy run` (read-only — just stages local config without pushing) before `pnpm dev`.
 
 ## Optional: ChatGPT subscription locally (pi-local)
 
