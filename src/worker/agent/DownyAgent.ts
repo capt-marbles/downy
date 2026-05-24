@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- central Durable Object agent class; split once Think lifecycle hooks settle. */
 import { Think } from "@cloudflare/think";
+import { getAgentByName } from "agents";
 import { CHAT_MESSAGE_TYPES } from "agents/chat";
 import { Workspace, type FileInfo } from "@cloudflare/shell";
 import {
@@ -52,6 +53,12 @@ import {
 import { listSkills } from "./skills/loader";
 import { type SkillEntry } from "./skills/types";
 import { createSpawnBackgroundTaskTool } from "./tools/spawn-background-task";
+import {
+  createDeleteScheduledTaskTool,
+  createListScheduledTasksTool,
+  createScheduleTaskTool,
+  createUpdateScheduledTaskTool,
+} from "./tools/scheduled-tasks";
 import * as toolRegistry from "./tool-registry";
 
 import {
@@ -127,6 +134,16 @@ export class DownyAgent extends Think {
           this.#broadcastBackgroundTaskUpdate(record);
         },
       }),
+      schedule_task: createScheduleTaskTool({
+        db: this.env.DB,
+        agentSlug: this.name,
+      }),
+      list_scheduled_tasks: createListScheduledTasksTool({
+        db: this.env.DB,
+        agentSlug: this.name,
+      }),
+      update_scheduled_task: createUpdateScheduledTaskTool({ db: this.env.DB }),
+      delete_scheduled_task: createDeleteScheduledTaskTool({ db: this.env.DB }),
       connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
         agent: this,
       }),
@@ -620,6 +637,33 @@ export class DownyAgent extends Think {
         },
       },
     ]);
+  }
+
+  async dispatchScheduledTask(args: {
+    scheduleId: string;
+    title: string;
+    kind: string;
+    brief: string;
+  }): Promise<{ taskId: string }> {
+    const taskId = crypto.randomUUID();
+    const brief = `Scheduled task: ${args.title}\nSchedule id: ${args.scheduleId}\n\n${args.brief}`;
+    const record: BackgroundTaskRecord = {
+      id: taskId,
+      kind: `scheduled:${args.kind}`,
+      brief,
+      status: "running",
+      spawnedAt: Date.now(),
+    };
+    await this.ctx.storage.put(backgroundTaskKey(taskId), record);
+    this.#broadcastBackgroundTaskUpdate(record);
+    const stub = await getAgentByName(this.env.ChildAgent, taskId);
+    await stub.startTask({
+      parentName: this.name,
+      taskId,
+      kind: record.kind,
+      brief,
+    });
+    return { taskId };
   }
 
   // ChildAgent calls these over RPC — a child can't open its own MCP

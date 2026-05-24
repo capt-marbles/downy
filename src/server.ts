@@ -10,9 +10,11 @@ import { handleMcpServersRequest } from "./worker/handlers/mcp-servers";
 import { handleMessagesRequest } from "./worker/handlers/messages";
 import { handleModelStatusRequest } from "./worker/handlers/model-status";
 import { handleProfileRequest } from "./worker/handlers/profile";
+import { handleScheduledTasksRequest } from "./worker/handlers/scheduled-tasks";
 import { handleSkillsRequest } from "./worker/handlers/skills";
 import { handleSystemStatusRequest } from "./worker/handlers/system";
 import { handleTranscribeRequest } from "./worker/handlers/transcribe";
+import { runDueScheduledTasks } from "./worker/scheduled-tasks/runner";
 import { getAgent, listAgents } from "./worker/db/profile";
 
 export * from "@tanstack/react-start/server-entry";
@@ -136,6 +138,13 @@ export default {
     }
 
     if (
+      url.pathname === "/api/scheduled-tasks" ||
+      url.pathname.startsWith("/api/scheduled-tasks/")
+    ) {
+      return handleScheduledTasksRequest(request, env);
+    }
+
+    if (
       url.pathname === "/api/mcp-servers" ||
       url.pathname.startsWith("/api/mcp-servers/")
     ) {
@@ -158,5 +167,13 @@ export default {
     if (agentResponse) return agentResponse;
 
     return tanstackEntry.fetch(request);
+  },
+
+  async scheduled(
+    _controller: ScheduledController,
+    env: Cloudflare.Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(runDueScheduledTasks(env));
   },
 };

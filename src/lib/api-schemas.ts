@@ -186,3 +186,28 @@ export type ModelStatus = z.infer<typeof ModelStatusSchema>;
 export const ModelStatusResponseSchema = z.object({
   modelStatus: ModelStatusSchema,
 });
+
+export const ScheduledTaskSchema = z.object({
+  id: z.string(),
+  agentSlug: z.string(),
+  title: z.string(),
+  kind: z.string(),
+  brief: z.string(),
+  scheduleType: z.enum(["interval", "daily", "weekly"]),
+  intervalMinutes: z.number().nullable(),
+  timeOfDay: z.string().nullable(),
+  dayOfWeek: z.number().nullable(),
+  nextDueAt: z.number(),
+  lastRunAt: z.number().nullable(),
+  lastTaskId: z.string().nullable(),
+  runCount: z.number(),
+  enabled: z.boolean(),
+  lastError: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
+
+export const ListScheduledTasksResponseSchema = z.object({
+  scheduledTasks: z.array(ScheduledTaskSchema),
+});

@@ -69,6 +69,7 @@ export const worker = await TanStackStart("downy", {
   adopt: true,
   compatibilityDate: "2025-09-02",
   compatibilityFlags: ["nodejs_compat"],
+  crons: ["*/5 * * * *"],
   bindings: {
     DB: db,
     WORKSPACE_BUCKET: workspaceBucket,

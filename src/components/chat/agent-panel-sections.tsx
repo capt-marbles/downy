@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
+  Clock,
   CornerDownLeft,
   FileText,
   Gauge,
@@ -30,6 +31,7 @@ import {
   useModelStatus,
   useMcpServers,
   useMcpServersLiveSync,
+  useScheduledTasks,
   useWorkspaceFiles,
 } from "../../lib/queries";
 import { queryKeys } from "../../lib/query-keys";
@@ -615,6 +617,61 @@ export function ModelStatusSection() {
       )}
     </section>
   );
+}
+
+export function ScheduledTasksSection() {
+  const slug = useCurrentAgentSlug();
+  const { data: tasks, error } = useScheduledTasks(slug);
+  const preview = tasks?.slice(0, PREVIEW_LIMIT) ?? null;
+
+  return (
+    <section className="flex flex-col gap-1">
+      <SectionHeader icon={Clock} label="Scheduled tasks" />
+      {error ? (
+        <div className="px-2 py-1.5 text-xs text-error/70">
+          Couldn't load schedules.
+        </div>
+      ) : preview === null ? (
+        <div className="px-2 py-1.5 text-xs text-base-content/40">Loading…</div>
+      ) : preview.length === 0 ? (
+        <div className="px-2 py-1.5 text-xs text-base-content/40">
+          No schedules yet.
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {preview.map((task) => (
+            <li key={task.id} className="rounded-md px-2 py-1 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium text-base-content/75">
+                  {task.title}
+                </span>
+                <span
+                  className={[
+                    "size-2 shrink-0 rounded-full",
+                    task.enabled ? "bg-success" : "bg-base-content/25",
+                  ].join(" ")}
+                />
+              </div>
+              <div className="mt-0.5 truncate font-mono text-[10px] text-base-content/45">
+                next {formatRelativeTime(task.nextDueAt)} · {task.runCount} runs
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function formatRelativeTime(ts: number): string {
+  const diff = ts - Date.now();
+  const abs = Math.abs(diff);
+  const suffix = diff >= 0 ? "" : " ago";
+  if (abs < 60_000) return diff >= 0 ? "<1m" : "<1m ago";
+  if (abs < 3_600_000) return `${String(Math.round(abs / 60_000))}m${suffix}`;
+  if (abs < 86_400_000)
+    return `${String(Math.round(abs / 3_600_000))}h${suffix}`;
+  return `${String(Math.round(abs / 86_400_000))}d${suffix}`;
 }
 
 function McpStatusDot({ state }: { state: string }) {

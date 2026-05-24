@@ -8,6 +8,7 @@ import {
   listBackgroundTasks,
   listCoreFiles,
   listMcpServers,
+  listScheduledTasks,
   listSkills,
   listWorkspaceFiles,
   readCoreFile,
@@ -123,6 +124,14 @@ export function useBackgroundTasks(slug: string) {
   return useQuery({
     queryKey: queryKeys.backgroundTasks(slug),
     queryFn: () => listBackgroundTasks(slug),
+  });
+}
+
+export function useScheduledTasks(slug: string) {
+  return useQuery({
+    queryKey: queryKeys.scheduledTasks(slug),
+    queryFn: () => listScheduledTasks(slug),
+    refetchInterval: 30_000,
   });
 }
 

@@ -7,6 +7,7 @@ import {
   ListCoreFilesResponseSchema,
   ListBackgroundTasksResponseSchema,
   ListMcpServersResponseSchema,
+  ListScheduledTasksResponseSchema,
   ModelStatusResponseSchema,
   ListSkillsResponseSchema,
   ListWorkspaceFilesResponseSchema,
@@ -20,6 +21,7 @@ import {
   type BackgroundTaskRecord,
   type McpServerSummary,
   type ModelStatus,
+  type ScheduledTask,
   type SkillSummary,
   type WorkspaceFile,
 } from "./api-schemas";
@@ -268,6 +270,17 @@ export async function listBackgroundTasks(
     withSlugHeader(slug),
   );
   return data.backgroundTasks;
+}
+
+export async function listScheduledTasks(
+  slug: string,
+): Promise<ScheduledTask[]> {
+  const data = await request(
+    "/api/scheduled-tasks?all=1",
+    ListScheduledTasksResponseSchema,
+    withSlugHeader(slug),
+  );
+  return data.scheduledTasks;
 }
 
 export async function listMcpServers(

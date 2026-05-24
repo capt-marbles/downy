@@ -16,5 +16,6 @@ export const queryKeys = {
   mcpServers: (slug: string) => ["mcpServers", slug] as const,
   modelStatus: (slug: string) => ["modelStatus", slug] as const,
   backgroundTasks: (slug: string) => ["backgroundTasks", slug] as const,
+  scheduledTasks: (slug: string) => ["scheduledTasks", slug] as const,
   userFile: () => ["userFile"] as const,
 };
