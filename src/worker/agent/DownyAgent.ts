@@ -64,6 +64,14 @@ import {
   createListBuildroomJobsTool,
   createWriteBuildroomArtifactTool,
 } from "./tools/buildroom";
+import {
+  createAdvanceBuildroomWorkflowTool,
+  createCreateBuildroomWorkflowTemplateTool,
+  createGetBuildroomWorkflowTool,
+  createListBuildroomWorkflowTemplatesTool,
+  createRecordBuildroomGateDecisionTool,
+  createStartBuildroomWorkflowTool,
+} from "./tools/buildroom-workflows";
 import * as toolRegistry from "./tool-registry";
 
 import {
@@ -195,6 +203,29 @@ export class DownyAgent extends Think {
         db: this.env.DB,
         agentSlug: this.name,
         getWorkspace: () => this.workspace,
+      }),
+      list_buildroom_workflow_templates:
+        createListBuildroomWorkflowTemplatesTool({
+          db: this.env.DB,
+          agentSlug: this.name,
+        }),
+      create_buildroom_workflow_template:
+        createCreateBuildroomWorkflowTemplateTool({
+          db: this.env.DB,
+          agentSlug: this.name,
+        }),
+      start_buildroom_workflow: createStartBuildroomWorkflowTool({
+        db: this.env.DB,
+        agentSlug: this.name,
+      }),
+      get_buildroom_workflow: createGetBuildroomWorkflowTool({
+        db: this.env.DB,
+      }),
+      advance_buildroom_workflow: createAdvanceBuildroomWorkflowTool({
+        db: this.env.DB,
+      }),
+      record_buildroom_gate_decision: createRecordBuildroomGateDecisionTool({
+        db: this.env.DB,
       }),
       connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
         agent: this,

@@ -9,11 +9,98 @@ import {
   BuildroomArtifactNameSchema,
   CreateBuildroomJobInputSchema,
 } from "../buildroom/schemas";
+import {
+  createWorkflowTemplate,
+  getWorkflowDetailOrThrow,
+  listWorkflowTemplates,
+  recordWorkflowGateDecision,
+  startBuildroomWorkflow,
+  advanceBuildroomWorkflow,
+} from "../buildroom/workflow-db";
+import {
+  AdvanceWorkflowInputSchema,
+  CreateWorkflowTemplateInputSchema,
+  RecordGateDecisionInputSchema,
+  StartWorkflowInputSchema,
+} from "../buildroom/workflows";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+async function handleWorkflowRoutes(args: {
+  request: Request;
+  env: Cloudflare.Env;
+  parts: string[];
+  agentSlug: string;
+}): Promise<Response | null> {
+  const { request, env, parts, agentSlug } = args;
+  if (parts[2] === "workflows") {
+    if (request.method === "GET" && parts.length === 3) {
+      return json({
+        templates: await listWorkflowTemplates(env.DB, agentSlug),
+      });
+    }
+
+    if (request.method === "POST" && parts.length === 3) {
+      const input = CreateWorkflowTemplateInputSchema.parse(
+        await request.json(),
+      );
+      const template = await createWorkflowTemplate(env.DB, {
+        agentSlug,
+        input,
+      });
+      return json({ template }, 201);
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[3] === "start"
+    ) {
+      const input = StartWorkflowInputSchema.parse(await request.json());
+      const workflow = await startBuildroomWorkflow(env.DB, {
+        agentSlug,
+        input,
+      });
+      return json({ workflow }, 201);
+    }
+  }
+
+  const workflowJobId = parts[3] ? decodeURIComponent(parts[3]) : null;
+  if (parts[2] !== "workflow-runs" || !workflowJobId) return null;
+
+  if (request.method === "GET" && parts.length === 4) {
+    return json({
+      workflow: await getWorkflowDetailOrThrow(env.DB, workflowJobId),
+    });
+  }
+
+  if (
+    request.method === "POST" &&
+    parts.length === 5 &&
+    parts[4] === "advance"
+  ) {
+    const body = await request.json();
+    const input = AdvanceWorkflowInputSchema.parse({
+      ...(typeof body === "object" && body !== null ? body : {}),
+      jobId: workflowJobId,
+    });
+    return json({ workflow: await advanceBuildroomWorkflow(env.DB, input) });
+  }
+
+  if (request.method === "POST" && parts.length === 5 && parts[4] === "gate") {
+    const body = await request.json();
+    const input = RecordGateDecisionInputSchema.parse({
+      ...(typeof body === "object" && body !== null ? body : {}),
+      jobId: workflowJobId,
+    });
+    return json({ workflow: await recordWorkflowGateDecision(env.DB, input) });
+  }
+
+  return null;
 }
 
 export async function handleBuildroomRequest(
@@ -24,6 +111,14 @@ export async function handleBuildroomRequest(
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
     const agentSlug = slugFromRequest(request);
+
+    const workflowResponse = await handleWorkflowRoutes({
+      request,
+      env,
+      parts,
+      agentSlug,
+    });
+    if (workflowResponse) return workflowResponse;
 
     if (request.method === "GET" && parts.length === 2) {
       const jobs = await listBuildroomJobs(env.DB, agentSlug);
