@@ -9,8 +9,10 @@ import {
   TanStackStart,
 } from "alchemy/cloudflare";
 
-import type { ChildAgent as ChildAgentClass } from "./src/worker/agent/ChildAgent.ts";
-import type { DownyAgent as DownyAgentClass } from "./src/worker/agent/DownyAgent.ts";
+import type {
+  ChildAgentBuildroom as ChildAgentClass,
+  DownyAgentBuildroom as DownyAgentClass,
+} from "./src/server.ts";
 
 const app = await alchemy("downy", {
   password: process.env.ALCHEMY_PASSWORD,
@@ -34,7 +36,7 @@ const workspaceBucket = await R2Bucket("WORKSPACE_BUCKET_BUILDROOM_20260525", {
 const downyAgent = DurableObjectNamespace<DownyAgentClass>(
   "DownyAgentBuildroom20260525",
   {
-    className: "DownyAgent",
+    className: "DownyAgentBuildroom",
     sqlite: true,
   },
 );
@@ -42,7 +44,7 @@ const downyAgent = DurableObjectNamespace<DownyAgentClass>(
 const childAgent = DurableObjectNamespace<ChildAgentClass>(
   "ChildAgentBuildroom20260525",
   {
-    className: "ChildAgent",
+    className: "ChildAgentBuildroom",
     sqlite: true,
   },
 );

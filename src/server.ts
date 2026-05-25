@@ -18,10 +18,13 @@ import { handleSystemStatusRequest } from "./worker/handlers/system";
 import { handleTranscribeRequest } from "./worker/handlers/transcribe";
 import { runDueScheduledTasks } from "./worker/scheduled-tasks/runner";
 import { getAgent, listAgents } from "./worker/db/profile";
+import { DownyAgent } from "./worker/agent/DownyAgent";
+import { ChildAgent } from "./worker/agent/ChildAgent";
 
 export * from "@tanstack/react-start/server-entry";
-export { DownyAgent } from "./worker/agent/DownyAgent";
-export { ChildAgent } from "./worker/agent/ChildAgent";
+export { DownyAgent, ChildAgent };
+export class DownyAgentBuildroom extends DownyAgent {}
+export class ChildAgentBuildroom extends ChildAgent {}
 
 function isApiOrSocketRequest(url: URL, request: Request): boolean {
   if (url.pathname.startsWith("/api/")) return true;
