@@ -18,6 +18,7 @@
     "deploy": "alchemy deploy",
     "destroy": "alchemy destroy",
     "tail": "wrangler tail downy",
+    "hands": "node scripts/downy-hands.mjs",
     "alchemy": "alchemy",
     "lint": "oxlint . --type-aware",
     "lint:fix": "oxlint . --type-aware --fix",

@@ -75,6 +75,11 @@ import {
 import * as toolRegistry from "./tool-registry";
 
 import {
+  createConfirmLocalHandsActionTool,
+  createListLocalHandsActionsTool,
+  createRequestLocalHandsActionTool,
+} from "./tools/local-hands";
+import {
   callMcpToolViaParent,
   isReconnectableMcpError,
   listMcpToolDescriptors,
@@ -226,6 +231,17 @@ export class DownyAgent extends Think {
       }),
       record_buildroom_gate_decision: createRecordBuildroomGateDecisionTool({
         db: this.env.DB,
+      }),
+      confirm_local_hands_action: createConfirmLocalHandsActionTool({
+        db: this.env.DB,
+      }),
+      list_local_hands_actions: createListLocalHandsActionsTool({
+        db: this.env.DB,
+        agentSlug: this.name,
+      }),
+      request_local_hands_action: createRequestLocalHandsActionTool({
+        db: this.env.DB,
+        agentSlug: this.name,
       }),
       connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
         agent: this,

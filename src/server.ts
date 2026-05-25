@@ -9,6 +9,7 @@ import { handleBootstrapRequest } from "./worker/handlers/bootstrap";
 import { handleFilesRequest } from "./worker/handlers/files";
 import { handleBackgroundTasksRequest } from "./worker/handlers/background-tasks";
 import { handleMcpServersRequest } from "./worker/handlers/mcp-servers";
+import { handleLocalHandsRequest } from "./worker/handlers/local-hands";
 import { handleMessagesRequest } from "./worker/handlers/messages";
 import { handleModelStatusRequest } from "./worker/handlers/model-status";
 import { handleProfileRequest } from "./worker/handlers/profile";
@@ -158,6 +159,13 @@ export default {
       url.pathname.startsWith("/api/buildroom/")
     ) {
       return handleBuildroomRequest(request, env);
+    }
+
+    if (
+      url.pathname === "/api/local-hands" ||
+      url.pathname.startsWith("/api/local-hands/")
+    ) {
+      return handleLocalHandsRequest(request, env);
     }
 
     if (
