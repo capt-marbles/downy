@@ -9,10 +9,8 @@ import {
   TanStackStart,
 } from "alchemy/cloudflare";
 
-import type {
-  ChildAgentBuildroom as ChildAgentClass,
-  DownyAgentBuildroom as DownyAgentClass,
-} from "./src/server.ts";
+import type { ChildAgent as ChildAgentClass } from "./src/worker/agent/ChildAgent.ts";
+import type { DownyAgent as DownyAgentClass } from "./src/worker/agent/DownyAgent.ts";
 
 const app = await alchemy("downy", {
   password: process.env.ALCHEMY_PASSWORD,
@@ -33,21 +31,15 @@ const workspaceBucket = await R2Bucket("WORKSPACE_BUCKET_BUILDROOM_20260525", {
   adopt: true,
 });
 
-const downyAgent = DurableObjectNamespace<DownyAgentClass>(
-  "DownyAgentBuildroom20260525",
-  {
-    className: "DownyAgentBuildroom",
-    sqlite: true,
-  },
-);
+const downyAgent = DurableObjectNamespace<DownyAgentClass>("DownyAgent", {
+  className: "DownyAgent",
+  sqlite: true,
+});
 
-const childAgent = DurableObjectNamespace<ChildAgentClass>(
-  "ChildAgentBuildroom20260525",
-  {
-    className: "ChildAgentBuildroom",
-    sqlite: true,
-  },
-);
+const childAgent = DurableObjectNamespace<ChildAgentClass>("ChildAgent", {
+  className: "ChildAgent",
+  sqlite: true,
+});
 
 // Optional: only present when the user has set up the ChatGPT subscription
 // path (see docs/pi-proxy-setup.md). The VPC service itself is provisioned
