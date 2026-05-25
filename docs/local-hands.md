@@ -46,7 +46,31 @@ CF_ACCESS_CLIENT_SECRET=... \
 node scripts/downy-hands.mjs
 ```
 
-The skeleton daemon only heartbeats, claims, and completes actions with a placeholder result. Real executors should be added behind allowlists and confirmation checks in later steps.
+The daemon heartbeats, claims, and completes actions. It currently includes a guarded `jcode` executor for `read_only` actions. Other kinds still return a skeleton placeholder result.
+
+### Jcode executor
+
+For `kind: "jcode"`, the daemon runs:
+
+```bash
+jcode run --json --quiet -C <workingDirectory> <read-only prompt>
+```
+
+Safety constraints in this first executor:
+
+- Only accepts `riskLevel: "read_only"`.
+- Injects a read-only instruction into the Jcode prompt.
+- Restricts `workingDirectory` to `DOWNY_HANDS_ALLOWED_ROOTS`, defaulting to your home directory.
+- Returns stdout/stderr and duration to Downy.
+
+Useful environment variables:
+
+```bash
+DOWNY_HANDS_ALLOWED_ROOTS=/Users/awalker/downy:/Users/awalker/other-repo
+DOWNY_HANDS_JCODE_BIN=jcode
+DOWNY_HANDS_JCODE_TIMEOUT_MS=300000
+DOWNY_HANDS_ONCE=1 # process one poll cycle, useful for smoke tests
+```
 
 ## Agent tools
 
