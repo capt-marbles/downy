@@ -20,26 +20,32 @@ const app = await alchemy("downy", {
 // `downy` D1 database, and `downy-workspace` R2 bucket on first deploy
 // instead of failing with "already exists". Subsequent deploys are
 // idempotent updates.
-const db = await D1Database("DB", {
-  name: "downy",
+const db = await D1Database("DB_BUILDROOM_20260525", {
+  name: "downy-buildroom-20260525",
   adopt: true,
   migrationsDir: "./migrations",
 });
 
-const workspaceBucket = await R2Bucket("WORKSPACE_BUCKET", {
-  name: "downy-workspace",
+const workspaceBucket = await R2Bucket("WORKSPACE_BUCKET_BUILDROOM_20260525", {
+  name: "downy-buildroom-workspace-20260525",
   adopt: true,
 });
 
-const downyAgent = DurableObjectNamespace<DownyAgentClass>("DownyAgent", {
-  className: "DownyAgent",
-  sqlite: true,
-});
+const downyAgent = DurableObjectNamespace<DownyAgentClass>(
+  "DownyAgentBuildroom20260525",
+  {
+    className: "DownyAgent",
+    sqlite: true,
+  },
+);
 
-const childAgent = DurableObjectNamespace<ChildAgentClass>("ChildAgent", {
-  className: "ChildAgent",
-  sqlite: true,
-});
+const childAgent = DurableObjectNamespace<ChildAgentClass>(
+  "ChildAgentBuildroom20260525",
+  {
+    className: "ChildAgent",
+    sqlite: true,
+  },
+);
 
 // Optional: only present when the user has set up the ChatGPT subscription
 // path (see docs/pi-proxy-setup.md). The VPC service itself is provisioned
