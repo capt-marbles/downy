@@ -1,6 +1,7 @@
 import tanstackEntry from "@tanstack/react-start/server-entry";
 import { routeAgentRequest } from "agents";
 
+import { handleAdminRequest } from "./worker/handlers/admin";
 import { verifyAccessJwt } from "./worker/auth/cloudflare-access";
 import { handleAgentsRequest } from "./worker/handlers/agents";
 import { handleBuildroomRequest } from "./worker/handlers/buildroom";
@@ -106,6 +107,13 @@ export default {
 
     const agentPageRedirect = await redirectInvalidAgentPage(request, env);
     if (agentPageRedirect) return agentPageRedirect;
+
+    if (
+      url.pathname === "/api/admin/reset-state" ||
+      url.pathname.startsWith("/api/admin/")
+    ) {
+      return handleAdminRequest(request, env);
+    }
 
     if (
       url.pathname === "/api/agents" ||

@@ -521,6 +521,42 @@ export class DownyAgent extends Think {
     await this.#ensureBootstrapSeeded();
   }
 
+  async resetAgentStateForOperator(): Promise<{
+    slug: string;
+    deletedWorkspaceFiles: number;
+    clearedStorageKeys: number;
+  }> {
+    this.clearMessages();
+    const deletedWorkspaceFiles = await this.#deleteWorkspaceTree("workspace");
+    const storageKeys = await this.ctx.storage.list();
+    let clearedStorageKeys = 0;
+    for (const key of storageKeys.keys()) {
+      await this.ctx.storage.delete(key);
+      clearedStorageKeys += 1;
+    }
+    this.#bootstrapInit = undefined;
+    await this.#ensureBootstrapSeeded();
+    return {
+      slug: this.name,
+      deletedWorkspaceFiles,
+      clearedStorageKeys,
+    };
+  }
+
+  async #deleteWorkspaceTree(dir: string): Promise<number> {
+    const entries = await this.workspace.readDir(dir).catch(() => []);
+    let deleted = 0;
+    for (const entry of entries) {
+      if (entry.type === "directory") {
+        deleted += await this.#deleteWorkspaceTree(entry.path);
+      } else if (entry.type === "file") {
+        await this.workspace.deleteFile(entry.path);
+        deleted += 1;
+      }
+    }
+    return deleted;
+  }
+
   // Best-effort revert: drop the last user-initiated turn (the most recent
   // real user message + every assistant/tool message that followed). Synthetic
   // kickoff and background-task-result messages are skipped — those aren't
