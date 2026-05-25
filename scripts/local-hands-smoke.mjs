@@ -44,14 +44,20 @@ async function request(pathname, options = {}) {
     headers: { ...headers(), ...options.headers },
   });
   const text = await response.text();
-  let body = null;
-  if (text.length > 0) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = { raw: text };
-    }
+  const contentType = response.headers.get("content-type") ?? "";
+  const looksLikeAccessLogin =
+    text.includes("Cloudflare Access") || text.includes("/cdn-cgi/access/");
+  if (looksLikeAccessLogin) {
+    throw new Error(
+      `${options.method ?? "GET"} ${pathname} reached Cloudflare Access login instead of the Downy API. Set valid CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET for the service token, then retry.`,
+    );
   }
+  if (!contentType.includes("application/json")) {
+    throw new Error(
+      `${options.method ?? "GET"} ${pathname} expected JSON but received ${contentType || "unknown content type"}: ${text.slice(0, 200)}`,
+    );
+  }
+  const body = text.length > 0 ? JSON.parse(text) : null;
   if (!response.ok) {
     throw new Error(
       `${options.method ?? "GET"} ${pathname} failed: ${response.status} ${response.statusText}: ${text}`,
