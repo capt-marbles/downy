@@ -3,6 +3,7 @@ import { routeAgentRequest } from "agents";
 
 import { verifyAccessJwt } from "./worker/auth/cloudflare-access";
 import { handleAgentsRequest } from "./worker/handlers/agents";
+import { handleBuildroomRequest } from "./worker/handlers/buildroom";
 import { handleBootstrapRequest } from "./worker/handlers/bootstrap";
 import { handleFilesRequest } from "./worker/handlers/files";
 import { handleBackgroundTasksRequest } from "./worker/handlers/background-tasks";
@@ -142,6 +143,13 @@ export default {
       url.pathname.startsWith("/api/scheduled-tasks/")
     ) {
       return handleScheduledTasksRequest(request, env);
+    }
+
+    if (
+      url.pathname === "/api/buildroom" ||
+      url.pathname.startsWith("/api/buildroom/")
+    ) {
+      return handleBuildroomRequest(request, env);
     }
 
     if (

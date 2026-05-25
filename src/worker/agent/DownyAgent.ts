@@ -59,6 +59,11 @@ import {
   createScheduleTaskTool,
   createUpdateScheduledTaskTool,
 } from "./tools/scheduled-tasks";
+import {
+  createBuildroomJobTool,
+  createListBuildroomJobsTool,
+  createWriteBuildroomArtifactTool,
+} from "./tools/buildroom";
 import * as toolRegistry from "./tool-registry";
 
 import {
@@ -83,6 +88,12 @@ import {
   type StoredMcpServer,
 } from "./mcp-reconnect";
 import { getAgent, listAgents } from "../db/profile";
+import { readBuildroomArtifact } from "../buildroom/artifacts";
+import { getBuildroomJob, listBuildroomEvents } from "../buildroom/db";
+import type {
+  BuildroomArtifact,
+  BuildroomArtifactName,
+} from "../buildroom/schemas";
 
 const BOOTSTRAP_SEEDED_KEY = "downy:bootstrap-seeded";
 
@@ -172,6 +183,19 @@ export class DownyAgent extends Think {
       }),
       update_scheduled_task: createUpdateScheduledTaskTool({ db: this.env.DB }),
       delete_scheduled_task: createDeleteScheduledTaskTool({ db: this.env.DB }),
+      create_buildroom_job: createBuildroomJobTool({
+        db: this.env.DB,
+        agentSlug: this.name,
+      }),
+      list_buildroom_jobs: createListBuildroomJobsTool({
+        db: this.env.DB,
+        agentSlug: this.name,
+      }),
+      write_buildroom_artifact: createWriteBuildroomArtifactTool({
+        db: this.env.DB,
+        agentSlug: this.name,
+        getWorkspace: () => this.workspace,
+      }),
       connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
         agent: this,
       }),
@@ -1019,6 +1043,35 @@ export class DownyAgent extends Think {
       env: this.env,
       lastTurn,
       usage,
+    });
+  }
+
+  async readBuildroomJob(jobId: string): Promise<{
+    job: Awaited<ReturnType<typeof getBuildroomJob>>;
+    events: Awaited<ReturnType<typeof listBuildroomEvents>>;
+  }> {
+    const job = await getBuildroomJob(this.env.DB, jobId);
+    if (!job) throw new Error(`Unknown buildroom job: ${jobId}`);
+    if (job.agentSlug !== this.name) {
+      throw new Error("Buildroom job belongs to a different agent");
+    }
+    const events = await listBuildroomEvents(this.env.DB, jobId);
+    return { job, events };
+  }
+
+  async readBuildroomArtifact(
+    jobId: string,
+    artifactName: BuildroomArtifactName,
+  ): Promise<BuildroomArtifact | null> {
+    const job = await getBuildroomJob(this.env.DB, jobId);
+    if (!job) throw new Error(`Unknown buildroom job: ${jobId}`);
+    if (job.agentSlug !== this.name) {
+      throw new Error("Buildroom job belongs to a different agent");
+    }
+    return readBuildroomArtifact({
+      workspace: this.workspace,
+      jobId,
+      artifactName,
     });
   }
 
