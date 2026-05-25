@@ -172,6 +172,22 @@ export const ModelStatusSchema = z.object({
   model: z.string(),
   contextWindowTokens: z.number().nullable(),
   compactionThresholdTokens: z.number(),
+  lastTurn: z
+    .object({
+      requestId: z.string(),
+      status: z.enum(["completed", "error", "aborted"]),
+      completedAt: z.number(),
+      durationMs: z.number().nullable(),
+      chunks: z.number(),
+      assistantTextLength: z.number(),
+      assistantReasoningLength: z.number(),
+      finishReason: z.string().nullable(),
+      toolCalls: z.number(),
+      toolResults: z.number(),
+      warning: z.string().nullable(),
+      error: z.string().nullable(),
+    })
+    .nullable(),
   session: z.object({
     inputTokens: z.number(),
     outputTokens: z.number(),

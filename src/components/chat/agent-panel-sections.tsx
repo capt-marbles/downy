@@ -563,6 +563,12 @@ function formatCost(value: number | null): string {
   return `$${value.toFixed(2)}`;
 }
 
+function formatDuration(value: number | null): string {
+  if (value == null) return "n/a";
+  if (value < 1000) return `${value}ms`;
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
 export function ModelStatusSection() {
   const slug = useCurrentAgentSlug();
   const { data: status, error } = useModelStatus(slug);
@@ -613,6 +619,35 @@ export function ModelStatusSection() {
               </div>
             </div>
           </div>
+          {status.lastTurn ? (
+            <div className="mt-2 border-t border-base-300/60 pt-1.5 text-[10px]">
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={
+                    status.lastTurn.warning
+                      ? "font-medium text-warning"
+                      : "text-base-content/45"
+                  }
+                >
+                  Last turn: {status.lastTurn.status}
+                </span>
+                <span className="font-mono text-base-content/45">
+                  {formatDuration(status.lastTurn.durationMs)} ·{" "}
+                  {status.lastTurn.chunks} chunks
+                </span>
+              </div>
+              {status.lastTurn.warning ? (
+                <div className="mt-1 text-warning/80">
+                  {status.lastTurn.warning}
+                </div>
+              ) : (
+                <div className="mt-1 text-base-content/45">
+                  visible {status.lastTurn.assistantTextLength} chars ·
+                  reasoning {status.lastTurn.assistantReasoningLength} chars
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       )}
     </section>

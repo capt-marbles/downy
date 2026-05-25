@@ -69,11 +69,13 @@ import {
 } from "./mcp-proxy";
 import {
   EMPTY_MODEL_USAGE,
+  MODEL_TURN_DIAGNOSTIC_KEY,
   MODEL_USAGE_KEY,
   buildModelStatus,
   parseUsage,
   type ModelStatus,
   type ModelTokenUsage,
+  type ModelTurnDiagnostic,
 } from "./model-status";
 import {
   rebuildMcpServer,
@@ -88,6 +90,32 @@ const backgroundTaskKey = (id: string) => `background_task:${id}`;
 const MCP_SERVER_KEY_PREFIX = "mcp_server:";
 const mcpServerKey = (id: string) => `${MCP_SERVER_KEY_PREFIX}${id}`;
 const mcpServerIdentityKey = (name: string, url: string) => `${name}\n${url}`;
+
+type AssistantMessageState = {
+  textLength: number;
+  reasoningLength: number;
+};
+
+function readLatestAssistantState(
+  messages: UIMessage[],
+): AssistantMessageState {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "assistant") continue;
+    return message.parts.reduce<AssistantMessageState>(
+      (acc, part) => {
+        if (part.type === "text") {
+          acc.textLength += part.text.trim().length;
+        } else if (part.type === "reasoning") {
+          acc.reasoningLength += part.text.trim().length;
+        }
+        return acc;
+      },
+      { textLength: 0, reasoningLength: 0 },
+    );
+  }
+  return { textLength: 0, reasoningLength: 0 };
+}
 
 export class DownyAgent extends Think {
   override workspace = new Workspace({
@@ -192,6 +220,9 @@ export class DownyAgent extends Think {
   #lastChunkAt = 0;
   #chunkCount = 0;
   #lastStepFinishAt = 0;
+  #lastFinishReason: string | null = null;
+  #lastStepToolCalls = 0;
+  #lastStepToolResults = 0;
 
   // Per-turn peer-read counter — reset in beforeTurn, incremented by
   // read_peer_agent. Hard cap is a safety net so a misbehaving turn can't
@@ -234,6 +265,9 @@ export class DownyAgent extends Think {
     this.#lastChunkAt = 0;
     this.#chunkCount = 0;
     this.#lastStepFinishAt = 0;
+    this.#lastFinishReason = null;
+    this.#lastStepToolCalls = 0;
+    this.#lastStepToolResults = 0;
     this.#peerReadCount = 0;
     console.log("[agent] beforeTurn", {
       messageCount: ctx.messages.length,
@@ -280,6 +314,9 @@ export class DownyAgent extends Think {
     usage?: unknown;
   }): void {
     this.#lastStepFinishAt = Date.now();
+    this.#lastFinishReason = ctx.finishReason;
+    this.#lastStepToolCalls = ctx.toolCalls.length;
+    this.#lastStepToolResults = ctx.toolResults.length;
     console.log("[agent] step finished", {
       stepType: ctx.stepType,
       finishReason: ctx.finishReason,
@@ -337,6 +374,8 @@ export class DownyAgent extends Think {
     error?: string;
   }): void {
     const now = Date.now();
+    const assistantState = readLatestAssistantState(this.messages);
+    const warning = this.#diagnoseChatResponse(result.status, assistantState);
     console.log("[agent] chat response", {
       requestId: result.requestId,
       status: result.status,
@@ -348,7 +387,50 @@ export class DownyAgent extends Think {
       msSinceLastStepFinish: this.#lastStepFinishAt
         ? now - this.#lastStepFinishAt
         : null,
+      assistantTextLength: assistantState.textLength,
+      assistantReasoningLength: assistantState.reasoningLength,
+      warning,
     });
+    void this.#recordTurnDiagnostic({
+      requestId: result.requestId,
+      status: result.status,
+      completedAt: now,
+      durationMs: this.#turnStartedAt ? now - this.#turnStartedAt : null,
+      chunks: this.#chunkCount,
+      assistantTextLength: assistantState.textLength,
+      assistantReasoningLength: assistantState.reasoningLength,
+      finishReason: this.#lastFinishReason,
+      toolCalls: this.#lastStepToolCalls,
+      toolResults: this.#lastStepToolResults,
+      warning,
+      error: result.error ?? null,
+    });
+  }
+
+  #diagnoseChatResponse(
+    status: "completed" | "error" | "aborted",
+    assistantState: AssistantMessageState,
+  ): string | null {
+    if (status === "error") return "Model or agent turn ended with an error.";
+    if (status === "aborted") return "Stream was aborted before completion.";
+    if (this.#chunkCount === 0) return "No stream chunks were received.";
+    if (this.#lastStepToolCalls !== this.#lastStepToolResults) {
+      return "Tool calls and tool results did not match.";
+    }
+    if (assistantState.textLength === 0 && assistantState.reasoningLength > 0) {
+      return "Model produced reasoning but no visible answer.";
+    }
+    if (assistantState.textLength === 0) {
+      return "Completed turn produced no visible assistant text.";
+    }
+    return null;
+  }
+
+  async #recordTurnDiagnostic(diagnostic: ModelTurnDiagnostic): Promise<void> {
+    await this.ctx.storage.put(MODEL_TURN_DIAGNOSTIC_KEY, diagnostic);
+    if (diagnostic.warning) {
+      console.warn("[agent] turn diagnostic warning", diagnostic);
+    }
   }
 
   override onChatError(error: unknown): unknown {
@@ -928,8 +1010,16 @@ export class DownyAgent extends Think {
   }
 
   async getModelStatus(): Promise<ModelStatus> {
-    const usage = await this.ctx.storage.get<ModelTokenUsage>(MODEL_USAGE_KEY);
-    return buildModelStatus({ db: this.env.DB, env: this.env, usage });
+    const [usage, lastTurn] = await Promise.all([
+      this.ctx.storage.get<ModelTokenUsage>(MODEL_USAGE_KEY),
+      this.ctx.storage.get<ModelTurnDiagnostic>(MODEL_TURN_DIAGNOSTIC_KEY),
+    ]);
+    return buildModelStatus({
+      db: this.env.DB,
+      env: this.env,
+      lastTurn,
+      usage,
+    });
   }
 
   #broadcastBackgroundTaskUpdate(record: BackgroundTaskRecord): void {

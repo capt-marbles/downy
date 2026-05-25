@@ -14,13 +14,30 @@ export type ModelStatus = {
   model: string;
   contextWindowTokens: number | null;
   compactionThresholdTokens: number;
+  lastTurn: ModelTurnDiagnostic | null;
   session: ModelTokenUsage & {
     estimatedCostUsd: number | null;
     costNote: string;
   };
 };
 
+export type ModelTurnDiagnostic = {
+  requestId: string;
+  status: "completed" | "error" | "aborted";
+  completedAt: number;
+  durationMs: number | null;
+  chunks: number;
+  assistantTextLength: number;
+  assistantReasoningLength: number;
+  finishReason: string | null;
+  toolCalls: number;
+  toolResults: number;
+  warning: string | null;
+  error: string | null;
+};
+
 export const MODEL_USAGE_KEY = "downy:model-usage";
+export const MODEL_TURN_DIAGNOSTIC_KEY = "downy:model-last-turn";
 export const COMPACTION_THRESHOLD_TOKENS = 150_000;
 
 export const EMPTY_MODEL_USAGE: ModelTokenUsage = {
@@ -73,6 +90,7 @@ function numberField(value: object, names: string[]): number | null {
 export async function buildModelStatus(args: {
   db: D1Database;
   env: Env;
+  lastTurn: ModelTurnDiagnostic | null | undefined;
   usage: ModelTokenUsage | null | undefined;
 }): Promise<ModelStatus> {
   const provider = await readAiProvider(args.db);
@@ -84,6 +102,7 @@ export async function buildModelStatus(args: {
     model: modelName(provider, args.env),
     contextWindowTokens: contextWindow(provider),
     compactionThresholdTokens: COMPACTION_THRESHOLD_TOKENS,
+    lastTurn: args.lastTurn ?? null,
     session: {
       ...usage,
       estimatedCostUsd: pricing.cost,
