@@ -197,6 +197,7 @@ Deploys completed successfully for workflow engine and local hands migrations.
 3. Run `pnpm hands` on Mac Mini with `DOWNY_HANDS_CONNECTOR_ID=mac-mini`.
 4. From Downy/Buildroom, create a read-only `jcode` local hands action.
 5. Verify the Mac Mini daemon heartbeats, claims, runs Jcode, and completes the action.
+   - Shortcut after pulling this branch: run `pnpm hands:smoke` with the Mac Mini env from `docs/local-hands.md`.
 6. Add UI/operator surface for pending local hands confirmations.
 7. Add stronger local sandboxing for Jcode and shell before enabling writes.
 8. Add next executors in order:

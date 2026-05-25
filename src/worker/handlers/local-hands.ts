@@ -8,12 +8,14 @@ import {
   heartbeatLocalHandsConnector,
   listLocalHandsActions,
   listLocalHandsConnectors,
+  requestLocalHandsAction,
 } from "../local-hands/db";
 import {
   ConfirmLocalHandsActionInputSchema,
   LocalHandsClaimInputSchema,
   LocalHandsCompleteInputSchema,
   LocalHandsHeartbeatInputSchema,
+  RequestLocalHandsActionInputSchema,
 } from "../local-hands/types";
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -48,6 +50,16 @@ export async function handleLocalHandsRequest(
         }),
         connectors: await listLocalHandsConnectors(env.DB, agentSlug),
       });
+    }
+
+    if (request.method === "POST" && parts.length === 2) {
+      const input = RequestLocalHandsActionInputSchema.parse(
+        await readObjectBody(request),
+      );
+      return json(
+        { action: await requestLocalHandsAction(env.DB, { agentSlug, input }) },
+        201,
+      );
     }
 
     if (
