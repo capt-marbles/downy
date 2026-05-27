@@ -47,6 +47,32 @@ Supported typed artifacts:
 
 These artifacts validate GTM outputs while workflow stage advancement remains controlled by the generic workflow tools. This keeps Campaign Room lightweight and avoids forcing content/lead/email artifacts into the high-assurance Buildroom engineering lifecycle.
 
+## Scheduled Campaign tasks
+
+Phase 3 adds Campaign Room schedule presets on top of Downy's existing scheduled task system.
+
+Agent tools:
+
+- `list_campaign_schedule_presets`
+- `schedule_campaign_room_preset`
+
+Seeded presets:
+
+- `weekly-content-angles`
+  - default: weekly Monday 14:00 UTC
+  - scans sources and prepares content angles/briefs
+- `daily-lead-sourcing`
+  - default: daily 15:00 UTC
+  - sources and enriches small batches of candidate accounts/leads
+- `weekly-campaign-digest`
+  - default: weekly Friday 16:00 UTC
+  - summarizes GTM signals, opportunities, and next actions
+- `daily-draft-review`
+  - default: daily 17:00 UTC
+  - reviews open drafts, lead batches, and send/publish packages
+
+These presets create ordinary records in `scheduled_tasks`. They do not post content, send email, modify CRM data, or contact leads. Those actions remain behind operator confirmation gates.
+
 ## Safety model
 
 Campaign Room drafts and packages GTM work. It should not post content, send email, modify CRM records, or contact leads without an operator confirmation gate.

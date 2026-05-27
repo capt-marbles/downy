@@ -60,6 +60,10 @@ import {
   createUpdateScheduledTaskTool,
 } from "./tools/scheduled-tasks";
 import {
+  createListCampaignSchedulePresetsTool,
+  createScheduleCampaignRoomPresetTool,
+} from "./tools/campaign-schedules";
+import {
   createReadCampaignArtifactTool,
   createWriteCampaignArtifactTool,
 } from "./tools/campaign-room";
@@ -219,6 +223,11 @@ export class DownyAgent extends Think {
       }),
       read_campaign_artifact: createReadCampaignArtifactTool({
         getWorkspace: () => this.workspace,
+      }),
+      list_campaign_schedule_presets: createListCampaignSchedulePresetsTool(),
+      schedule_campaign_room_preset: createScheduleCampaignRoomPresetTool({
+        db: this.env.DB,
+        agentSlug: this.name,
       }),
       list_buildroom_workflow_templates:
         createListBuildroomWorkflowTemplatesTool({
