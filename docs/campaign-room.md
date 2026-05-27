@@ -19,24 +19,33 @@ These are intentionally lightweight. They reuse existing `buildroom_workflow_tem
 
 ## Artifact strategy
 
-Phase 1 does **not** add GTM-specific artifact schemas yet. Template stages describe expected campaign artifacts in `completionCriteria`, but `requiredArtifact` is `null` so the existing Buildroom artifact validator is not forced to accept GTM schemas prematurely.
+Phase 2 adds typed Campaign Room artifacts stored under the existing Buildroom job workspace path, without polluting the engineering Buildroom artifact lifecycle.
 
-Phase 2 should add typed Campaign Room artifacts such as:
+Campaign artifacts are written with `write_campaign_artifact` and read with `read_campaign_artifact`. They live under:
 
-- campaign brief
-- source notes
-- content draft
-- editorial review
-- publish package
-- ICP
-- lead list
-- enrichment notes
-- qualification report
-- personalization notes
-- email sequence
-- risk review
-- send package
-- digest
+```text
+workspace/buildroom/jobs/<job-id>/campaign/<artifact-type>.json
+```
+
+Supported typed artifacts:
+
+- `campaign-brief`
+- `campaign-source-notes`
+- `campaign-content-draft`
+- `campaign-editorial-review`
+- `campaign-publish-package`
+- `campaign-icp`
+- `campaign-lead-list`
+- `campaign-enrichment-notes`
+- `campaign-qualification-report`
+- `campaign-lead-context`
+- `campaign-personalization-notes`
+- `campaign-email-sequence`
+- `campaign-risk-review`
+- `campaign-send-package`
+- `campaign-digest`
+
+These artifacts validate GTM outputs while workflow stage advancement remains controlled by the generic workflow tools. This keeps Campaign Room lightweight and avoids forcing content/lead/email artifacts into the high-assurance Buildroom engineering lifecycle.
 
 ## Safety model
 
