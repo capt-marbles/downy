@@ -1,4 +1,5 @@
 import { createBuildroomJob } from "./db";
+import { CAMPAIGN_ROOM_TEMPLATES } from "../campaign-room/templates";
 import {
   BuildroomWorkflowDetailSchema,
   DEFAULT_BUILDROOM_WORKFLOW_STAGES,
@@ -21,6 +22,17 @@ import {
 } from "./workflows";
 
 const DEFAULT_TEMPLATE_ID = "buildroom-standard-v1";
+
+const SEED_WORKFLOW_TEMPLATES = [
+  {
+    id: DEFAULT_TEMPLATE_ID,
+    name: "Buildroom standard workflow",
+    description:
+      "Research, idea, gated planning, coding, QA, trust, retention, and operator closeout.",
+    stages: DEFAULT_BUILDROOM_WORKFLOW_STAGES,
+  },
+  ...CAMPAIGN_ROOM_TEMPLATES,
+];
 
 type TemplateRow = {
   id: string;
@@ -184,12 +196,11 @@ async function insertStageRun(
     .run();
 }
 
-export async function ensureDefaultWorkflowTemplate(
+async function upsertSeedWorkflowTemplate(
   db: D1Database,
   agentSlug: string,
-): Promise<WorkflowTemplate> {
-  const existing = await getWorkflowTemplate(db, DEFAULT_TEMPLATE_ID);
-  if (existing) return existing;
+  seed: (typeof SEED_WORKFLOW_TEMPLATES)[number],
+): Promise<void> {
   const now = Date.now();
   await db
     .prepare(
@@ -199,17 +210,42 @@ export async function ensureDefaultWorkflowTemplate(
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
-      DEFAULT_TEMPLATE_ID,
+      seed.id,
       agentSlug,
-      "Buildroom standard workflow",
-      "Research, idea, gated planning, coding, QA, trust, retention, and operator closeout.",
+      seed.name,
+      seed.description,
       1,
-      JSON.stringify(DEFAULT_BUILDROOM_WORKFLOW_STAGES),
+      JSON.stringify(seed.stages),
       0,
       now,
       now,
     )
     .run();
+}
+
+export async function ensureDefaultWorkflowTemplates(
+  db: D1Database,
+  agentSlug: string,
+): Promise<WorkflowTemplate[]> {
+  for (const seed of SEED_WORKFLOW_TEMPLATES) {
+    const existing = await getWorkflowTemplate(db, seed.id);
+    if (!existing) await upsertSeedWorkflowTemplate(db, agentSlug, seed);
+  }
+  return Promise.all(
+    SEED_WORKFLOW_TEMPLATES.map(async (seed) => {
+      const template = await getWorkflowTemplate(db, seed.id);
+      if (!template)
+        throw new Error(`Failed to create workflow template ${seed.id}`);
+      return template;
+    }),
+  );
+}
+
+export async function ensureDefaultWorkflowTemplate(
+  db: D1Database,
+  agentSlug: string,
+): Promise<WorkflowTemplate> {
+  await ensureDefaultWorkflowTemplates(db, agentSlug);
   const template = await getWorkflowTemplate(db, DEFAULT_TEMPLATE_ID);
   if (!template) throw new Error("Failed to create default workflow template");
   return template;
@@ -260,14 +296,18 @@ export async function listWorkflowTemplates(
   db: D1Database,
   agentSlug: string,
 ): Promise<WorkflowTemplate[]> {
-  await ensureDefaultWorkflowTemplate(db, agentSlug);
+  await ensureDefaultWorkflowTemplates(db, agentSlug);
+  const seedTemplateIds = SEED_WORKFLOW_TEMPLATES.map(
+    (template) => template.id,
+  );
+  const placeholders = seedTemplateIds.map(() => "?").join(", ");
   const result = await db
     .prepare(
       `SELECT * FROM buildroom_workflow_templates
-       WHERE (agent_slug = ? OR id = ?) AND is_archived = 0
+       WHERE (agent_slug = ? OR id IN (${placeholders})) AND is_archived = 0
        ORDER BY updated_at DESC`,
     )
-    .bind(agentSlug, DEFAULT_TEMPLATE_ID)
+    .bind(agentSlug, ...seedTemplateIds)
     .all<TemplateRow>();
   return (result.results ?? []).map(rowToTemplate);
 }
@@ -276,10 +316,8 @@ export async function startBuildroomWorkflow(
   db: D1Database,
   args: { agentSlug: string; input: StartWorkflowInput },
 ): Promise<BuildroomWorkflowDetail> {
-  const template =
-    args.input.templateId === DEFAULT_TEMPLATE_ID
-      ? await ensureDefaultWorkflowTemplate(db, args.agentSlug)
-      : await getWorkflowTemplate(db, args.input.templateId);
+  await ensureDefaultWorkflowTemplates(db, args.agentSlug);
+  const template = await getWorkflowTemplate(db, args.input.templateId);
   if (!template)
     throw new Error(`Unknown workflow template: ${args.input.templateId}`);
   if (template.stages.length === 0)
