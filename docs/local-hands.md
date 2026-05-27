@@ -1,6 +1,6 @@
 # Downy local hands skeleton
 
-Local hands is the bridge between the Cloudflare-hosted Buildroom agent and tools that should run locally: shell, filesystem, browser automation, Xurl/Hermes, Jcode, and git.
+Local hands is the bridge between the Cloudflare-hosted Buildroom agent and tools that should run locally: shell, filesystem, browser automation, Xurl/Hermes, Grok/SuperGrok, Jcode, and git.
 
 This first version is intentionally a polling protocol skeleton. It gives Downy a durable queue, confirmation gates, connector heartbeat, claim, and completion semantics without granting any real local execution yet.
 
@@ -105,9 +105,53 @@ Smoke test passed
 
 If Cloudflare Access is configured and the service token is missing or wrong, the create/heartbeat requests will fail before any local execution.
 
+### Grok / X research executor
+
+For `kind: "grok.research"` or `kind: "x.research"`, the daemon calls a local command configured by:
+
+```bash
+DOWNY_HANDS_GROK_RESEARCH_CMD=/path/to/grok-research-adapter
+```
+
+This command should run on the Mac Mini where your Premium+/SuperGrok/X session is available. Downy does **not** receive or store X credentials.
+
+The daemon passes the request through environment variables:
+
+```bash
+DOWNY_GROK_RESEARCH_JSON
+DOWNY_GROK_RESEARCH_QUERY
+DOWNY_GROK_RESEARCH_MODE
+DOWNY_GROK_RESEARCH_MAX_RESULTS
+DOWNY_GROK_RESEARCH_OUTPUT_ARTIFACT
+DOWNY_GROK_RESEARCH_CONTEXT
+```
+
+The adapter should print JSON to stdout when possible. Suggested output shape:
+
+```json
+{
+  "summary": "What Grok/X found",
+  "sources": [
+    { "url": "https://x.com/...", "title": "...", "source_type": "x" }
+  ],
+  "claims": ["Source-backed claim"],
+  "opportunities": ["GTM/content/lead opportunity"],
+  "open_questions": ["What still needs checking"],
+  "research_limits": "What was searched and what was not"
+}
+```
+
+Safety constraints:
+
+- Only `read_only` Grok/X research actions are accepted.
+- No posting, replying, liking, DMing, following, emailing, or CRM mutation.
+- Use your authenticated local browser/session or local Xurl/Hermes adapter, but do not export credentials to Downy.
+- Any future external side effect must be a separate action with explicit operator confirmation.
+
 ## Agent tools
 
 - `request_local_hands_action`
+- `request_grok_research`
 - `list_local_hands_actions`
 - `confirm_local_hands_action`
 

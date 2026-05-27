@@ -5,6 +5,8 @@ export const LocalHandsActionKindSchema = z.enum([
   "filesystem",
   "browser",
   "xurl",
+  "x.research",
+  "grok.research",
   "jcode",
   "git",
 ]);
@@ -77,6 +79,8 @@ export const LocalHandsCapabilitySchema = z.enum([
   "filesystem.write",
   "browser.automation",
   "xurl.research",
+  "x.research",
+  "grok.research",
   "jcode.coding",
   "git.read",
   "git.write",

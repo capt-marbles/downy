@@ -12,6 +12,23 @@ import {
   RequestLocalHandsActionInputSchema,
 } from "../../local-hands/types";
 
+const GrokResearchInputSchema = z.object({
+  query: z.string().min(1).max(4000),
+  mode: z
+    .enum([
+      "research_summary",
+      "source_scan",
+      "lead_signal_scan",
+      "content_angles",
+    ])
+    .default("research_summary"),
+  maxResults: z.number().int().min(1).max(100).default(20),
+  outputArtifact: z
+    .enum(["campaign-source-notes", "campaign-digest"])
+    .default("campaign-source-notes"),
+  context: z.string().max(4000).optional(),
+});
+
 export function createRequestLocalHandsActionTool(args: {
   db: D1Database;
   agentSlug: string;
@@ -54,6 +71,29 @@ export function createConfirmLocalHandsActionTool(args: { db: D1Database }) {
     inputSchema: ConfirmLocalHandsActionInputSchema,
     execute: async (input) => ({
       action: await confirmLocalHandsAction(args.db, input),
+    }),
+  });
+}
+
+export function createRequestGrokResearchTool(args: {
+  db: D1Database;
+  agentSlug: string;
+}) {
+  return tool({
+    description:
+      "Request read-only X/Grok/SuperGrok research through the user's local hands connector. Use this for Campaign Room source scans, content angles, lead signals, and research summaries. It never posts, likes, replies, DMs, follows, sends email, or changes external state.",
+    inputSchema: GrokResearchInputSchema,
+    execute: async (input) => ({
+      action: await requestLocalHandsAction(args.db, {
+        agentSlug: args.agentSlug,
+        input: {
+          kind: "grok.research",
+          riskLevel: "read_only",
+          requiresConfirmation: false,
+          requestedBy: "campaign-room",
+          input,
+        },
+      }),
     }),
   });
 }

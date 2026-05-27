@@ -19,6 +19,10 @@ const jcodeBin = process.env.DOWNY_HANDS_JCODE_BIN ?? "jcode";
 const jcodeTimeoutMs = Number(
   process.env.DOWNY_HANDS_JCODE_TIMEOUT_MS ?? "300000",
 );
+const grokResearchCommand = process.env.DOWNY_HANDS_GROK_RESEARCH_CMD;
+const grokResearchTimeoutMs = Number(
+  process.env.DOWNY_HANDS_GROK_RESEARCH_TIMEOUT_MS ?? "300000",
+);
 const allowedRoots = (process.env.DOWNY_HANDS_ALLOWED_ROOTS ?? homedir())
   .split(path.delimiter)
   .map((entry) => path.resolve(entry))
@@ -29,6 +33,8 @@ const capabilities = [
   "filesystem.read",
   "browser.automation",
   "xurl.research",
+  "x.research",
+  "grok.research",
   "jcode.coding",
   "git.read",
 ];
@@ -142,8 +148,72 @@ async function executeJcode(action) {
   };
 }
 
+function parseMaybeJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+async function executeGrokResearch(action) {
+  if (action.riskLevel !== "read_only") {
+    throw new Error("Grok/X research executor only accepts read_only actions");
+  }
+  if (!grokResearchCommand) {
+    throw new Error(
+      "DOWNY_HANDS_GROK_RESEARCH_CMD is not set on this local hands daemon",
+    );
+  }
+  const query = requireString(action.input?.query, "query");
+  const payload = {
+    query,
+    mode:
+      typeof action.input?.mode === "string"
+        ? action.input.mode
+        : "research_summary",
+    maxResults:
+      typeof action.input?.maxResults === "number"
+        ? action.input.maxResults
+        : 20,
+    outputArtifact:
+      typeof action.input?.outputArtifact === "string"
+        ? action.input.outputArtifact
+        : "campaign-source-notes",
+    context:
+      typeof action.input?.context === "string" ? action.input.context : "",
+  };
+  const startedAt = Date.now();
+  const { stdout, stderr } = await execFileAsync(grokResearchCommand, [], {
+    timeout: grokResearchTimeoutMs,
+    maxBuffer: 8 * 1024 * 1024,
+    env: {
+      ...process.env,
+      DOWNY_GROK_RESEARCH_JSON: JSON.stringify(payload),
+      DOWNY_GROK_RESEARCH_QUERY: payload.query,
+      DOWNY_GROK_RESEARCH_MODE: payload.mode,
+      DOWNY_GROK_RESEARCH_MAX_RESULTS: String(payload.maxResults),
+      DOWNY_GROK_RESEARCH_OUTPUT_ARTIFACT: payload.outputArtifact,
+      DOWNY_GROK_RESEARCH_CONTEXT: payload.context,
+    },
+  });
+  const parsed = parseMaybeJson(stdout.trim());
+  return {
+    mode: "grok.research.read_only",
+    command: grokResearchCommand,
+    durationMs: Date.now() - startedAt,
+    request: payload,
+    research: parsed,
+    stdout: parsed ? undefined : stdout.slice(-200_000),
+    stderr: stderr.slice(-50_000),
+  };
+}
+
 async function executeAction(action) {
   if (action.kind === "jcode") return executeJcode(action);
+  if (action.kind === "grok.research" || action.kind === "x.research") {
+    return executeGrokResearch(action);
+  }
   return {
     mode: "skeleton",
     message:

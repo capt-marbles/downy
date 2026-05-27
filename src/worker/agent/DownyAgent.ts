@@ -85,6 +85,7 @@ import * as toolRegistry from "./tool-registry";
 import {
   createConfirmLocalHandsActionTool,
   createListLocalHandsActionsTool,
+  createRequestGrokResearchTool,
   createRequestLocalHandsActionTool,
 } from "./tools/local-hands";
 import {
@@ -260,6 +261,10 @@ export class DownyAgent extends Think {
         agentSlug: this.name,
       }),
       request_local_hands_action: createRequestLocalHandsActionTool({
+        db: this.env.DB,
+        agentSlug: this.name,
+      }),
+      request_grok_research: createRequestGrokResearchTool({
         db: this.env.DB,
         agentSlug: this.name,
       }),
