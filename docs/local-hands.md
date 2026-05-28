@@ -113,7 +113,52 @@ For `kind: "grok.research"` or `kind: "x.research"`, the daemon calls a local co
 DOWNY_HANDS_GROK_RESEARCH_CMD=/path/to/grok-research-adapter
 ```
 
-This command should run on the Mac Mini where your Premium+/SuperGrok/X session is available. Downy does **not** receive or store X credentials.
+This command should run on the Mac Mini or Omarchy PC where your Premium+/SuperGrok/X session is available. Downy does **not** receive or store X credentials.
+
+Downy includes a portable adapter wrapper at `scripts/grok-research-adapter.mjs`. It normalizes JSON or plain-text output from a lower-level local research command into Campaign Room `campaign-source-notes` shape.
+
+Smoke the adapter without live X/Grok access:
+
+```bash
+pnpm grok:adapter:smoke
+```
+
+Run local hands with the bundled adapter in fixture mode:
+
+```bash
+DOWNY_URL=https://downy.andrewdmwalker.workers.dev \
+DOWNY_AGENT_SLUG=buildroom \
+DOWNY_HANDS_CONNECTOR_ID=mac-mini \
+DOWNY_HANDS_GROK_RESEARCH_CMD="$PWD/scripts/grok-research-adapter.mjs" \
+DOWNY_GROK_ADAPTER_FIXTURE=1 \
+CF_ACCESS_CLIENT_ID=... \
+CF_ACCESS_CLIENT_SECRET=... \
+pnpm hands
+```
+
+Run it against a real local provider command, for example a Hermes/Xurl/Grok browser adapter:
+
+```bash
+DOWNY_HANDS_GROK_RESEARCH_CMD="$PWD/scripts/grok-research-adapter.mjs" \
+DOWNY_GROK_ADAPTER_CMD=/path/to/your/local-x-or-grok-command \
+pnpm hands
+```
+
+The provider command receives the same environment variables listed below and should print either the suggested JSON shape or plain text with source URLs. The wrapper normalizes either form.
+
+When a Campaign Room smoke action includes `context.jobId` and `outputArtifact=campaign-source-notes`, `scripts/downy-hands.mjs` writes the completed research back to `/api/campaign-room/artifacts`, replacing the placeholder source-notes artifact.
+
+Mac Mini notes:
+
+- Use `DOWNY_HANDS_CONNECTOR_ID=mac-mini`.
+- Keep `DOWNY_HANDS_ALLOWED_ROOTS` narrow, for example `/Users/awalker/downy`.
+- Use the local command that has access to your authenticated browser/X/Grok session.
+
+Omarchy PC notes:
+
+- Use `DOWNY_HANDS_CONNECTOR_ID=omarchy`.
+- Use Linux paths, for example `DOWNY_HANDS_ALLOWED_ROOTS=/home/awalker/downy`.
+- Keep the provider command read-only. Browser automation is allowed for research, but not posting or account mutation.
 
 The daemon passes the request through environment variables:
 

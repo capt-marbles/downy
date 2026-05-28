@@ -23,6 +23,11 @@ const CampaignSmokeInputSchema = z.object({
   researchQuery: z.string().min(1).max(1000),
 });
 
+const WriteCampaignArtifactInputSchema = z.object({
+  jobId: z.string().min(1),
+  artifact: z.unknown(),
+});
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
@@ -76,6 +81,21 @@ export async function handleCampaignRoomRequest(
       return json({
         artifacts: artifacts.filter((entry) => entry.artifact !== null),
       });
+    }
+
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[2] === "artifacts"
+    ) {
+      const input = WriteCampaignArtifactInputSchema.parse(
+        await request.json(),
+      );
+      const stub = await getActiveAgentStub(request, env);
+      const result = await fromRpc(
+        stub.writeCampaignArtifact(input.jobId, input.artifact),
+      );
+      return json(result, 201);
     }
 
     if (

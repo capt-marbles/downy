@@ -156,6 +156,50 @@ function parseMaybeJson(value) {
   }
 }
 
+function contextValue(value) {
+  if (typeof value === "string") return parseMaybeJson(value) ?? value;
+  if (value && typeof value === "object") return value;
+  return null;
+}
+
+function contextEnvValue(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return "";
+}
+
+async function writeCampaignResearchArtifact(payload, research) {
+  const context = contextValue(payload.context);
+  if (!context || typeof context !== "object") return null;
+  const jobId = typeof context.jobId === "string" ? context.jobId : null;
+  if (!jobId || payload.outputArtifact !== "campaign-source-notes") return null;
+  const artifact = {
+    schema_version: 1,
+    job_id: jobId,
+    agent_slug: agentSlug,
+    created_at: new Date().toISOString(),
+    created_by: connectorId,
+    artifact_type: "campaign-source-notes",
+    summary:
+      typeof research?.summary === "string"
+        ? research.summary
+        : `Local Grok/X research completed for: ${payload.query}`,
+    sources: Array.isArray(research?.sources) ? research.sources : [],
+    claims: Array.isArray(research?.claims) ? research.claims : [],
+    opportunities: Array.isArray(research?.opportunities)
+      ? research.opportunities
+      : [],
+    open_questions: Array.isArray(research?.open_questions)
+      ? research.open_questions
+      : [],
+    research_limits:
+      typeof research?.research_limits === "string"
+        ? research.research_limits
+        : "Completed by local Grok/X adapter.",
+  };
+  return post("/api/campaign-room/artifacts", { jobId, artifact });
+}
+
 async function executeGrokResearch(action) {
   if (action.riskLevel !== "read_only") {
     throw new Error("Grok/X research executor only accepts read_only actions");
@@ -180,8 +224,7 @@ async function executeGrokResearch(action) {
       typeof action.input?.outputArtifact === "string"
         ? action.input.outputArtifact
         : "campaign-source-notes",
-    context:
-      typeof action.input?.context === "string" ? action.input.context : "",
+    context: contextValue(action.input?.context),
   };
   const startedAt = Date.now();
   const { stdout, stderr } = await execFileAsync(grokResearchCommand, [], {
@@ -194,16 +237,20 @@ async function executeGrokResearch(action) {
       DOWNY_GROK_RESEARCH_MODE: payload.mode,
       DOWNY_GROK_RESEARCH_MAX_RESULTS: String(payload.maxResults),
       DOWNY_GROK_RESEARCH_OUTPUT_ARTIFACT: payload.outputArtifact,
-      DOWNY_GROK_RESEARCH_CONTEXT: payload.context,
+      DOWNY_GROK_RESEARCH_CONTEXT: contextEnvValue(payload.context),
     },
   });
   const parsed = parseMaybeJson(stdout.trim());
+  const writeback = parsed
+    ? await writeCampaignResearchArtifact(payload, parsed)
+    : null;
   return {
     mode: "grok.research.read_only",
     command: grokResearchCommand,
     durationMs: Date.now() - startedAt,
     request: payload,
     research: parsed,
+    writeback,
     stdout: parsed ? undefined : stdout.slice(-200_000),
     stderr: stderr.slice(-50_000),
   };

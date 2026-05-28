@@ -20,6 +20,8 @@
     "tail": "wrangler tail downy",
     "hands": "node scripts/downy-hands.mjs",
     "hands:smoke": "node scripts/local-hands-smoke.mjs",
+    "grok:adapter": "node scripts/grok-research-adapter.mjs",
+    "grok:adapter:smoke": "DOWNY_GROK_ADAPTER_FIXTURE=1 DOWNY_GROK_RESEARCH_QUERY='Campaign Room adapter smoke test' node scripts/grok-research-adapter.mjs",
     "alchemy": "alchemy",
     "lint": "oxlint . --type-aware",
     "lint:fix": "oxlint . --type-aware --fix",
