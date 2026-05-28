@@ -9,6 +9,7 @@ import {
   Gauge,
   IdCard,
   ListTodo,
+  Megaphone,
   Lock,
   Plug,
   Plus,
@@ -28,9 +29,11 @@ import { withBack } from "../../lib/back-nav";
 import {
   useAgentSkills,
   useBackgroundTasks,
-  useModelStatus,
+  useCampaignRoom,
+  useCreateCampaignRoomSmoke,
   useMcpServers,
   useMcpServersLiveSync,
+  useModelStatus,
   useScheduledTasks,
   useWorkspaceFiles,
 } from "../../lib/queries";
@@ -646,6 +649,109 @@ export function ModelStatusSection() {
                   reasoning {status.lastTurn.assistantReasoningLength} chars
                 </div>
               )}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function CampaignRoomSection() {
+  const slug = useCurrentAgentSlug();
+  const { data, error } = useCampaignRoom(slug);
+  const smoke = useCreateCampaignRoomSmoke();
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function runSmoke() {
+    setMessage(null);
+    try {
+      const result = await smoke.mutateAsync([
+        slug,
+        {
+          campaignName: "Campaign Room smoke test",
+          objective:
+            "Prove the Campaign Room loop can create a brief, request local Grok/X research, and save source notes.",
+          audience: "Operator evaluating GTM agent workflows",
+          thesis:
+            "Campaign Room should turn a GTM prompt into structured artifacts before any publishing or sending happens.",
+          proofPoints: [
+            "Creates a Buildroom job",
+            "Starts campaign-content-v1",
+            "Queues read-only Grok/X research",
+            "Writes campaign artifacts",
+          ],
+          offerOrCta:
+            "Review the created artifacts and queued research action.",
+          nonGoals: ["No posting", "No cold email sending", "No CRM mutation"],
+          successCriteria: [
+            "campaign-brief artifact exists",
+            "campaign-source-notes artifact exists",
+            "grok.research local hands action is queued",
+          ],
+          researchQuery:
+            "Find recent source-backed GTM signals about AI agents for content marketing, lead sourcing, and cold email drafting.",
+        },
+      ]);
+      setMessage(`Smoke created ${result.job.id}`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-1">
+      <SectionHeader icon={Megaphone} label="Campaign Room" />
+      {error ? (
+        <div className="px-2 py-1.5 text-xs text-error/70">
+          Couldn't load Campaign Room.
+        </div>
+      ) : !data ? (
+        <div className="px-2 py-1.5 text-xs text-base-content/40">Loading…</div>
+      ) : (
+        <div className="rounded-lg border border-base-300/70 bg-base-200/40 px-2.5 py-2 text-[11px] text-base-content/65">
+          <div className="grid grid-cols-3 gap-1 text-center font-mono text-[10px]">
+            <div>
+              <div className="text-base-content/35">flows</div>
+              <div className="text-base-content/75">
+                {data.templates.length}
+              </div>
+            </div>
+            <div>
+              <div className="text-base-content/35">presets</div>
+              <div className="text-base-content/75">
+                {data.schedulePresets.length}
+              </div>
+            </div>
+            <div>
+              <div className="text-base-content/35">jobs</div>
+              <div className="text-base-content/75">
+                {data.recentJobs.length}
+              </div>
+            </div>
+          </div>
+          {data.recentJobs.length > 0 ? (
+            <ul className="mt-2 flex flex-col gap-1 border-t border-base-300/60 pt-1.5">
+              {data.recentJobs.slice(0, 2).map((job) => (
+                <li key={job.id} className="truncate" title={job.title}>
+                  {job.title.replace(/^Campaign Room:\s*/, "")}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              void runSmoke();
+            }}
+            disabled={smoke.isPending}
+            className="btn btn-xs mt-2 min-h-0 w-full border-base-300 bg-base-100 text-[11px] font-medium"
+          >
+            {smoke.isPending ? "Running smoke…" : "Run smoke path"}
+          </button>
+          {message ? (
+            <div className="mt-1 line-clamp-2 text-[10px] text-base-content/45">
+              {message}
             </div>
           ) : null}
         </div>

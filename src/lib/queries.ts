@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import {
+  createCampaignRoomSmoke,
   deleteMcpServer,
   deleteWorkspaceFile,
+  getCampaignRoomOverview,
   getModelStatus,
   listBackgroundTasks,
   listCoreFiles,
@@ -132,6 +134,27 @@ export function useScheduledTasks(slug: string) {
     queryKey: queryKeys.scheduledTasks(slug),
     queryFn: () => listScheduledTasks(slug),
     refetchInterval: 30_000,
+  });
+}
+
+export function useCampaignRoom(slug: string) {
+  return useQuery({
+    queryKey: queryKeys.campaignRoom(slug),
+    queryFn: () => getCampaignRoomOverview(slug),
+  });
+}
+
+export function useCreateCampaignRoomSmoke() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: Parameters<typeof createCampaignRoomSmoke>) =>
+      createCampaignRoomSmoke(vars[0], vars[1]),
+    onSuccess: (_, vars) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.campaignRoom(vars[0]) });
+      void qc.invalidateQueries({
+        queryKey: queryKeys.workspaceFiles(vars[0]),
+      });
+    },
   });
 }
 

@@ -13,6 +13,7 @@ import { setMobilePanelOpen, useMobilePanelOpen } from "../../lib/mobile-panel";
 import {
   AgentSelector,
   BackgroundTasksSection,
+  CampaignRoomSection,
   IdentitySection,
   McpSection,
   ModelStatusSection,
@@ -176,6 +177,7 @@ export default function AgentPanel({ agent }: Props) {
           <WorkspaceSection onNavigate={closeMobile} />
           <SkillsSection onNavigate={closeMobile} />
           <ModelStatusSection />
+          <CampaignRoomSection />
           <ScheduledTasksSection />
           <McpSection agent={agent} onNavigate={closeMobile} />
           <BackgroundTasksSection agent={agent} onNavigate={closeMobile} />

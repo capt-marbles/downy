@@ -17,5 +17,6 @@ export const queryKeys = {
   modelStatus: (slug: string) => ["modelStatus", slug] as const,
   backgroundTasks: (slug: string) => ["backgroundTasks", slug] as const,
   scheduledTasks: (slug: string) => ["scheduledTasks", slug] as const,
+  campaignRoom: (slug: string) => ["campaignRoom", slug] as const,
   userFile: () => ["userFile"] as const,
 };

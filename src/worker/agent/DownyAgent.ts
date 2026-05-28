@@ -111,11 +111,19 @@ import {
 } from "./mcp-reconnect";
 import { getAgent, listAgents } from "../db/profile";
 import { readBuildroomArtifact } from "../buildroom/artifacts";
+import {
+  readCampaignArtifact as readCampaignArtifactFile,
+  writeCampaignArtifact as writeCampaignArtifactFile,
+} from "../campaign-room/artifacts";
 import { getBuildroomJob, listBuildroomEvents } from "../buildroom/db";
 import type {
   BuildroomArtifact,
   BuildroomArtifactName,
 } from "../buildroom/schemas";
+import type {
+  CampaignArtifact,
+  CampaignArtifactName,
+} from "../campaign-room/schemas";
 
 const BOOTSTRAP_SEEDED_KEY = "downy:bootstrap-seeded";
 
@@ -1180,6 +1188,39 @@ export class DownyAgent extends Think {
       workspace: this.workspace,
       jobId,
       artifactName,
+    });
+  }
+
+  async readCampaignArtifact(
+    jobId: string,
+    artifactName: CampaignArtifactName,
+  ): Promise<CampaignArtifact | null> {
+    const job = await getBuildroomJob(this.env.DB, jobId);
+    if (!job) throw new Error(`Unknown buildroom job: ${jobId}`);
+    if (job.agentSlug !== this.name) {
+      throw new Error("Campaign job belongs to a different agent");
+    }
+    return readCampaignArtifactFile({
+      workspace: this.workspace,
+      jobId,
+      artifactName,
+    });
+  }
+
+  async writeCampaignArtifact(
+    jobId: string,
+    artifact: unknown,
+  ): Promise<Awaited<ReturnType<typeof writeCampaignArtifactFile>>> {
+    const job = await getBuildroomJob(this.env.DB, jobId);
+    if (!job) throw new Error(`Unknown buildroom job: ${jobId}`);
+    if (job.agentSlug !== this.name) {
+      throw new Error("Campaign job belongs to a different agent");
+    }
+    return writeCampaignArtifactFile({
+      workspace: this.workspace,
+      agentSlug: this.name,
+      jobId,
+      artifact,
     });
   }
 

@@ -6,6 +6,7 @@ import { verifyAccessJwt } from "./worker/auth/cloudflare-access";
 import { handleAgentsRequest } from "./worker/handlers/agents";
 import { handleBuildroomRequest } from "./worker/handlers/buildroom";
 import { handleBootstrapRequest } from "./worker/handlers/bootstrap";
+import { handleCampaignRoomRequest } from "./worker/handlers/campaign-room";
 import { handleFilesRequest } from "./worker/handlers/files";
 import { handleBackgroundTasksRequest } from "./worker/handlers/background-tasks";
 import { handleMcpServersRequest } from "./worker/handlers/mcp-servers";
@@ -152,6 +153,13 @@ export default {
       url.pathname.startsWith("/api/scheduled-tasks/")
     ) {
       return handleScheduledTasksRequest(request, env);
+    }
+
+    if (
+      url.pathname === "/api/campaign-room" ||
+      url.pathname.startsWith("/api/campaign-room/")
+    ) {
+      return handleCampaignRoomRequest(request, env);
     }
 
     if (

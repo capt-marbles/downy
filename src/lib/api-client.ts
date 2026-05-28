@@ -2,6 +2,10 @@ import type { z } from "zod";
 
 import {
   BootstrapStartResponseSchema,
+  CampaignRoomOverviewResponseSchema,
+  CampaignRoomSmokeResponseSchema,
+  type CampaignRoomOverview,
+  type CampaignRoomSmokeResponse,
   type CoreFileRecord,
   EditLastMessageResponseSchema,
   ListCoreFilesResponseSchema,
@@ -139,6 +143,43 @@ export async function writeCoreFile(
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content }),
+    }),
+  );
+}
+
+export type CreateCampaignSmokeInput = {
+  campaignName: string;
+  objective: string;
+  audience: string;
+  thesis: string;
+  proofPoints?: string[];
+  offerOrCta?: string;
+  nonGoals?: string[];
+  successCriteria?: string[];
+  researchQuery: string;
+};
+
+export async function getCampaignRoomOverview(
+  slug: string,
+): Promise<CampaignRoomOverview> {
+  return request(
+    "/api/campaign-room",
+    CampaignRoomOverviewResponseSchema,
+    withSlugHeader(slug),
+  );
+}
+
+export async function createCampaignRoomSmoke(
+  slug: string,
+  input: CreateCampaignSmokeInput,
+): Promise<CampaignRoomSmokeResponse> {
+  return request(
+    "/api/campaign-room/smoke",
+    CampaignRoomSmokeResponseSchema,
+    withSlugHeader(slug, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
     }),
   );
 }

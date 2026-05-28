@@ -227,3 +227,60 @@ export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
 export const ListScheduledTasksResponseSchema = z.object({
   scheduledTasks: z.array(ScheduledTaskSchema),
 });
+
+// ── Campaign Room ───────────────────────────────────────────────────────────
+
+export const CampaignRoomTemplateSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  stages: z.array(z.unknown()),
+});
+export type CampaignRoomTemplateSummary = z.infer<
+  typeof CampaignRoomTemplateSummarySchema
+>;
+
+export const CampaignSchedulePresetSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  kind: z.string(),
+  defaultSchedule: z.record(z.string(), z.unknown()),
+  brief: z.string(),
+});
+export type CampaignSchedulePresetSummary = z.infer<
+  typeof CampaignSchedulePresetSummarySchema
+>;
+
+export const CampaignRoomJobSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  stage: z.string(),
+  status: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type CampaignRoomJobSummary = z.infer<
+  typeof CampaignRoomJobSummarySchema
+>;
+
+export const CampaignRoomOverviewResponseSchema = z.object({
+  templates: z.array(CampaignRoomTemplateSummarySchema),
+  schedulePresets: z.array(CampaignSchedulePresetSummarySchema),
+  recentJobs: z.array(CampaignRoomJobSummarySchema),
+});
+export type CampaignRoomOverview = z.infer<
+  typeof CampaignRoomOverviewResponseSchema
+>;
+
+export const CampaignRoomSmokeResponseSchema = z.object({
+  job: z.object({ id: z.string(), title: z.string() }).passthrough(),
+  workflow: z.unknown(),
+  brief: z.unknown(),
+  researchAction: z
+    .object({ id: z.string(), status: z.string() })
+    .passthrough(),
+  sourceNotes: z.unknown(),
+});
+export type CampaignRoomSmokeResponse = z.infer<
+  typeof CampaignRoomSmokeResponseSchema
+>;
