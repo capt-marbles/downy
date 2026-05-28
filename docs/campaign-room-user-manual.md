@@ -283,8 +283,22 @@ Do not give the provider command posting or account mutation behavior. It should
    pnpm hands
    ```
 6. Confirm source notes changed from placeholder to fixture output.
-7. Replace fixture mode with the real `DOWNY_GROK_ADAPTER_CMD`.
-8. Run another Campaign Room smoke and verify real Grok/X research writes back.
+7. Install and smoke Roughdraft for review loops:
+   ```bash
+   npm i -g roughdraft
+   roughdraft status --json
+   pnpm exec -- node -e "console.log('# Campaign Room Review Smoke\n\nReview me.')" > /tmp/campaign-room-review-smoke.md
+   roughdraft open /tmp/campaign-room-review-smoke.md --no-watch --print-url
+   ```
+8. Add the Roughdraft local-hands integration after Grok writeback is proven:
+   - action kind: `roughdraft.review`
+   - input: Markdown review package plus target artifact metadata
+   - executor: `roughdraft open <file.md> --json`
+   - output: reviewed Markdown, feedback counts, overall comment, and CriticMarkup comments
+   - writeback: Campaign Room review artifact or workflow gate decision
+9. Replace fixture mode with the real `DOWNY_GROK_ADAPTER_CMD`.
+10. Run another Campaign Room smoke and verify real Grok/X research writes back.
+11. Export a draft/review package to Roughdraft and confirm the agent can read your comments.
 
 ## Reference docs
 

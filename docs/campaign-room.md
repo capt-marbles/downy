@@ -75,9 +75,30 @@ Seeded presets:
 
 These presets create ordinary records in `scheduled_tasks`. They do not post content, send email, modify CRM data, or contact leads. Those actions remain behind operator confirmation gates.
 
+## Roughdraft review loop plan
+
+Roughdraft is a local-first Markdown review surface that fits Campaign Room's operator-review stages. It should be integrated after Grok/X research writeback is proven.
+
+Planned integration:
+
+1. Add local-hands action kind `roughdraft.review`.
+2. Campaign Room exports a Markdown review package from a typed artifact, for example content draft, email sequence, lead qualification report, or weekly digest.
+3. Local hands writes the package to an allowed local path and runs:
+
+   ```bash
+   roughdraft open <review-package.md> --json
+   ```
+
+4. The operator reviews in Roughdraft, using comments, suggestions, and overall notes.
+5. Roughdraft writes CriticMarkup back into the Markdown file and emits a `review.completed` event.
+6. Local hands sends the reviewed Markdown plus feedback counts and overall comment back to Downy.
+7. Campaign Room writes either a review artifact, for example `campaign-editorial-review` or `campaign-risk-review`, or records a workflow gate decision.
+
+Roughdraft should not replace typed Campaign Room JSON artifacts. It is the human review UI for Markdown exports. JSON remains the structured system of record; Markdown/CriticMarkup is the operator review layer.
+
 ## Safety model
 
-Campaign Room drafts and packages GTM work. It should not post content, send email, modify CRM records, or contact leads without an operator confirmation gate.
+Campaign Room drafts and packages GTM work. It should not post content, send email, modify CRM records, or contact leads without an operator confirmation gate. Roughdraft review actions are local human-review actions only; they should not publish, send, or mutate external systems.
 
 ## Why this preserves Buildroom work
 
