@@ -35,8 +35,20 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Downy" },
+      { name: "theme-color", content: "#f5f5f5" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "Downy" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      {
+        rel: "manifest",
+        href: "/manifest.json",
+        crossOrigin: "use-credentials",
+      },
+      { rel: "apple-touch-icon", href: "/logo192.png" },
+      { rel: "icon", type: "image/svg+xml", href: "/downy-icon.svg" },
+    ],
   }),
   shellComponent: RootDocument,
 });
