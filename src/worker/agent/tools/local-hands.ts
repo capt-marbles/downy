@@ -36,7 +36,7 @@ export function createRequestLocalHandsActionTool(args: {
 }) {
   return tool({
     description:
-      "Request work from the user's local hands connector. Use for local shell/filesystem/browser/Xurl/Jcode/git tasks that cannot safely run in Cloudflare. Non-read-only actions enter pending_confirmation and must be approved before a local daemon can claim them.",
+      "Request work from the user's local hands connector. Use for local shell/filesystem/browser/Xurl/Codex/git tasks that cannot safely run in Cloudflare. Non-read-only actions enter pending_confirmation and must be approved before a local daemon can claim them.",
     inputSchema: RequestLocalHandsActionInputSchema,
     execute: async (input) => ({
       action: await requestLocalHandsAction(args.db, {

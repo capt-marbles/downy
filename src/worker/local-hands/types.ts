@@ -7,7 +7,7 @@ export const LocalHandsActionKindSchema = z.enum([
   "xurl",
   "x.research",
   "grok.research",
-  "jcode",
+  "codex",
   "git",
 ]);
 export type LocalHandsActionKind = z.infer<typeof LocalHandsActionKindSchema>;
@@ -86,7 +86,7 @@ export const LocalHandsCapabilitySchema = z.enum([
   "xurl.research",
   "x.research",
   "grok.research",
-  "jcode.coding",
+  "codex.coding",
   "git.read",
   "git.write",
 ]);

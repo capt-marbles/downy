@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -15,9 +16,9 @@ const connectorId =
 const accessClientId = process.env.CF_ACCESS_CLIENT_ID;
 const accessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET;
 const pollIntervalMs = Number(process.env.DOWNY_HANDS_POLL_MS ?? "5000");
-const jcodeBin = process.env.DOWNY_HANDS_JCODE_BIN ?? "jcode";
-const jcodeTimeoutMs = Number(
-  process.env.DOWNY_HANDS_JCODE_TIMEOUT_MS ?? "300000",
+const codexBin = process.env.DOWNY_HANDS_CODEX_BIN ?? "codex";
+const codexTimeoutMs = Number(
+  process.env.DOWNY_HANDS_CODEX_TIMEOUT_MS ?? "300000",
 );
 const grokResearchCommand = process.env.DOWNY_HANDS_GROK_RESEARCH_CMD;
 const grokResearchTimeoutMs = Number(
@@ -35,7 +36,7 @@ const capabilities = [
   "xurl.research",
   "x.research",
   "grok.research",
-  "jcode.coding",
+  "codex.coding",
   "git.read",
 ];
 
@@ -94,10 +95,10 @@ async function complete(action, status, result, error = null) {
 function requireString(value, name) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(
-      `local hands jcode input.${name} must be a non-empty string`,
+      `local hands codex input.${name} must be a non-empty string`,
     );
   }
-  return value.trim();
+  return value;
 }
 
 function safeWorkingDirectory(value) {
@@ -114,43 +115,42 @@ function safeWorkingDirectory(value) {
   return resolved;
 }
 
-async function executeJcode(action) {
+async function executeCodex(action) {
   if (action.riskLevel !== "read_only") {
-    throw new Error("Jcode executor currently only accepts read_only actions");
+    throw new Error("Codex executor currently only accepts read_only actions");
   }
   const task = requireString(action.input?.task, "task");
   const cwd = safeWorkingDirectory(action.input?.workingDirectory);
-  const model =
-    typeof action.input?.model === "string" ? action.input.model : null;
-  const provider =
-    typeof action.input?.provider === "string" ? action.input.provider : null;
-  const prompt = [
-    "You are being invoked by Downy's local hands connector in READ-ONLY mode.",
-    "Do not modify files, run destructive commands, commit, push, deploy, or change external state.",
-    "Inspect and report only. If the task requires writes, explain the required follow-up instead of doing it.",
-    "",
+  const temporary = await mkdtemp(path.join(tmpdir(), "downy-codex-"));
+  const output = path.join(temporary, "last-message.txt");
+  const args = [
+    "exec",
+    "--sandbox",
+    "read-only",
+    "--skip-git-repo-check",
+    "--output-last-message",
+    output,
     task,
-  ].join("\n");
-  const args = ["run", "--json", "--quiet", "-C", cwd];
-  if (provider) args.push("--provider", provider);
-  if (model) args.push("--model", model);
-  args.push(prompt);
+  ];
   const startedAt = Date.now();
-  const { stdout, stderr } = await execFileAsync(jcodeBin, args, {
-    cwd,
-    timeout: jcodeTimeoutMs,
-    maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, JCODE_NON_INTERACTIVE: "1" },
-  });
-  return {
-    mode: "jcode.read_only",
-    command: jcodeBin,
-    args: args.slice(0, -1),
-    cwd,
-    durationMs: Date.now() - startedAt,
-    stdout: stdout.slice(-200_000),
-    stderr: stderr.slice(-50_000),
-  };
+  try {
+    const { stderr } = await execFileAsync(codexBin, args, {
+      cwd,
+      timeout: codexTimeoutMs,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return {
+      mode: "codex.read_only",
+      command: codexBin,
+      args: args.slice(0, -1),
+      cwd,
+      durationMs: Date.now() - startedAt,
+      stdout: (await readFile(output, "utf8")).slice(-200_000),
+      stderr: stderr.slice(-50_000),
+    };
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 }
 
 function parseMaybeJson(value) {
@@ -262,7 +262,7 @@ async function executeGrokResearch(action) {
 }
 
 async function executeAction(action) {
-  if (action.kind === "jcode") return executeJcode(action);
+  if (action.kind === "codex") return executeCodex(action);
   if (action.kind === "grok.research" || action.kind === "x.research") {
     return executeGrokResearch(action);
   }

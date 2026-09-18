@@ -13,7 +13,7 @@ const repoRoot = path.resolve(
 const baseUrl =
   process.env.DOWNY_URL ?? "https://downy.andrewdmwalker.workers.dev";
 const agentSlug = process.env.DOWNY_AGENT_SLUG ?? "buildroom";
-const connectorId = process.env.DOWNY_HANDS_CONNECTOR_ID ?? "mac-mini";
+const connectorId = process.env.DOWNY_HANDS_CONNECTOR_ID ?? "mac-studio";
 const workingDirectory = path.resolve(
   process.env.DOWNY_HANDS_SMOKE_WORKDIR ?? repoRoot,
 );
@@ -21,7 +21,7 @@ const allowedRoots =
   process.env.DOWNY_HANDS_ALLOWED_ROOTS ?? workingDirectory ?? homedir();
 const timeoutMs = Number(process.env.DOWNY_HANDS_SMOKE_TIMEOUT_MS ?? "420000");
 const pollMs = Number(process.env.DOWNY_HANDS_SMOKE_POLL_MS ?? "2000");
-const jcodeBin = process.env.DOWNY_HANDS_JCODE_BIN ?? "jcode";
+const codexBin = process.env.DOWNY_HANDS_CODEX_BIN ?? "codex";
 const smokeToken = `local-hands-smoke-${Date.now()}`;
 const accessClientId = process.env.CF_ACCESS_CLIENT_ID;
 const accessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET;
@@ -89,7 +89,7 @@ function runHandsOnce() {
       DOWNY_AGENT_SLUG: agentSlug,
       DOWNY_HANDS_CONNECTOR_ID: connectorId,
       DOWNY_HANDS_ALLOWED_ROOTS: allowedRoots,
-      DOWNY_HANDS_JCODE_BIN: jcodeBin,
+      DOWNY_HANDS_CODEX_BIN: codexBin,
       DOWNY_HANDS_ONCE: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -156,15 +156,16 @@ async function main() {
   console.log(`Working directory: ${workingDirectory}`);
   console.log(`Allowed roots: ${allowedRoots}`);
 
-  await assertExecutable(jcodeBin);
+  await assertExecutable(codexBin);
 
   const createBody = await request("/api/local-hands", {
     method: "POST",
     body: JSON.stringify({
-      kind: "jcode",
+      kind: "codex",
       riskLevel: "read_only",
+      targetConnectorId: connectorId,
       requiresConfirmation: false,
-      requestedBy: "mac-mini-smoke-test",
+      requestedBy: "mac-studio-smoke-test",
       input: {
         task: [
           `This is a Downy local-hands smoke test token: ${smokeToken}.`,
@@ -196,14 +197,14 @@ async function main() {
       `Expected action claimed by ${connectorId}, got ${completed.claimedBy}`,
     );
   }
-  if (completed.result?.mode !== "jcode.read_only") {
+  if (completed.result?.mode !== "codex.read_only") {
     throw new Error(
-      `Expected jcode.read_only result, got ${String(completed.result?.mode)}`,
+      `Expected codex.read_only result, got ${String(completed.result?.mode)}`,
     );
   }
   const stdout = String(completed.result.stdout ?? "");
   if (!stdout.includes(smokeToken)) {
-    throw new Error("Jcode result did not include the smoke token");
+    throw new Error("Codex result did not include the smoke token");
   }
 
   console.log("Smoke test passed");

@@ -1,8 +1,8 @@
 # Downy local hands skeleton
 
-Local hands is the bridge between the Cloudflare-hosted Buildroom agent and tools that should run locally: shell, filesystem, browser automation, Xurl/Hermes, Grok/SuperGrok, Jcode, and git.
+Local hands is the bridge between the Cloudflare-hosted Buildroom agent and tools that should run locally: shell, filesystem, browser automation, Xurl/Hermes, Grok/SuperGrok, Codex, and git.
 
-This first version is intentionally a polling protocol skeleton. It gives Downy a durable queue, confirmation gates, connector heartbeat, claim, and completion semantics without granting any real local execution yet.
+This first version is intentionally a polling protocol skeleton. It gives Downy a durable queue, confirmation gates, connector heartbeat, claim, and completion semantics with guarded local execution.
 
 ## Protocol
 
@@ -11,7 +11,7 @@ All requests are scoped by `X-Agent-Slug`, usually `buildroom`.
 - `GET /api/local-hands`
   - Lists open actions and connector status.
 - `POST /api/local-hands`
-  - Body: `{ "kind": "jcode", "riskLevel": "read_only", "requiresConfirmation": false, "requestedBy": "...", "input": {...} }`
+  - Body: `{ "kind": "codex", "riskLevel": "read_only", "requiresConfirmation": false, "requestedBy": "...", "input": {...} }`
   - Creates a local hands action. Read-only requests can be queued immediately; higher-risk requests enter confirmation.
 - `POST /api/local-hands/confirm`
   - Body: `{ "id": "...", "approved": true, "reason": "..." }`
@@ -49,20 +49,20 @@ CF_ACCESS_CLIENT_SECRET=... \
 node scripts/downy-hands.mjs
 ```
 
-The daemon heartbeats, claims, and completes actions. It currently includes a guarded `jcode` executor for `read_only` actions. Other kinds still return a skeleton placeholder result.
+The daemon heartbeats, claims, and completes actions. It currently includes a guarded `codex` executor for `read_only` actions. Other kinds still return a skeleton placeholder result.
 
-### Jcode executor
+### Codex executor
 
-For `kind: "jcode"`, the daemon runs:
+For `kind: "codex"`, the daemon runs:
 
 ```bash
-jcode run --json --quiet -C <workingDirectory> <read-only prompt>
+codex exec --sandbox read-only --skip-git-repo-check --output-last-message <tmpfile> "<task>"
 ```
 
 Safety constraints in this first executor:
 
 - Only accepts `riskLevel: "read_only"`.
-- Injects a read-only instruction into the Jcode prompt.
+- Passes the task unchanged. The read-only sandbox enforces the constraint.
 - Restricts `workingDirectory` to `DOWNY_HANDS_ALLOWED_ROOTS`, defaulting to your home directory.
 - Returns stdout/stderr and duration to Downy.
 
@@ -70,14 +70,14 @@ Useful environment variables:
 
 ```bash
 DOWNY_HANDS_ALLOWED_ROOTS=/Users/awalker/downy:/Users/awalker/other-repo
-DOWNY_HANDS_JCODE_BIN=jcode
-DOWNY_HANDS_JCODE_TIMEOUT_MS=300000
+DOWNY_HANDS_CODEX_BIN=codex
+DOWNY_HANDS_CODEX_TIMEOUT_MS=300000
 DOWNY_HANDS_ONCE=1 # process one poll cycle, useful for smoke tests
 ```
 
-## Mac Mini smoke test
+## Mac Studio smoke test
 
-Use this on the Mac Mini after pulling the Buildroom branch and installing dependencies. It creates one read-only Jcode action through Downy, runs the local hands daemon for one poll cycle, then verifies that the action was claimed by `mac-mini` and completed with a `jcode.read_only` result.
+Use this on the Mac Studio after pulling main and installing dependencies. It creates one read-only Codex action through Downy, runs the local hands daemon for one poll cycle, then verifies that the action was claimed by `mac-studio` and completed with a `codex.read_only` result.
 
 ```bash
 cd /path/to/downy
@@ -85,7 +85,7 @@ pnpm install
 
 DOWNY_URL=https://downy.andrewdmwalker.workers.dev \
 DOWNY_AGENT_SLUG=buildroom \
-DOWNY_HANDS_CONNECTOR_ID=mac-mini \
+DOWNY_HANDS_CONNECTOR_ID=mac-studio \
 DOWNY_HANDS_ALLOWED_ROOTS=/Users/awalker/downy \
 DOWNY_HANDS_SMOKE_WORKDIR=/Users/awalker/downy \
 CF_ACCESS_CLIENT_ID=... \
@@ -93,13 +93,13 @@ CF_ACCESS_CLIENT_SECRET=... \
 pnpm hands:smoke
 ```
 
-The smoke test requires `jcode` on `PATH`. Override it with `DOWNY_HANDS_JCODE_BIN=/path/to/jcode` if needed.
+The smoke test requires `codex` on `PATH`. Override it with `DOWNY_HANDS_CODEX_BIN=/path/to/codex` if needed.
 
 Expected result:
 
 ```text
 Created queued action: hands-...
-claimed hands-... (jcode, read_only)
+claimed hands-... (codex, read_only)
 Smoke test passed
 ```
 
@@ -113,7 +113,7 @@ For `kind: "grok.research"` or `kind: "x.research"`, the daemon calls a local co
 DOWNY_HANDS_GROK_RESEARCH_CMD=/path/to/grok-research-adapter
 ```
 
-This command should run on the Mac Mini or Omarchy PC where your Premium+/SuperGrok/X session is available. Downy does **not** receive or store X credentials.
+This command should run on the Mac Studio or Omarchy PC where your Premium+/SuperGrok/X session is available. Downy does **not** receive or store X credentials.
 
 Downy includes a portable adapter wrapper at `scripts/grok-research-adapter.mjs`. It normalizes JSON or plain-text output from a lower-level local research command into Campaign Room `campaign-source-notes` shape.
 
@@ -128,7 +128,7 @@ Run local hands with the bundled adapter in fixture mode:
 ```bash
 DOWNY_URL=https://downy.andrewdmwalker.workers.dev \
 DOWNY_AGENT_SLUG=buildroom \
-DOWNY_HANDS_CONNECTOR_ID=mac-mini \
+DOWNY_HANDS_CONNECTOR_ID=mac-studio \
 DOWNY_HANDS_GROK_RESEARCH_CMD="$PWD/scripts/grok-research-adapter.mjs" \
 DOWNY_GROK_ADAPTER_FIXTURE=1 \
 CF_ACCESS_CLIENT_ID=... \
@@ -148,9 +148,9 @@ The provider command receives the same environment variables listed below and sh
 
 When a Campaign Room smoke action includes `context.jobId` and `outputArtifact=campaign-source-notes`, `scripts/downy-hands.mjs` writes the completed research back to `/api/campaign-room/artifacts`, replacing the placeholder source-notes artifact.
 
-Mac Mini notes:
+Mac Studio notes:
 
-- Use `DOWNY_HANDS_CONNECTOR_ID=mac-mini`.
+- Use `DOWNY_HANDS_CONNECTOR_ID=mac-studio`.
 - Keep `DOWNY_HANDS_ALLOWED_ROOTS` narrow, for example `/Users/awalker/downy`.
 - Use the local command that has access to your authenticated browser/X/Grok session.
 
@@ -204,7 +204,7 @@ Use `request_local_hands_action` for cloud-to-local work. The input should inclu
 
 ```json
 {
-  "kind": "jcode",
+  "kind": "codex",
   "riskLevel": "read_only",
   "requiresConfirmation": false,
   "requestedBy": "buildroom",
@@ -214,3 +214,22 @@ Use `request_local_hands_action` for cloud-to-local work. The input should inclu
   }
 }
 ```
+
+## Codex authentication and sandbox
+
+Run `codex login` once on each machine, or set `CODEX_API_KEY` in the daemon environment.
+Downy does not read, store, or forward credentials. The child inherits the operator's
+normal process environment. `codex exec` defaults to a read-only sandbox; the daemon
+also passes `--sandbox read-only` explicitly. On macOS, Seatbelt and
+`DOWNY_HANDS_ALLOWED_ROOTS` are independent checks and both apply. The validated
+working directory is passed through `execFile`'s `cwd`, not a CLI flag.
+Codex normally requires a Git repository; `--skip-git-repo-check` lets known, allowed
+non-repository folders be inspected. Actions above `read_only` remain rejected.
+
+`DOWNY_HANDS_CODEX_BIN` defaults to `codex`; `DOWNY_HANDS_CODEX_TIMEOUT_MS` defaults
+to `300000`. The final message is read from a temporary file that is removed even
+on failure; results retain stderr and elapsed duration.
+
+Connectors send `allowedRoots` on heartbeat and claim. Use `targetConnectorId` to
+pin work to `mac-studio` or `mac-laptop`; optional `expiresAt` is an epoch in
+milliseconds. Scheduled child requests default to a 24-hour lifetime.

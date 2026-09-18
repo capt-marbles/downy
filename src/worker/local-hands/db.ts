@@ -250,7 +250,7 @@ export async function listLocalHandsConnectors(
 }
 
 const KIND_CAPABILITY: Record<LocalHandsActionKind, string> = {
-  jcode: "jcode.coding",
+  codex: "codex.coding",
   git: "git.read",
   shell: "shell.read",
   filesystem: "filesystem.read",
