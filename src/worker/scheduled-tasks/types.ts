@@ -3,6 +3,15 @@ import { z } from "zod";
 export const ScheduleTypeSchema = z.enum(["interval", "daily", "weekly"]);
 export type ScheduleType = z.infer<typeof ScheduleTypeSchema>;
 
+const TimezoneSchema = z.string().refine((zone) => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}, "Invalid IANA timezone");
+
 export const ScheduledTaskSchema = z.object({
   id: z.string(),
   agentSlug: z.string(),
@@ -10,6 +19,7 @@ export const ScheduledTaskSchema = z.object({
   kind: z.string(),
   brief: z.string(),
   scheduleType: ScheduleTypeSchema,
+  timezone: TimezoneSchema,
   intervalMinutes: z.number().nullable(),
   timeOfDay: z.string().nullable(),
   dayOfWeek: z.number().nullable(),
@@ -30,6 +40,7 @@ export const CreateScheduledTaskInputSchema = z.object({
   kind: z.string().min(1).max(60),
   brief: z.string().min(10),
   scheduleType: ScheduleTypeSchema,
+  timezone: TimezoneSchema.default("America/Chicago"),
   intervalMinutes: z
     .number()
     .int()
@@ -44,7 +55,7 @@ export const CreateScheduledTaskInputSchema = z.object({
   nextDueAt: z.number().int().positive().optional(),
   enabled: z.boolean().optional(),
 });
-export type CreateScheduledTaskInput = z.infer<
+export type CreateScheduledTaskInput = z.input<
   typeof CreateScheduledTaskInputSchema
 >;
 
@@ -59,7 +70,12 @@ export type UpdateScheduledTaskInput = z.infer<
 export function nextDueFromSchedule(
   input: Pick<
     CreateScheduledTaskInput,
-    "scheduleType" | "intervalMinutes" | "timeOfDay" | "dayOfWeek" | "nextDueAt"
+    | "scheduleType"
+    | "intervalMinutes"
+    | "timeOfDay"
+    | "dayOfWeek"
+    | "nextDueAt"
+    | "timezone"
   >,
   now = Date.now(),
 ): number {
@@ -68,9 +84,18 @@ export function nextDueFromSchedule(
     case "interval":
       return now + (input.intervalMinutes ?? 60) * 60_000;
     case "daily":
-      return nextUtcTime(input.timeOfDay ?? "09:00", now);
+      return nextUtcTime(
+        input.timeOfDay ?? "09:00",
+        now,
+        input.timezone ?? "America/Chicago",
+      );
     case "weekly":
-      return nextUtcTime(input.timeOfDay ?? "09:00", now, input.dayOfWeek ?? 1);
+      return nextUtcTime(
+        input.timeOfDay ?? "09:00",
+        now,
+        input.timezone ?? "America/Chicago",
+        input.dayOfWeek ?? 1,
+      );
   }
   return input.scheduleType satisfies never;
 }
@@ -80,49 +105,85 @@ export function nextDueAfterRun(task: ScheduledTask, now = Date.now()): number {
     case "interval":
       return now + (task.intervalMinutes ?? 60) * 60_000;
     case "daily":
-      return nextUtcTime(task.timeOfDay ?? "09:00", now + 60_000);
+      return nextUtcTime(task.timeOfDay ?? "09:00", now, task.timezone);
     case "weekly":
       return nextUtcTime(
         task.timeOfDay ?? "09:00",
-        now + 60_000,
+        now,
+        task.timezone,
         task.dayOfWeek ?? 1,
       );
   }
   return task.scheduleType satisfies never;
 }
 
+// Resolve calendar dates in the task's zone. Gap: shift forward by the gap
+// (02:30 -> 03:30). Repeat: run only the earlier occurrence, once per date.
 function nextUtcTime(
   timeOfDay: string,
   now: number,
+  timezone: string,
   dayOfWeek?: number,
 ): number {
-  const [hhRaw, mmRaw] = timeOfDay.split(":");
-  const hours = Number(hhRaw);
-  const minutes = Number(mmRaw);
-  if (!Number.isInteger(hours) || hours < 0 || hours > 23) {
+  const [hours, minutes] = timeOfDay.split(":").map(Number);
+  if (
+    !Number.isInteger(hours) ||
+    hours < 0 ||
+    hours > 23 ||
+    !Number.isInteger(minutes) ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
     throw new Error(`Invalid time_of_day: ${timeOfDay}`);
   }
-  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59) {
-    throw new Error(`Invalid time_of_day: ${timeOfDay}`);
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const localEpoch = (epoch: number): number => {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(epoch).map((p) => [p.type, p.value]),
+    );
+    return Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second),
+    );
+  };
+  const date = new Date(localEpoch(now));
+  date.setUTCHours(hours, minutes, 0, 0);
+  for (let day = 0; day < 9; day += 1) {
+    if (dayOfWeek == null || date.getUTCDay() === dayOfWeek) {
+      const wall = date.getTime();
+      const offsets = new Set<number>();
+      for (let delta = -48; delta <= 48; delta += 6) {
+        const probe = wall + delta * 3_600_000;
+        offsets.add(localEpoch(probe) - probe);
+      }
+      const candidates = [...offsets].map((offset) => wall - offset);
+      const exact = candidates.filter((epoch) => localEpoch(epoch) === wall);
+      const shifted = candidates.filter((epoch) => localEpoch(epoch) > wall);
+      const candidate = exact.length
+        ? Math.min(...exact)
+        : shifted.reduce<number | undefined>(
+            (best, epoch) =>
+              best === undefined || localEpoch(epoch) < localEpoch(best)
+                ? epoch
+                : best,
+            undefined,
+          );
+      if (candidate != null && candidate > now) return candidate;
+    }
+    date.setUTCDate(date.getUTCDate() + 1);
   }
-  const base = new Date(now);
-  const candidate = new Date(
-    Date.UTC(
-      base.getUTCFullYear(),
-      base.getUTCMonth(),
-      base.getUTCDate(),
-      hours,
-      minutes,
-      0,
-      0,
-    ),
-  );
-  if (dayOfWeek != null) {
-    const delta = (dayOfWeek - candidate.getUTCDay() + 7) % 7;
-    candidate.setUTCDate(candidate.getUTCDate() + delta);
-  }
-  if (candidate.getTime() <= now) {
-    candidate.setUTCDate(candidate.getUTCDate() + (dayOfWeek == null ? 1 : 7));
-  }
-  return candidate.getTime();
+  throw new Error("Cannot resolve next local schedule occurrence");
 }

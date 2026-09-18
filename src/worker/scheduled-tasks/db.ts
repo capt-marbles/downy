@@ -18,6 +18,7 @@ type ScheduledTaskRow = {
   schedule_type: "interval" | "daily" | "weekly";
   interval_minutes: number | null;
   time_of_day: string | null;
+  timezone: string;
   day_of_week: number | null;
   next_due_at: number;
   last_run_at: number | null;
@@ -39,6 +40,7 @@ function rowToTask(row: ScheduledTaskRow): ScheduledTask {
     scheduleType: row.schedule_type,
     intervalMinutes: row.interval_minutes,
     timeOfDay: row.time_of_day,
+    timezone: row.timezone,
     dayOfWeek: row.day_of_week,
     nextDueAt: row.next_due_at,
     lastRunAt: row.last_run_at,
@@ -67,8 +69,8 @@ export async function createScheduledTask(
     .prepare(
       `INSERT INTO scheduled_tasks (
         id, agent_slug, title, kind, brief, schedule_type, interval_minutes,
-        time_of_day, day_of_week, next_due_at, enabled, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        time_of_day, day_of_week, next_due_at, enabled, created_at, updated_at, timezone
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -84,6 +86,7 @@ export async function createScheduledTask(
       parsed.enabled === false ? 0 : 1,
       now,
       now,
+      parsed.timezone,
     )
     .run();
   const task = await getScheduledTask(db, id);
@@ -219,10 +222,11 @@ function nextDueFromRun(task: ScheduledTask, now: number): number {
         kind: task.kind,
         brief: task.brief,
         scheduleType: task.scheduleType,
+        timezone: task.timezone,
         timeOfDay: task.timeOfDay ?? undefined,
         dayOfWeek: task.dayOfWeek ?? undefined,
       };
-      return nextDueFromSchedule(input, now + 60_000);
+      return nextDueFromSchedule(input, now);
     }
   }
   return task.scheduleType satisfies never;

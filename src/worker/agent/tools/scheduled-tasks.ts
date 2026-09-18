@@ -12,7 +12,7 @@ import { CreateScheduledTaskInputSchema } from "../../scheduled-tasks/types";
 const createInputSchema = CreateScheduledTaskInputSchema.omit({
   agentSlug: true,
 }).describe(
-  "Create a recurring scheduled background task for this agent. Times are UTC. scheduleType='interval' uses intervalMinutes; 'daily' uses timeOfDay HH:MM; 'weekly' uses dayOfWeek 0=Sun..6=Sat plus timeOfDay.",
+  "Create a recurring scheduled background task for this agent. Times use the IANA timezone (default America/Chicago), including daylight saving time. scheduleType='interval' uses intervalMinutes; 'daily' uses timeOfDay HH:MM; 'weekly' uses dayOfWeek 0=Sun..6=Sat plus timeOfDay.",
 );
 
 export function createScheduleTaskTool(args: {
@@ -38,7 +38,8 @@ export function createListScheduledTasksTool(args: {
   agentSlug: string;
 }) {
   return tool({
-    description: "List this agent's scheduled recurring tasks.",
+    description:
+      "List this agent's scheduled recurring tasks, including their timezone and next UTC due time.",
     inputSchema: z.object({ includeDisabled: z.boolean().optional() }),
     execute: async ({ includeDisabled }) => ({
       scheduledTasks: await listScheduledTasks(args.db, {
