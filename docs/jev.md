@@ -28,6 +28,10 @@ separate from gate decisions, with the returned model version on every answer.
 
 Schema source: https://developers.cloudflare.com/ai/models/typesafe/jev/ and its
 linked schema-input.json / schema-output.json, checked 2026-09-18.
+The Workers AI binding returns third-party answers inside
+`{ state: "Completed", result: ... }`. The shared adapter unwraps and validates
+that envelope before either policy consumes it; incomplete or failed responses
+remain evaluator failures. Verified against a live binding after funding.
 
 ## MCP connection triage
 

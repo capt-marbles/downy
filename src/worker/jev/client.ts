@@ -58,6 +58,16 @@ export async function withDeadline<T>(
     clearTimeout(timer);
   }
 }
-export function runJev(ai: Ai, request: JevRequest) {
-  return ai.run("typesafe/jev", request);
+export async function runJev(
+  ai: { run(model: "typesafe/jev", input: JevRequest): Promise<unknown> },
+  request: JevRequest,
+) {
+  const response: unknown = await ai.run("typesafe/jev", request);
+  // The Workers AI binding wraps third-party results, unlike the model's
+  // documented answer schema. Only completed envelopes contain usable evidence.
+  const envelope = z
+    .object({ state: z.literal("Completed"), result: JevResponseSchema })
+    .safeParse(response);
+  if (envelope.success) return envelope.data.result;
+  return JevResponseSchema.parse(response);
 }
