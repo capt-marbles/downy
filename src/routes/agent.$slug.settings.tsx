@@ -1,3 +1,4 @@
+import CriteriaSettings from "../components/chat/CriteriaSettings";
 import CorpusPanel from "../components/chat/CorpusPanel";
 import LocalHandsPanel from "../components/chat/LocalHandsPanel";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
@@ -59,6 +60,7 @@ function AgentSettingsPage() {
       <ErrorAlert message={error} />
       <LocalHandsPanel slug={slug} />
       <CorpusPanel slug={slug} />
+      <CriteriaSettings slug={slug} />
 
       {currentAgent ? (
         <>

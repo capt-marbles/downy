@@ -92,7 +92,14 @@ function rowToTemplate(row: TemplateRow): WorkflowTemplate {
     name: row.name,
     description: row.description,
     version: row.version,
-    stages: parseStages(row.stages_json),
+    stages: parseStages(row.stages_json).map((stage) => ({
+      ...stage,
+      campaignArtifact:
+        stage.campaignArtifact ??
+        CAMPAIGN_ROOM_TEMPLATES.find(
+          (template) => template.id === row.id,
+        )?.stages.find((seed) => seed.id === stage.id)?.campaignArtifact,
+    })),
     isArchived: row.is_archived === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -381,6 +388,11 @@ export async function advanceBuildroomWorkflow(
   if (detail.run.currentStageId !== input.completedStageId) {
     throw new Error(
       `Current stage is ${detail.run.currentStageId}, not ${input.completedStageId}`,
+    );
+  }
+  if (detail.currentStage.gate !== "none" && detail.run.status !== "active") {
+    throw new Error(
+      `Stage requires ${detail.currentStage.gate} before advancing`,
     );
   }
   const expectedArtifact = detail.currentStage.requiredArtifact;

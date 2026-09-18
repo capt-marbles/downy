@@ -23,6 +23,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
     stages: [
       {
         id: "source-intake",
+        campaignArtifact: "campaign-source-notes",
         name: "Source intake",
         role: "research",
         instructions:
@@ -36,6 +37,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "angle-selection",
+        campaignArtifact: "campaign-brief",
         name: "Angle selection",
         role: "main",
         instructions:
@@ -48,6 +50,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "draft",
+        campaignArtifact: "campaign-content-draft",
         name: "Content draft",
         role: "dreamer",
         instructions:
@@ -60,6 +63,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "editorial-review",
+        campaignArtifact: "campaign-editorial-review",
         name: "Editorial review",
         role: "reviewer",
         instructions:
@@ -72,6 +76,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "publish-package",
+        campaignArtifact: "campaign-publish-package",
         name: "Publish package",
         role: "operator",
         instructions:
@@ -92,6 +97,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
     stages: [
       {
         id: "icp-definition",
+        campaignArtifact: "campaign-icp",
         name: "ICP definition",
         role: "main",
         instructions:
@@ -104,6 +110,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "account-sourcing",
+        campaignArtifact: "campaign-lead-list",
         name: "Account sourcing",
         role: "research",
         instructions:
@@ -116,6 +123,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "enrichment",
+        campaignArtifact: "campaign-enrichment-notes",
         name: "Enrichment",
         role: "research",
         instructions:
@@ -126,6 +134,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "qualification",
+        campaignArtifact: "campaign-qualification-report",
         name: "Qualification",
         role: "reviewer",
         instructions:
@@ -138,6 +147,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "operator-review",
+        campaignArtifact: "campaign-qualification-report",
         name: "Operator review",
         role: "operator",
         instructions:
@@ -158,6 +168,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
     stages: [
       {
         id: "lead-context",
+        campaignArtifact: "campaign-lead-context",
         name: "Lead context",
         role: "research",
         instructions:
@@ -170,6 +181,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "personalization",
+        campaignArtifact: "campaign-personalization-notes",
         name: "Personalization research",
         role: "research",
         instructions:
@@ -182,6 +194,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "sequence-draft",
+        campaignArtifact: "campaign-email-sequence",
         name: "Sequence draft",
         role: "dreamer",
         instructions:
@@ -194,6 +207,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "spam-tone-review",
+        campaignArtifact: "campaign-risk-review",
         name: "Spam and tone review",
         role: "reviewer",
         instructions:
@@ -206,6 +220,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "operator-approval",
+        campaignArtifact: "campaign-send-package",
         name: "Operator approval",
         role: "operator",
         instructions:
@@ -226,6 +241,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
     stages: [
       {
         id: "source-scan",
+        campaignArtifact: "campaign-source-notes",
         name: "Source scan",
         role: "research",
         instructions:
@@ -238,6 +254,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "insight-extraction",
+        campaignArtifact: "campaign-digest",
         name: "Insight extraction",
         role: "main",
         instructions:
@@ -248,6 +265,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "opportunity-ranking",
+        campaignArtifact: "campaign-digest",
         name: "Opportunity ranking",
         role: "reviewer",
         instructions:
@@ -260,6 +278,7 @@ export const CAMPAIGN_ROOM_TEMPLATES: SeedWorkflowTemplate[] = [
       },
       {
         id: "recommended-actions",
+        campaignArtifact: "campaign-digest",
         name: "Recommended actions",
         role: "operator",
         instructions:

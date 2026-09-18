@@ -1,3 +1,5 @@
+import { advanceCampaignWorkflow } from "../campaign-room/advance";
+import type { AdvanceWorkflowInput } from "../buildroom/workflows";
 import { syncCorpus } from "../corpus/sync";
 import { corpusRepos, type CorpusCursor } from "../corpus/types";
 import { createFindToolSetupTool } from "./tools/tool-setup";
@@ -262,7 +264,7 @@ export class DownyAgent extends Think {
         db: this.env.DB,
       }),
       advance_buildroom_workflow: createAdvanceBuildroomWorkflowTool({
-        db: this.env.DB,
+        advance: (input) => this.advanceWorkflow(input),
       }),
       record_buildroom_gate_decision: createRecordBuildroomGateDecisionTool({
         db: this.env.DB,
@@ -782,6 +784,15 @@ export class DownyAgent extends Think {
       });
       return null;
     }
+  }
+
+  async advanceWorkflow(input: AdvanceWorkflowInput) {
+    return advanceCampaignWorkflow({
+      env: this.env,
+      agentSlug: this.name,
+      input,
+      readFile: (path) => this.workspace.readFile(path),
+    });
   }
 
   async syncCorpusRepo(

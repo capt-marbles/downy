@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CampaignArtifactNameSchema } from "../campaign-room/schemas";
 
 import { BuildroomArtifactNameSchema, BuildroomRoleSchema } from "./schemas";
 
@@ -45,6 +46,7 @@ export const WorkflowStageSchema = z.object({
   role: BuildroomRoleSchema,
   instructions: z.string().min(1).max(4000),
   requiredArtifact: BuildroomArtifactNameSchema.nullable().default(null),
+  campaignArtifact: CampaignArtifactNameSchema.optional(),
   gate: WorkflowGateTypeSchema.default("none"),
   completionCriteria: z.array(z.string().min(1)).default([]),
 });

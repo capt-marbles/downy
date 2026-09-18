@@ -1,8 +1,8 @@
+import type { DownyAgent } from "../DownyAgent";
 import { tool } from "ai";
 import { z } from "zod";
 
 import {
-  advanceBuildroomWorkflow,
   createWorkflowTemplate,
   getWorkflowDetailOrThrow,
   listWorkflowTemplates,
@@ -22,7 +22,7 @@ export function createListBuildroomWorkflowTemplatesTool(args: {
 }) {
   return tool({
     description:
-      "List Buildroom workflow templates, including the standard research-to-closeout workflow. Use this before starting a workflow.",
+      "List Buildroom workflow templates, including the four Campaign Room workflows. Use this before starting a workflow.",
     inputSchema: z.object({}),
     execute: async () => ({
       templates: await listWorkflowTemplates(args.db, args.agentSlug),
@@ -75,14 +75,14 @@ export function createGetBuildroomWorkflowTool(args: { db: D1Database }) {
   });
 }
 
-export function createAdvanceBuildroomWorkflowTool(args: { db: D1Database }) {
+export function createAdvanceBuildroomWorkflowTool(args: {
+  advance: DownyAgent["advanceWorkflow"];
+}) {
   return tool({
     description:
       "Mark the current Buildroom workflow stage complete and move to the next stage. The outputArtifactName must match the stage's required artifact when one is specified.",
     inputSchema: AdvanceWorkflowInputSchema,
-    execute: async (input) => ({
-      workflow: await advanceBuildroomWorkflow(args.db, input),
-    }),
+    execute: (input) => args.advance(input),
   });
 }
 

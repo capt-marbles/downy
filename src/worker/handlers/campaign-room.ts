@@ -1,3 +1,4 @@
+import { criteriaConfig } from "../campaign-room/criteria";
 import { z } from "zod";
 
 import { createBuildroomJob, listBuildroomJobs } from "../buildroom/db";
@@ -52,6 +53,8 @@ export async function handleCampaignRoomRequest(
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
     const agentSlug = slugFromRequest(request);
+    if (request.method === "GET" && parts[2] === "criteria-config")
+      return json(criteriaConfig(env));
 
     if (request.method === "GET" && parts.length === 2) {
       const jobs = (await listBuildroomJobs(env.DB, agentSlug))

@@ -15,7 +15,6 @@ import {
   listWorkflowTemplates,
   recordWorkflowGateDecision,
   startBuildroomWorkflow,
-  advanceBuildroomWorkflow,
 } from "../buildroom/workflow-db";
 import {
   AdvanceWorkflowInputSchema,
@@ -88,7 +87,8 @@ async function handleWorkflowRoutes(args: {
       ...(typeof body === "object" && body !== null ? body : {}),
       jobId: workflowJobId,
     });
-    return json({ workflow: await advanceBuildroomWorkflow(env.DB, input) });
+    const agent = await getActiveAgentStub(request, env);
+    return json(await agent.advanceWorkflow(input));
   }
 
   if (request.method === "POST" && parts.length === 5 && parts[4] === "gate") {
