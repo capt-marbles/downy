@@ -2,7 +2,6 @@ import { createBuildroomJob } from "./db";
 import { CAMPAIGN_ROOM_TEMPLATES } from "../campaign-room/templates";
 import {
   BuildroomWorkflowDetailSchema,
-  DEFAULT_BUILDROOM_WORKFLOW_STAGES,
   WorkflowGateRecordSchema,
   WorkflowRunSchema,
   WorkflowStageRunSchema,
@@ -21,18 +20,7 @@ import {
   type WorkflowTemplate,
 } from "./workflows";
 
-const DEFAULT_TEMPLATE_ID = "buildroom-standard-v1";
-
-const SEED_WORKFLOW_TEMPLATES = [
-  {
-    id: DEFAULT_TEMPLATE_ID,
-    name: "Buildroom standard workflow",
-    description:
-      "Research, idea, gated planning, coding, QA, trust, retention, and operator closeout.",
-    stages: DEFAULT_BUILDROOM_WORKFLOW_STAGES,
-  },
-  ...CAMPAIGN_ROOM_TEMPLATES,
-];
+const SEED_WORKFLOW_TEMPLATES = [...CAMPAIGN_ROOM_TEMPLATES];
 
 type TemplateRow = {
   id: string;
@@ -239,16 +227,6 @@ export async function ensureDefaultWorkflowTemplates(
       return template;
     }),
   );
-}
-
-export async function ensureDefaultWorkflowTemplate(
-  db: D1Database,
-  agentSlug: string,
-): Promise<WorkflowTemplate> {
-  await ensureDefaultWorkflowTemplates(db, agentSlug);
-  const template = await getWorkflowTemplate(db, DEFAULT_TEMPLATE_ID);
-  if (!template) throw new Error("Failed to create default workflow template");
-  return template;
 }
 
 export async function createWorkflowTemplate(
