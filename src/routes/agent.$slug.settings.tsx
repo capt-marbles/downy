@@ -1,3 +1,4 @@
+import CorpusPanel from "../components/chat/CorpusPanel";
 import LocalHandsPanel from "../components/chat/LocalHandsPanel";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Archive, Lock } from "lucide-react";
@@ -57,6 +58,7 @@ function AgentSettingsPage() {
 
       <ErrorAlert message={error} />
       <LocalHandsPanel slug={slug} />
+      <CorpusPanel slug={slug} />
 
       {currentAgent ? (
         <>

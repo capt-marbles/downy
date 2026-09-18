@@ -72,6 +72,12 @@ export const worker = await TanStackStart("downy", {
   compatibilityFlags: ["nodejs_compat"],
   crons: ["*/5 * * * *"],
   bindings: {
+    CORPUS_REPOS: process.env.CORPUS_REPOS ?? "[]",
+    GITLAB_BASE_URL: process.env.GITLAB_BASE_URL ?? "https://gitlab.com",
+    GITLAB_TOKEN: await SecretRef({ name: "DOWNY_GITLAB_TOKEN" }),
+    GITLAB_WEBHOOK_SECRET: await SecretRef({
+      name: "DOWNY_GITLAB_WEBHOOK_SECRET",
+    }),
     COMPOSIO_API_KEY: await SecretRef({ name: "DOWNY_COMPOSIO_API_KEY" }),
     CREDENTIAL_KEY: await SecretRef({ name: "DOWNY_CREDENTIAL_KEY" }),
     DB: db,

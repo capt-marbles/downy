@@ -1,3 +1,5 @@
+import { handleCorpusRequest } from "./worker/handlers/corpus";
+import { reconcileCorpus } from "./worker/corpus/runner";
 import { handleComposioRequest } from "./worker/handlers/composio";
 import { handleCredentialsRequest } from "./worker/handlers/credentials";
 import tanstackEntry from "@tanstack/react-start/server-entry";
@@ -171,6 +173,8 @@ export default {
       return handleBuildroomRequest(request, env);
     }
 
+    if (url.pathname.startsWith("/api/corpus"))
+      return handleCorpusRequest(request, env);
     if (url.pathname === "/api/composio")
       return handleComposioRequest(request, env);
     if (url.pathname.startsWith("/api/credentials/"))
@@ -214,5 +218,6 @@ export default {
     ctx: ExecutionContext,
   ): Promise<void> {
     ctx.waitUntil(runDueScheduledTasks(env));
+    ctx.waitUntil(reconcileCorpus(env));
   },
 };

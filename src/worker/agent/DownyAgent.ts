@@ -1,3 +1,5 @@
+import { syncCorpus } from "../corpus/sync";
+import { corpusRepos, type CorpusCursor } from "../corpus/types";
 import { createFindToolSetupTool } from "./tools/tool-setup";
 import { createRequestCredentialTool } from "./tools/credentials";
 import {
@@ -780,6 +782,25 @@ export class DownyAgent extends Think {
       });
       return null;
     }
+  }
+
+  async syncCorpusRepo(
+    key: string,
+    cursor: CorpusCursor | null,
+    changedPaths?: string[],
+  ) {
+    const repo = corpusRepos(this.env.CORPUS_REPOS).find(
+      (repo) => repo.key === key,
+    );
+    if (!repo) throw new Error("Unknown configured corpus repo");
+    return syncCorpus({
+      repo,
+      workspace: this.workspace,
+      token: await readSecret(this.env.GITLAB_TOKEN),
+      baseUrl: this.env.GITLAB_BASE_URL,
+      cursor,
+      changedPaths,
+    });
   }
 
   async writeWorkspaceFileBytes(
