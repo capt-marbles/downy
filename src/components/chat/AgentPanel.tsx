@@ -1,3 +1,4 @@
+import LocalHandsPanel from "./LocalHandsPanel";
 import { Link } from "@tanstack/react-router";
 import {
   PanelLeftClose,
@@ -178,6 +179,7 @@ export default function AgentPanel({ agent }: Props) {
           <SkillsSection onNavigate={closeMobile} />
           <ModelStatusSection />
           <CampaignRoomSection />
+          <LocalHandsPanel slug={slug} />
           <ScheduledTasksSection />
           <McpSection agent={agent} onNavigate={closeMobile} />
           <BackgroundTasksSection agent={agent} onNavigate={closeMobile} />

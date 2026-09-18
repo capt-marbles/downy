@@ -7,7 +7,7 @@ import {
   confirmLocalHandsAction,
   heartbeatLocalHandsConnector,
   listLocalHandsActions,
-  listLocalHandsConnectors,
+  localHandsQueueStatus,
   requestLocalHandsAction,
 } from "../local-hands/db";
 import {
@@ -48,7 +48,7 @@ export async function handleLocalHandsRequest(
           agentSlug,
           includeCompleted,
         }),
-        connectors: await listLocalHandsConnectors(env.DB, agentSlug),
+        ...(await localHandsQueueStatus(env.DB, agentSlug)),
       });
     }
 

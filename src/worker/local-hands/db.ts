@@ -361,3 +361,37 @@ export async function completeLocalHandsAction(
     .run();
   return getLocalHandsActionOrThrow(db, args.actionId);
 }
+
+export async function localHandsQueueStatus(db: D1Database, agentSlug: string) {
+  const connectors = await listLocalHandsConnectors(db, agentSlug);
+  const now = Date.now();
+  const rows = await db
+    .prepare(
+      `SELECT * FROM local_hands_actions
+    WHERE agent_slug = ? AND status = 'queued' AND (expires_at IS NULL OR expires_at > ?)
+    ORDER BY created_at ASC`,
+    )
+    .bind(agentSlug, now)
+    .all<ActionRow>();
+  const queued = (rows.results ?? []).map(rowToAction);
+  return {
+    connectors: connectors.map((connector) => ({
+      ...connector,
+      allowed_roots: connector.allowedRoots,
+      last_seen_at: connector.lastSeenAt,
+      queuedCount: queued.filter(
+        (action) =>
+          action.targetConnectorId === connector.id ||
+          connectorCanClaim(action, connector, now),
+      ).length,
+    })),
+    unclaimableActions: queued.filter(
+      (action) =>
+        !connectors.some(
+          (connector) =>
+            connector.status === "online" &&
+            connectorCanClaim(action, connector, now),
+        ),
+    ),
+  };
+}
