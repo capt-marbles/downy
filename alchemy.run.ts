@@ -72,6 +72,7 @@ export const worker = await TanStackStart("downy", {
   compatibilityFlags: ["nodejs_compat"],
   crons: ["*/5 * * * *"],
   bindings: {
+    COMPOSIO_API_KEY: await SecretRef({ name: "DOWNY_COMPOSIO_API_KEY" }),
     CREDENTIAL_KEY: await SecretRef({ name: "DOWNY_CREDENTIAL_KEY" }),
     DB: db,
     WORKSPACE_BUCKET: workspaceBucket,

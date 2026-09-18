@@ -1,3 +1,5 @@
+import { submitComposioKey } from "../composio/setup";
+import { z } from "zod";
 import { getAgentStub, slugFromRequest } from "../lib/get-agent";
 import { resolveCredentialRequest } from "../credentials/requests";
 export async function handleCredentialsRequest(
@@ -27,7 +29,14 @@ export async function handleCredentialsRequest(
       ticketId,
       slug,
       JSON.parse(body) as unknown,
-      (target, headers) => agent.connectCredential(target, headers),
+      (target, headers) => {
+        const managed = z
+          .object({ provider: z.literal("composio"), setupId: z.string() })
+          .safeParse(target);
+        return managed.success
+          ? submitComposioKey(env, slug, managed.data.setupId, headers)
+          : agent.connectCredential(target, headers);
+      },
     );
     return Response.json(result, { headers: { "cache-control": "no-store" } });
   } catch {

@@ -1,3 +1,4 @@
+import ToolSetupCard from "./ToolSetupCard";
 import CredentialCard from "./CredentialCard";
 import {
   AlertCircle,
@@ -47,6 +48,7 @@ export default function ToolPart({
   // here covers every state — input-streaming, input-available, output-*
   // — so the panel is the single visual source of truth.
   if (name === "todo_write") return null;
+  if (name === "find_tool_setup") return <ToolSetupCard part={part} />;
   if (name === "request_credential" || name === "credential-request")
     return <CredentialCard part={part} />;
   const status = deriveRenderStatus(part, turnEnded);

@@ -1,3 +1,4 @@
+import { createFindToolSetupTool } from "./tools/tool-setup";
 import { createRequestCredentialTool } from "./tools/credentials";
 import {
   encryptHeaders,
@@ -282,6 +283,7 @@ export class DownyAgent extends Think {
       connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
         agent: this,
       }),
+      find_tool_setup: createFindToolSetupTool(this.env),
       request_credential: createRequestCredentialTool({
         db: this.env.DB,
         agentSlug: this.name,
