@@ -44,6 +44,9 @@ export const LocalHandsActionSchema = z.object({
   input: z.record(z.string(), z.unknown()),
   result: z.record(z.string(), z.unknown()).nullable(),
   error: z.string().nullable(),
+  targetConnectorId: z.string().nullable(),
+  requiredCapability: z.string().nullable(),
+  expiresAt: z.number().nullable(),
   claimedBy: z.string().nullable(),
   claimedAt: z.number().nullable(),
   createdAt: z.number(),
@@ -56,6 +59,8 @@ export const RequestLocalHandsActionInputSchema = z.object({
   kind: LocalHandsActionKindSchema,
   riskLevel: LocalHandsRiskLevelSchema,
   requiresConfirmation: z.boolean().default(true),
+  targetConnectorId: z.string().min(1).max(120).optional(),
+  expiresAt: z.number().int().positive().optional(),
   requestedBy: z.string().min(1).max(120).default("agent"),
   input: z.record(z.string(), z.unknown()),
 });
@@ -92,6 +97,7 @@ export const LocalHandsConnectorSchema = z.object({
   agentSlug: z.string(),
   name: z.string(),
   capabilities: z.array(LocalHandsCapabilitySchema),
+  allowedRoots: z.array(z.string()),
   status: z.enum(["online", "offline"]),
   lastSeenAt: z.number(),
   createdAt: z.number(),
@@ -103,6 +109,7 @@ export const LocalHandsHeartbeatInputSchema = z.object({
   connectorId: z.string().min(1).max(120),
   name: z.string().min(1).max(120),
   capabilities: z.array(LocalHandsCapabilitySchema).default([]),
+  allowedRoots: z.array(z.string().startsWith("/")).default([]),
 });
 export type LocalHandsHeartbeatInput = z.infer<
   typeof LocalHandsHeartbeatInputSchema
@@ -111,6 +118,7 @@ export type LocalHandsHeartbeatInput = z.infer<
 export const LocalHandsClaimInputSchema = z.object({
   connectorId: z.string().min(1).max(120),
   capabilities: z.array(LocalHandsCapabilitySchema).default([]),
+  allowedRoots: z.array(z.string().startsWith("/")).default([]),
 });
 export type LocalHandsClaimInput = z.infer<typeof LocalHandsClaimInputSchema>;
 

@@ -70,11 +70,16 @@ async function heartbeat() {
     connectorId,
     name: `Downy Hands on ${process.env.HOSTNAME ?? "local"}`,
     capabilities,
+    allowedRoots,
   });
 }
 
 async function claim() {
-  return post("/api/local-hands/claim", { connectorId, capabilities });
+  return post("/api/local-hands/claim", {
+    connectorId,
+    capabilities,
+    allowedRoots,
+  });
 }
 
 async function complete(action, status, result, error = null) {

@@ -30,6 +30,7 @@ const GrokResearchInputSchema = z.object({
 });
 
 export function createRequestLocalHandsActionTool(args: {
+  scheduled?: boolean;
   db: D1Database;
   agentSlug: string;
 }) {
@@ -41,6 +42,7 @@ export function createRequestLocalHandsActionTool(args: {
       action: await requestLocalHandsAction(args.db, {
         agentSlug: args.agentSlug,
         input,
+        scheduled: args.scheduled,
       }),
     }),
   });

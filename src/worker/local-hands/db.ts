@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import { z } from "zod";
 
 import {
@@ -30,6 +31,9 @@ type ActionRow = {
   input_json: string;
   result_json: string | null;
   error: string | null;
+  target_connector_id: string | null;
+  required_capability: string | null;
+  expires_at: number | null;
   claimed_by: string | null;
   claimed_at: number | null;
   created_at: number;
@@ -42,6 +46,7 @@ type ConnectorRow = {
   agent_slug: string;
   name: string;
   capabilities_json: string;
+  allowed_roots_json: string;
   status: "online" | "offline";
   last_seen_at: number;
   created_at: number;
@@ -68,6 +73,9 @@ function rowToAction(row: ActionRow): LocalHandsAction {
     input: parseRecord(row.input_json) ?? {},
     result: parseRecord(row.result_json),
     error: row.error,
+    targetConnectorId: row.target_connector_id,
+    requiredCapability: row.required_capability,
+    expiresAt: row.expires_at,
     claimedBy: row.claimed_by,
     claimedAt: row.claimed_at,
     createdAt: row.created_at,
@@ -83,6 +91,7 @@ function rowToConnector(row: ConnectorRow): LocalHandsConnector {
     agentSlug: row.agent_slug,
     name: row.name,
     capabilities: Array.isArray(parsed) ? parsed : [],
+    allowedRoots: JSON.parse(row.allowed_roots_json) as unknown,
     status: row.status,
     lastSeenAt: row.last_seen_at,
     createdAt: row.created_at,
@@ -92,7 +101,11 @@ function rowToConnector(row: ConnectorRow): LocalHandsConnector {
 
 export async function requestLocalHandsAction(
   db: D1Database,
-  args: { agentSlug: string; input: RequestLocalHandsActionInput },
+  args: {
+    agentSlug: string;
+    input: RequestLocalHandsActionInput;
+    scheduled?: boolean;
+  },
 ): Promise<LocalHandsAction> {
   const now = Date.now();
   const id = `hands-${now}-${crypto.randomUUID().slice(0, 8)}`;
@@ -102,8 +115,9 @@ export async function requestLocalHandsAction(
     .prepare(
       `INSERT INTO local_hands_actions (
         id, agent_slug, kind, status, risk_level, requires_confirmation,
-        confirmed_at, requested_by, input_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        confirmed_at, requested_by, input_json, created_at, updated_at,
+        target_connector_id, required_capability, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -117,6 +131,9 @@ export async function requestLocalHandsAction(
       JSON.stringify(args.input.input),
       now,
       now,
+      args.input.targetConnectorId ?? null,
+      KIND_CAPABILITY[args.input.kind],
+      args.input.expiresAt ?? (args.scheduled ? now + 86_400_000 : null),
     )
     .run();
   return getLocalHandsActionOrThrow(db, id);
@@ -179,12 +196,13 @@ export async function heartbeatLocalHandsConnector(
     .prepare(
       `INSERT INTO local_hands_connectors (
         id, agent_slug, name, capabilities_json, status,
-        last_seen_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'online', ?, ?, ?)
+        last_seen_at, created_at, updated_at, allowed_roots_json
+      ) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         agent_slug = excluded.agent_slug,
         name = excluded.name,
         capabilities_json = excluded.capabilities_json,
+        allowed_roots_json = excluded.allowed_roots_json,
         status = 'online',
         last_seen_at = excluded.last_seen_at,
         updated_at = excluded.updated_at`,
@@ -197,6 +215,7 @@ export async function heartbeatLocalHandsConnector(
       now,
       now,
       now,
+      JSON.stringify(input.allowedRoots),
     )
     .run();
   const row = await db
@@ -230,34 +249,93 @@ export async function listLocalHandsConnectors(
   return (result.results ?? []).map(rowToConnector);
 }
 
+const KIND_CAPABILITY: Record<LocalHandsActionKind, string> = {
+  jcode: "jcode.coding",
+  git: "git.read",
+  shell: "shell.read",
+  filesystem: "filesystem.read",
+  browser: "browser.automation",
+  xurl: "xurl.research",
+  "x.research": "x.research",
+  "grok.research": "grok.research",
+};
+
+export function connectorCanClaim(
+  action: LocalHandsAction,
+  connector: {
+    id: string;
+    capabilities: string[];
+    allowedRoots: string[];
+  },
+  now = Date.now(),
+): boolean {
+  if (
+    action.status !== "queued" ||
+    (action.expiresAt != null && action.expiresAt <= now)
+  )
+    return false;
+  if (action.targetConnectorId && action.targetConnectorId !== connector.id)
+    return false;
+  if (
+    action.requiredCapability &&
+    !connector.capabilities.includes(action.requiredCapability)
+  )
+    return false;
+  const directory = action.input.workingDirectory;
+  if (directory == null) return true;
+  // Workers cannot infer a connector's cwd. Require absolute paths and normalize
+  // dot segments before comparing directory boundaries, never string prefixes.
+  if (typeof directory !== "string" || !posix.isAbsolute(directory))
+    return false;
+  const resolved = posix.normalize(directory);
+  return connector.allowedRoots.some((root) => {
+    const normalized = posix.normalize(root).replace(/\/$/, "");
+    return (
+      posix.isAbsolute(root) &&
+      (resolved === normalized || resolved.startsWith(`${normalized}/`))
+    );
+  });
+}
+
 export async function claimNextLocalHandsAction(
   db: D1Database,
   args: { agentSlug: string; input: LocalHandsClaimInput },
 ): Promise<LocalHandsAction | null> {
-  await heartbeatLocalHandsConnector(db, args.agentSlug, {
-    connectorId: args.input.connectorId,
+  const connector = await heartbeatLocalHandsConnector(db, args.agentSlug, {
+    ...args.input,
     name: args.input.connectorId,
-    capabilities: args.input.capabilities,
   });
-  const row = await db
+  const now = Date.now();
+  const rows = await db
     .prepare(
       `SELECT * FROM local_hands_actions
-       WHERE agent_slug = ? AND status = 'queued'
-       ORDER BY created_at ASC LIMIT 1`,
+    WHERE agent_slug = ? AND status = 'queued'
+      AND (target_connector_id IS NULL OR target_connector_id = ?)
+      AND (required_capability IS NULL OR required_capability IN (SELECT value FROM json_each(?)))
+      AND (expires_at IS NULL OR expires_at > ?)
+    ORDER BY created_at ASC, id ASC LIMIT 20`,
     )
-    .bind(args.agentSlug)
-    .first<ActionRow>();
-  if (!row) return null;
-  const now = Date.now();
-  await db
-    .prepare(
-      `UPDATE local_hands_actions
-       SET status = 'claimed', claimed_by = ?, claimed_at = ?, updated_at = ?
-       WHERE id = ? AND status = 'queued'`,
+    .bind(
+      args.agentSlug,
+      connector.id,
+      JSON.stringify(connector.capabilities),
+      now,
     )
-    .bind(args.input.connectorId, now, now, row.id)
-    .run();
-  return getLocalHandsActionOrThrow(db, row.id);
+    .all<ActionRow>();
+  for (const row of rows.results ?? []) {
+    if (!connectorCanClaim(rowToAction(row), connector, now)) continue;
+    const claimed = await db
+      .prepare(
+        `UPDATE local_hands_actions
+      SET status = 'claimed', claimed_by = ?, claimed_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'queued' AND (expires_at IS NULL OR expires_at > ?)`,
+      )
+      .bind(connector.id, now, now, row.id, now)
+      .run();
+    if (claimed.meta.changes === 1)
+      return getLocalHandsActionOrThrow(db, row.id);
+  }
+  return null;
 }
 
 export async function completeLocalHandsAction(

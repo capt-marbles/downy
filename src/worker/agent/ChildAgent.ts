@@ -1,3 +1,4 @@
+import { createRequestLocalHandsActionTool } from "./tools/local-hands";
 import { Think } from "@cloudflare/think";
 import type { Workspace } from "@cloudflare/shell";
 import { getAgentByName } from "agents";
@@ -183,6 +184,11 @@ export class ChildAgent extends Think {
           parentSlug: meta.parentName,
           bumpPeerReadCount: () => this.bumpPeerReadCount(),
           setActivePlan: (plan) => this.#setActivePlan(plan),
+        }),
+        request_local_hands_action: createRequestLocalHandsActionTool({
+          db: this.env.DB,
+          agentSlug: meta.parentName,
+          scheduled: meta.kind.startsWith("scheduled:"),
         }),
         ...mcpTools,
       },
