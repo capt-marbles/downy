@@ -11,6 +11,7 @@
     "**/*.{js,mjs,ts,tsx}",
     "!src/routeTree.gen.ts",
     "!aisdk-pi-proxy/**",
+    "!sam/**",
   ],
   // Skip knip's built-in vite plugin: it tries to load vite.config.ts at
   // analysis time, and our config calls `alchemy()` which expects
@@ -18,6 +19,26 @@
   // `alchemy deploy` / `alchemy dev`). Listing vite.config.ts as an entry
   // above keeps its imported deps tracked.
   "vite": false,
+  // Retain the existing public schema vocabulary and retired engineering code.
+  // These modules are intentionally kept on disk, not agent tool registrations.
+  "ignoreIssues": {
+    "src/worker/campaign-room/templates.ts": ["exports", "types"],
+    "src/worker/buildroom/workflows.ts": ["exports", "types"],
+    "src/worker/scheduled-tasks/types.ts": ["exports", "types"],
+    "src/lib/api-schemas.ts": ["exports", "types"],
+    "src/worker/local-hands/types.ts": ["exports", "types"],
+    "src/worker/agent/model-status.ts": ["exports"],
+    "src/worker/buildroom/artifacts.ts": ["exports", "types"],
+    "src/worker/buildroom/schemas.ts": ["exports", "types"],
+    "src/worker/campaign-room/schemas.ts": ["exports"],
+    "src/worker/buildroom/lifecycle.ts": ["exports", "types"],
+    "src/worker/buildroom/paths.ts": ["exports"],
+    "src/worker/buildroom/workflow-db.ts": ["exports"],
+    "src/worker/campaign-room/schedules.ts": ["exports", "types"],
+    "src/worker/scheduled-tasks/db.ts": ["exports"],
+    "src/lib/api-client.ts": ["types"],
+    "src/worker/campaign-room/artifacts.ts": ["types"],
+  },
   "ignoreDependencies": [
     // Tailwindcss used via @tailwindcss/vite plugin
     "tailwindcss",

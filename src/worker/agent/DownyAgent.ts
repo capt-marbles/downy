@@ -70,7 +70,6 @@ import {
 import {
   createBuildroomJobTool,
   createListBuildroomJobsTool,
-  createWriteBuildroomArtifactTool,
 } from "./tools/buildroom";
 import {
   createAdvanceBuildroomWorkflowTool,
@@ -220,11 +219,6 @@ export class DownyAgent extends Think {
       list_buildroom_jobs: createListBuildroomJobsTool({
         db: this.env.DB,
         agentSlug: this.name,
-      }),
-      write_buildroom_artifact: createWriteBuildroomArtifactTool({
-        db: this.env.DB,
-        agentSlug: this.name,
-        getWorkspace: () => this.workspace,
       }),
       write_campaign_artifact: createWriteCampaignArtifactTool({
         agentSlug: this.name,
