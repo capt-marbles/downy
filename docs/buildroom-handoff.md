@@ -34,18 +34,7 @@ Recent commits to preserve/push:
 
 ## Implemented Buildroom scope
 
-### Workflow spec
-
-File: `docs/buildroom-workflow-spec.md`
-
-Captures the intended system scope:
-
-- research -> idea -> review -> planning -> coding -> verification -> QA -> trust/retention -> closeout
-- role-gated transitions
-- typed artifacts
-- approval ledger
-- local hands integration
-- safety and confirmation gates
+The engineering lifecycle specification has been retired. See [Campaign Room](campaign-room.md) for the supported workflow pack.
 
 ### Buildroom foundation
 
