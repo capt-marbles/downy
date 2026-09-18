@@ -1,5 +1,6 @@
 import ToolSetupCard from "./ToolSetupCard";
 import CredentialCard from "./CredentialCard";
+import { CredentialTicketSchema } from "../../worker/credentials/types";
 import {
   AlertCircle,
   Check,
@@ -43,6 +44,15 @@ export default function ToolPart({
   turnEnded: boolean;
 }) {
   const name = toolName(part);
+  const credential = z
+    .object({ credentialRequest: CredentialTicketSchema })
+    .safeParse(part.output);
+  if (credential.success)
+    return (
+      <CredentialCard
+        part={{ ...part, output: credential.data.credentialRequest }}
+      />
+    );
   // `todo_write` is rendered by the dedicated `<TodoList />` panel (above
   // input on main chat, sticky footer on background-task chat). Hiding it
   // here covers every state — input-streaming, input-available, output-*

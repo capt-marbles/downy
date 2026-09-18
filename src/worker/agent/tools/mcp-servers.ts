@@ -77,86 +77,6 @@ const connectCloudflareInputSchema = z.object({
   transport: transportSchema,
 });
 
-type ProbeResult =
-  | {
-      ok: true;
-      status: number;
-      statusText: string;
-      contentType: string | null;
-      bodyPreview: string;
-      bodyTruncated: boolean;
-    }
-  | { ok: false; error: string };
-
-async function probeMcpEndpoint(
-  url: string,
-  headers: Record<string, string> | undefined,
-): Promise<ProbeResult> {
-  // Streamable-HTTP MCP handshake is a POST with the JSON-RPC `initialize`
-  // request. Doing it manually surfaces 401/403/404/405 from the actual server,
-  // which the MCP client manager often hides behind `state: failed, error: null`.
-  const initBody = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "downy-probe", version: "0.0.0" },
-    },
-  };
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        ...headers,
-      },
-      body: JSON.stringify(initBody),
-    });
-    const contentType = res.headers.get("content-type");
-    const text = await res.text();
-    const MAX = 1000;
-    return {
-      ok: true,
-      status: res.status,
-      statusText: res.statusText,
-      contentType,
-      bodyPreview: text.slice(0, MAX),
-      bodyTruncated: text.length > MAX,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-async function waitForSettled(
-  agent: DownyAgent,
-  id: string,
-  timeoutMs = 4000,
-): Promise<{
-  state: string;
-  error: string | null;
-}> {
-  const start = Date.now();
-  while (true) {
-    const server = agent.getMcpServers().servers[id];
-    const state = server?.state ?? "unknown";
-    const error = typeof server?.error === "string" ? server.error : null;
-    if (state !== "connecting" && state !== "authenticating") {
-      return { state, error };
-    }
-    if (Date.now() - start >= timeoutMs) {
-      return { state, error };
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}
-
 function resultError(result: { state: string }): string | undefined {
   if (!("error" in result)) return undefined;
   return typeof result.error === "string" ? result.error : undefined;
@@ -274,54 +194,9 @@ export async function connectWithStaticHeaders(
 export function createConnectMcpServerTool(args: { agent: DownyAgent }) {
   return tool({
     description:
-      "Attach a hosted MCP server without static secrets. Never ask the user to type a key into chat; use request_credential for header authentication. Only use verified endpoint URLs, and explicitly flag an unverified URL as a guess. OAuth-only servers may require managed setup. Report discovered tool names after connection.",
+      "Connect a hosted MCP endpoint. Returns state, discovered tool names, diagnostics, and failure guidance when needed. Credentials come only from the secure credential card, never from the model or chat. Flag unverified endpoint URLs as guesses.",
     inputSchema: connectInputSchema,
-    execute: async ({ name, url, transport }) => {
-      const type = transport ?? "auto";
-      // No-headers path: defer to the SDK's addMcpServer, which handles the
-      // OAuth dance for servers that need it.
-      let result: { id: string; state: string };
-      try {
-        result = await args.agent.addMcpServer(name, url, {
-          transport: { type },
-        });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        const probeOnThrow = await probeMcpEndpoint(url, undefined);
-        return {
-          id: null,
-          state: "failed",
-          error: errMsg,
-          toolNames: [],
-          sentHeaderNames: [],
-          probe: probeOnThrow,
-        };
-      }
-      await args.agent.persistMcpServer({
-        id: result.id,
-        name,
-        url,
-        transport: type,
-        headers: undefined,
-      });
-      const settled = await waitForSettled(args.agent, result.id);
-      const toolNames = args.agent.mcp
-        .listTools()
-        .filter((t) => t.serverId === result.id)
-        .map((t) => t.name);
-      let probe: ProbeResult | null = null;
-      if (settled.state === "failed") {
-        probe = await probeMcpEndpoint(url, undefined);
-      }
-      return {
-        id: result.id,
-        state: settled.state,
-        error: settled.error,
-        toolNames,
-        sentHeaderNames: [],
-        probe,
-      };
-    },
+    execute: (input) => args.agent.connectMcpEndpoint(input),
   });
 }
 
@@ -330,54 +205,14 @@ export function createConnectCloudflareMcpServerTool(args: {
 }) {
   return tool({
     description:
-      "Attach a Cloudflare managed MCP server using OAuth. Never ask the user to type an API key into chat. For token authentication, use request_credential with an Authorization bearer field and the documented endpoint. Report discovered tool names.",
+      "Connect a Cloudflare managed MCP server. Returns connection state and discovered tools. Use request_credential for token authentication; never ask the user to type a key into chat.",
     inputSchema: connectCloudflareInputSchema,
-    execute: async ({ server, name, url, transport }) => {
-      const selected = server ?? "api";
-      const targetUrl = url ?? CLOUDFLARE_MCP_SERVERS[selected];
-      const displayName = name ?? `cloudflare-${selected.replaceAll("_", "-")}`;
-      const type = transport ?? "streamable-http";
-      let result: { id: string; state: string };
-      try {
-        result = await args.agent.addMcpServer(displayName, targetUrl, {
-          transport: { type },
-        });
-      } catch (err) {
-        const probeOnThrow = await probeMcpEndpoint(targetUrl, undefined);
-        return {
-          id: null,
-          state: "failed",
-          error: err instanceof Error ? err.message : String(err),
-          server: selected,
-          url: targetUrl,
-          toolNames: [],
-          sentHeaderNames: [],
-          probe: probeOnThrow,
-        };
-      }
-      await args.agent.persistMcpServer({
-        id: result.id,
-        name: displayName,
-        url: targetUrl,
-        transport: type,
-        headers: undefined,
-      });
-      const settled = await waitForSettled(args.agent, result.id);
-      const toolNames = args.agent.mcp
-        .listTools()
-        .filter((t) => t.serverId === result.id)
-        .map((t) => t.name);
-      return {
-        id: result.id,
-        state: settled.state,
-        error: settled.error,
-        server: selected,
-        url: targetUrl,
-        toolNames,
-        sentHeaderNames: [],
-        destructiveActionsRequireConfirmation: true,
-      };
-    },
+    execute: ({ server, name, url, transport }) =>
+      args.agent.connectMcpEndpoint({
+        name: name ?? `cloudflare-${server}`,
+        url: url ?? CLOUDFLARE_MCP_SERVERS[server],
+        transport: transport ?? "streamable-http",
+      }),
   });
 }
 

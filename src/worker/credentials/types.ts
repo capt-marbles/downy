@@ -30,14 +30,18 @@ export const CredentialTicketSchema = z.object({
   expiresAt: z.number(),
   fields: z.array(CredentialFieldSchema),
 });
-export type CredentialTarget = {
-  serverName: string;
-  url: string;
-  transport: "auto" | "streamable-http" | "sse";
-  docsUrl?: string;
-};
+export const CredentialTargetSchema = CredentialRequestInputSchema.omit({
+  purpose: true,
+  fields: true,
+});
+export const StoredCredentialTargetSchema = z.union([
+  CredentialTargetSchema,
+  z.object({ provider: z.literal("composio"), setupId: z.string() }),
+]);
+export type CredentialTarget = z.infer<typeof CredentialTargetSchema>;
 export type CredentialOutcome = {
   state: string;
   toolNames: string[];
   error: string | null;
+  credentialRequest?: z.infer<typeof CredentialTicketSchema>;
 };

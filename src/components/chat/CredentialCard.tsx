@@ -7,6 +7,7 @@ const OutcomeSchema = z.object({
   state: z.string(),
   toolNames: z.array(z.string()),
   error: z.string().nullable(),
+  credentialRequest: CredentialTicketSchema.optional(),
 });
 
 export default function CredentialCard({ part }: { part: ToolPart }) {
@@ -16,6 +17,13 @@ export default function CredentialCard({ part }: { part: ToolPart }) {
   const [outcome, setOutcome] = useState<z.infer<typeof OutcomeSchema> | null>(
     null,
   );
+  if (outcome?.credentialRequest)
+    return (
+      <CredentialCard
+        key={outcome.credentialRequest.ticketId}
+        part={{ ...part, output: outcome.credentialRequest }}
+      />
+    );
   if (!ticket.success)
     return <p className="text-xs">Preparing secure credential entry…</p>;
   const expired = ticket.data.expiresAt <= Date.now();

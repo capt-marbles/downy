@@ -72,6 +72,8 @@ export const worker = await TanStackStart("downy", {
   compatibilityFlags: ["nodejs_compat"],
   crons: ["*/5 * * * *"],
   bindings: {
+    MCP_TRIAGE_CONFIDENCE_FLOOR:
+      process.env.MCP_TRIAGE_CONFIDENCE_FLOOR ?? "0.6",
     JEV_GATING_ENABLED: process.env.JEV_GATING_ENABLED ?? "true",
     CRITERIA_PASS_THRESHOLD: process.env.CRITERIA_PASS_THRESHOLD ?? "0.7",
     CRITERIA_CONFIDENCE_FLOOR: process.env.CRITERIA_CONFIDENCE_FLOOR ?? "0.6",

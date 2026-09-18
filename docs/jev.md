@@ -28,3 +28,19 @@ separate from gate decisions, with the returned model version on every answer.
 
 Schema source: https://developers.cloudflare.com/ai/models/typesafe/jev/ and its
 linked schema-input.json / schema-output.json, checked 2026-09-18.
+
+## MCP connection triage
+
+Failed MCP connects invoke one Jev `choice` classification plus a `noul`
+retry-worthwhile question. Only header names enter the request; known credential
+values are scrubbed from probe text and error output. The deterministic ladder
+allows at most four connect attempts in 20 seconds, with an independent five-second
+classifier deadline. `MCP_TRIAGE_CONFIDENCE_FLOOR` defaults to `0.6`.
+
+Rejected credentials stop immediately and create a secure credential ticket.
+Transport and URL repairs follow a fixed order; outages and rate limiting receive
+one short backoff retry. Low confidence, unknown classes or evaluator outages
+return manual troubleshooting guidance only in the failure result. Jev never
+marks an endpoint trustworthy, validates a credential, or approves a gate.
+`mcp_connect_diagnostics` records the model version, class, confidence, HTTP status,
+attempt ladder and outcome without credential values.

@@ -10,7 +10,8 @@ import {
   readSecret,
 } from "../credentials/crypto";
 import type { CredentialTarget, CredentialOutcome } from "../credentials/types";
-import { connectWithStaticHeaders } from "./tools/mcp-servers";
+import { connectMcpWithTriage } from "./mcp-connect";
+import type { McpTransport } from "./mcp-triage";
 import { readFetchBytes, uniqueInboxPath } from "../local-hands/upload";
 /* eslint-disable max-lines -- central Durable Object agent class; split once Think lifecycle hooks settle. */
 import { Think } from "@cloudflare/think";
@@ -801,7 +802,7 @@ export class DownyAgent extends Think {
     changedPaths?: string[],
   ) {
     const repo = corpusRepos(this.env.CORPUS_REPOS).find(
-      (repo) => repo.key === key,
+      (candidateRepo) => candidateRepo.key === key,
     );
     if (!repo) throw new Error("Unknown configured corpus repo");
     return syncCorpus({
@@ -1062,41 +1063,38 @@ export class DownyAgent extends Think {
     return { migrated };
   }
 
+  async connectMcpEndpoint(params: {
+    name: string;
+    url: string;
+    transport?: McpTransport;
+  }) {
+    return connectMcpWithTriage(this, this.env, params);
+  }
+
   async connectCredential(
     target: CredentialTarget,
     headers: Record<string, string>,
   ): Promise<CredentialOutcome> {
-    // Validate encryption before sending anything to the vendor.
     await encryptHeaders(
       {},
       await readSecret(this.env.CREDENTIAL_KEY),
       "preflight",
     );
     try {
-      const result = await connectWithStaticHeaders(this, {
-        name: target.serverName,
-        url: target.url,
-        type: target.transport,
-        headers,
-      });
-      if (result.state !== "ready") {
-        await this.mcp.removeServer(result.id).catch(() => undefined);
-        return { state: "failed", toolNames: [], error: "Connection failed" };
-      }
-      await this.persistMcpServer({
-        id: result.id,
+      const result = await connectMcpWithTriage(this, this.env, {
         name: target.serverName,
         url: target.url,
         transport: target.transport,
         headers,
       });
-      const secrets = Object.values(headers);
-      const toolNames = this.mcp
-        .listTools()
-        .filter((t) => t.serverId === result.id)
-        .map((t) => t.name)
-        .filter((name) => !secrets.some((secret) => name.includes(secret)));
-      return { state: "ready", toolNames, error: null };
+      return {
+        state: result.state,
+        toolNames: result.toolNames,
+        error: result.error,
+        ...(result.credentialRequest
+          ? { credentialRequest: result.credentialRequest }
+          : {}),
+      };
     } catch {
       return { state: "failed", toolNames: [], error: "Connection failed" };
     }

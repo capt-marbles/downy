@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   CredentialFieldSchema,
   CredentialRequestInputSchema,
-  type CredentialTarget,
+  StoredCredentialTargetSchema,
   type CredentialOutcome,
 } from "./types";
 
@@ -41,7 +41,7 @@ export async function resolveCredentialRequest(
   agentSlug: string,
   values: unknown,
   connect: (
-    target: CredentialTarget,
+    target: z.infer<typeof StoredCredentialTargetSchema>,
     headers: Record<string, string>,
   ) => Promise<CredentialOutcome>,
 ): Promise<CredentialOutcome> {
@@ -106,7 +106,7 @@ export async function resolveCredentialRequest(
       }),
     );
     outcome = await connect(
-      JSON.parse(row.target_json) as CredentialTarget,
+      StoredCredentialTargetSchema.parse(JSON.parse(row.target_json)),
       headers,
     );
     // Never forward provider error text (it may echo a submitted credential).
@@ -115,6 +115,9 @@ export async function resolveCredentialRequest(
       ...Object.values(headers),
     ];
     outcome = {
+      ...(outcome.credentialRequest
+        ? { credentialRequest: outcome.credentialRequest }
+        : {}),
       state: outcome.state === "ready" ? "ready" : "failed",
       toolNames: outcome.toolNames.filter(
         (name) => !secrets.some((secret) => name.includes(secret)),
