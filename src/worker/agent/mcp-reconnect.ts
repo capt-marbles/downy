@@ -1,3 +1,4 @@
+import type { CredentialEnvelope } from "../credentials/crypto";
 import type { MCPClientManager } from "agents/mcp/client";
 
 export type StoredMcpServer = {
@@ -6,6 +7,7 @@ export type StoredMcpServer = {
   url: string;
   transport?: "auto" | "streamable-http" | "sse";
   headers?: Record<string, string>;
+  encryptedHeaders?: CredentialEnvelope;
 };
 
 // Recognize the agents-SDK signature for "401 with no usable OAuth provider":
@@ -29,20 +31,90 @@ function resultError(result: { state: string }): unknown {
   return "error" in result ? result.error : undefined;
 }
 
+export function headerSecretValues(headers: Record<string, string>): string[] {
+  return Object.values(headers)
+    .flatMap((value) => {
+      const token = value.replace(/^(Bearer|Basic) /, "");
+      if (!value.startsWith("Basic ")) return [value, token];
+      try {
+        const plain = new TextDecoder().decode(
+          Uint8Array.from(atob(token), (c) => c.charCodeAt(0)),
+        );
+        return [value, token, plain];
+      } catch {
+        return [value, token];
+      }
+    })
+    .filter(Boolean);
+}
+
 export function buildHeaderTransport(
   type: "auto" | "streamable-http" | "sse",
   headers: Record<string, string>,
 ) {
+  // Functions are omitted by the SDK's JSON persistence. Never give it a
+  // serializable requestInit.headers copy of credentials.
+  const authenticatedFetch = async (
+    u: string | URL | globalThis.Request,
+    init?: RequestInit,
+  ) => {
+    const merged = new Headers(init?.headers);
+    for (const [key, value] of Object.entries(headers)) merged.set(key, value);
+    const secrets = headerSecretValues(headers);
+    const scrub = (value: string) =>
+      secrets.reduce(
+        (text, secret) => text.replaceAll(secret, "[REDACTED]"),
+        value,
+      );
+    let response: Response;
+    try {
+      response = await fetch(u, { ...init, headers: merged });
+    } catch {
+      throw new Error("Authenticated MCP request failed");
+    }
+    // Redact complete SSE events so an idle stream still delivers its last
+    // event immediately. Holding a secret-length tail would stall handshakes.
+    // JSON responses are finite and must be buffered until complete to catch
+    // credentials split across network chunks.
+    let pending = "";
+    const isEventStream = response.headers
+      .get("content-type")
+      ?.includes("text/event-stream");
+    const stream = response.body
+      ?.pipeThrough(new TextDecoderStream())
+      .pipeThrough(
+        new TransformStream<string, string>({
+          transform(chunk, controller) {
+            pending += chunk;
+            if (isEventStream) {
+              let separator: RegExpExecArray | null;
+              while ((separator = /\r?\n\r?\n/.exec(pending))) {
+                const end = separator.index + separator[0].length;
+                controller.enqueue(scrub(pending.slice(0, end)));
+                pending = pending.slice(end);
+              }
+            }
+            if (pending.length > 8 * 1024 * 1024)
+              throw new Error("MCP response too large");
+          },
+          flush(controller) {
+            if (pending) controller.enqueue(scrub(pending));
+          },
+        }),
+      )
+      .pipeThrough(new TextEncoderStream());
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.delete("content-length");
+    return new Response(stream, {
+      status: response.status,
+      statusText: scrub(response.statusText),
+      headers: responseHeaders,
+    });
+  };
   return {
     type,
-    requestInit: { headers },
-    eventSourceInit: {
-      fetch: (u: string | URL | globalThis.Request, init?: RequestInit) => {
-        const merged = new Headers(init?.headers);
-        for (const [k, v] of Object.entries(headers)) merged.set(k, v);
-        return fetch(u, { ...init, headers: merged });
-      },
-    },
+    fetch: authenticatedFetch,
+    eventSourceInit: { fetch: authenticatedFetch },
   };
 }
 

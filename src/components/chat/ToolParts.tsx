@@ -1,3 +1,4 @@
+import CredentialCard from "./CredentialCard";
 import {
   AlertCircle,
   Check,
@@ -46,6 +47,8 @@ export default function ToolPart({
   // here covers every state — input-streaming, input-available, output-*
   // — so the panel is the single visual source of truth.
   if (name === "todo_write") return null;
+  if (name === "request_credential" || name === "credential-request")
+    return <CredentialCard part={part} />;
   const status = deriveRenderStatus(part, turnEnded);
   if (FILE_MUTATING.has(name)) {
     return <FileActionCard part={part} name={name} status={status} />;

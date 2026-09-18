@@ -1,3 +1,4 @@
+import { handleCredentialsRequest } from "./worker/handlers/credentials";
 import tanstackEntry from "@tanstack/react-start/server-entry";
 import { routeAgentRequest } from "agents";
 
@@ -168,6 +169,9 @@ export default {
     ) {
       return handleBuildroomRequest(request, env);
     }
+
+    if (url.pathname.startsWith("/api/credentials/"))
+      return handleCredentialsRequest(request, env);
 
     if (
       url.pathname === "/api/local-hands" ||

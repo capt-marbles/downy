@@ -4,15 +4,6 @@ import { z } from "zod";
 import type { DownyAgent } from "../DownyAgent";
 import { buildHeaderTransport, isCredentialsRejection } from "../mcp-reconnect";
 
-const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-
-const headersSchema = z
-  .record(z.string(), z.string())
-  .optional()
-  .describe(
-    "Auth headers sent with every request. Covers any HTTP-header scheme — Bearer, Basic, X-API-Key, etc. Examples: { Authorization: 'Bearer sk_...' }, { Authorization: 'Basic <base64(user:pass)>' }, { 'X-API-Key': '...' }. Omit for OAuth servers.",
-  );
-
 const transportSchema = z
   .enum(["auto", "streamable-http", "sse"])
   .optional()
@@ -24,7 +15,6 @@ const connectInputSchema = z.object({
   name: z.string().min(1).describe("Label, e.g. 'sentry', 'dataforseo'."),
   url: z.string().url().describe("Hosted MCP endpoint URL."),
   transport: transportSchema,
-  headers: headersSchema,
 });
 
 const CLOUDFLARE_MCP_SERVERS = {
@@ -72,12 +62,6 @@ const connectCloudflareInputSchema = z.object({
     .default("api")
     .describe(
       "Cloudflare managed MCP server to attach. Use 'api' for the full Cloudflare API codemode server.",
-    ),
-  apiToken: z
-    .string()
-    .optional()
-    .describe(
-      "Optional Cloudflare API token. When provided, Downy sends Authorization: Bearer <token>. If omitted, the connection uses Cloudflare OAuth, but OAuth completion may require manual client support.",
     ),
   name: z
     .string()
@@ -224,7 +208,7 @@ function mcpServerIdFor(agent: DownyAgent, name: string): string {
 const CREDENTIALS_REJECTED_MESSAGE =
   "Server returned 401 — credentials rejected. Verify the auth header value (correct token, not expired, required scopes) and retry. For Bearer tokens: confirm the token was issued for this server. For Basic: ensure the value is base64(login:password).";
 
-async function connectWithStaticHeaders(
+export async function connectWithStaticHeaders(
   agent: DownyAgent,
   params: {
     name: string;
@@ -289,100 +273,11 @@ async function connectWithStaticHeaders(
 
 export function createConnectMcpServerTool(args: { agent: DownyAgent }) {
   return tool({
-    description: `Attach a hosted MCP server. Its tools auto-merge into your tool set on the next turn. Returns \`{ id, state, error, toolNames, sentHeaderNames, probe? }\`. After a successful connect, list the discovered \`toolNames\` to the user so they know what's available.
-
-Auth via the \`headers\` parameter — string→string map for any HTTP scheme:
-- Bearer: \`{ Authorization: 'Bearer sk_...' }\`
-- Basic (e.g. DataForSEO): \`{ Authorization: 'Basic <base64(login:password)>' }\`
-- API-key: \`{ 'X-API-Key': '...' }\`
-
-Confirm URL/headers/key with the user before calling — never invent them. If you propose a URL you didn't read from a doc this turn, flag it as a guess. OAuth servers return an \`authUrl\` but end-to-end OAuth isn't wired up yet.
-
-**One \`state: 'failed'\` is data, not a verdict — work the problem before reporting failure.** Read \`error\` and \`probe\` (raw HTTP status + body from a manual JSON-RPC \`initialize\`) to see what the server actually said. \`sentHeaderNames\` confirms which headers were attached. Then make 2–3 more attempts varying what plausibly matters: \`transport\` (\`streamable-http\` ↔ \`sse\` ↔ \`auto\`), URL shape (trailing slash, \`/mcp\` vs \`/sse\` vs \`/v1/mcp\`), auth scheme (Bearer ↔ Basic ↔ X-API-Key per the docs), or base64 encoding for Basic. If you have a docs URL for the MCP, scrape it before giving up. Stop early only when the error is unambiguously credential-related (\`401 Invalid credentials\`) — at that point ask the user for the right secret rather than guessing further.
-
-When you do report failure, say what you tried (transports, header schemes) and what the server returned (status + error). Never claim the tool lacks header support — it has a \`headers\` parameter.`,
+    description:
+      "Attach a hosted MCP server without static secrets. Never ask the user to type a key into chat; use request_credential for header authentication. Only use verified endpoint URLs, and explicitly flag an unverified URL as a guess. OAuth-only servers may require managed setup. Report discovered tool names after connection.",
     inputSchema: connectInputSchema,
-    execute: async ({ name, url, transport, headers }) => {
-      const headerNames = headers ? Object.keys(headers) : [];
-      if (headers) {
-        for (const key of Object.keys(headers)) {
-          if (!HEADER_NAME.test(key)) {
-            throw new Error(`Invalid header name: ${JSON.stringify(key)}`);
-          }
-        }
-      }
+    execute: async ({ name, url, transport }) => {
       const type = transport ?? "auto";
-
-      // Header-auth path: bypass addMcpServer to avoid the SDK installing an
-      // OAuth authProvider that hijacks 401 responses into AUTHENTICATING.
-      if (headers) {
-        let connectResult: { id: string; state: string; error: string | null };
-        try {
-          connectResult = await connectWithStaticHeaders(args.agent, {
-            name,
-            url,
-            type,
-            headers,
-          });
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          const probeOnThrow = await probeMcpEndpoint(url, headers);
-          return {
-            id: null,
-            state: "failed",
-            error: errMsg,
-            toolNames: [],
-            sentHeaderNames: headerNames,
-            probe: probeOnThrow,
-          };
-        }
-
-        // Persist successful registrations so wake-from-hibernation can re-attach.
-        if (connectResult.state !== "failed") {
-          await args.agent.persistMcpServer({
-            id: connectResult.id,
-            name,
-            url,
-            transport: type,
-            headers,
-          });
-        } else {
-          // We already cleaned up the zombie SDK connection inside
-          // `connectWithStaticHeaders`; running `waitForSettled` now would
-          // either find the server gone (state "unknown") or — worse — see a
-          // lingering authenticating zombie if cleanup raced. Short-circuit
-          // with a probe so the caller sees the real HTTP status.
-          const probeOnFail = await probeMcpEndpoint(url, headers);
-          return {
-            id: connectResult.id,
-            state: "failed",
-            error: connectResult.error,
-            toolNames: [],
-            sentHeaderNames: headerNames,
-            probe: probeOnFail,
-          };
-        }
-
-        const settled = await waitForSettled(args.agent, connectResult.id);
-        const toolNames = args.agent.mcp
-          .listTools()
-          .filter((t) => t.serverId === connectResult.id)
-          .map((t) => t.name);
-
-        let probe: ProbeResult | null = null;
-        if (settled.state === "failed") {
-          probe = await probeMcpEndpoint(url, headers);
-        }
-        return {
-          id: connectResult.id,
-          state: settled.state,
-          error: settled.error ?? connectResult.error,
-          toolNames,
-          sentHeaderNames: headerNames,
-          probe,
-        };
-      }
-
       // No-headers path: defer to the SDK's addMcpServer, which handles the
       // OAuth dance for servers that need it.
       let result: { id: string; state: string };
@@ -434,83 +329,14 @@ export function createConnectCloudflareMcpServerTool(args: {
   agent: DownyAgent;
 }) {
   return tool({
-    description: `Attach one of Cloudflare's managed remote MCP servers. Defaults to the full Cloudflare API MCP server at https://mcp.cloudflare.com/mcp, which exposes Cloudflare's API through search() and execute().
-
-Prefer an API token for automation: pass apiToken and Downy will send Authorization: Bearer <token>. Use the least-privileged token possible. If apiToken is omitted, Downy attempts an OAuth connection, but OAuth completion may require MCP client support.
-
-After connecting, list the discovered tool names to the user. Destructive MCP tools are separately protected by Downy's confirmation gate and require explicit user approval before execution.`,
+    description:
+      "Attach a Cloudflare managed MCP server using OAuth. Never ask the user to type an API key into chat. For token authentication, use request_credential with an Authorization bearer field and the documented endpoint. Report discovered tool names.",
     inputSchema: connectCloudflareInputSchema,
-    execute: async ({ server, apiToken, name, url, transport }) => {
+    execute: async ({ server, name, url, transport }) => {
       const selected = server ?? "api";
       const targetUrl = url ?? CLOUDFLARE_MCP_SERVERS[selected];
       const displayName = name ?? `cloudflare-${selected.replaceAll("_", "-")}`;
       const type = transport ?? "streamable-http";
-      const headers = apiToken
-        ? { Authorization: `Bearer ${apiToken}` }
-        : undefined;
-
-      if (headers) {
-        let connectResult: { id: string; state: string; error: string | null };
-        try {
-          connectResult = await connectWithStaticHeaders(args.agent, {
-            name: displayName,
-            url: targetUrl,
-            type,
-            headers,
-          });
-        } catch (err) {
-          const probeOnThrow = await probeMcpEndpoint(targetUrl, headers);
-          return {
-            id: null,
-            state: "failed",
-            error: err instanceof Error ? err.message : String(err),
-            server: selected,
-            url: targetUrl,
-            toolNames: [],
-            sentHeaderNames: ["Authorization"],
-            probe: probeOnThrow,
-          };
-        }
-
-        if (connectResult.state !== "failed") {
-          await args.agent.persistMcpServer({
-            id: connectResult.id,
-            name: displayName,
-            url: targetUrl,
-            transport: type,
-            headers,
-          });
-        } else {
-          const probeOnFail = await probeMcpEndpoint(targetUrl, headers);
-          return {
-            id: connectResult.id,
-            state: "failed",
-            error: connectResult.error,
-            server: selected,
-            url: targetUrl,
-            toolNames: [],
-            sentHeaderNames: ["Authorization"],
-            probe: probeOnFail,
-          };
-        }
-
-        const settled = await waitForSettled(args.agent, connectResult.id);
-        const toolNames = args.agent.mcp
-          .listTools()
-          .filter((t) => t.serverId === connectResult.id)
-          .map((t) => t.name);
-        return {
-          id: connectResult.id,
-          state: settled.state,
-          error: settled.error ?? connectResult.error,
-          server: selected,
-          url: targetUrl,
-          toolNames,
-          sentHeaderNames: ["Authorization"],
-          destructiveActionsRequireConfirmation: true,
-        };
-      }
-
       let result: { id: string; state: string };
       try {
         result = await args.agent.addMcpServer(displayName, targetUrl, {

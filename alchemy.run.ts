@@ -6,6 +6,7 @@ import {
   D1Database,
   DurableObjectNamespace,
   R2Bucket,
+  SecretRef,
   TanStackStart,
 } from "alchemy/cloudflare";
 
@@ -71,6 +72,7 @@ export const worker = await TanStackStart("downy", {
   compatibilityFlags: ["nodejs_compat"],
   crons: ["*/5 * * * *"],
   bindings: {
+    CREDENTIAL_KEY: await SecretRef({ name: "DOWNY_CREDENTIAL_KEY" }),
     DB: db,
     WORKSPACE_BUCKET: workspaceBucket,
     DownyAgent: downyAgent,

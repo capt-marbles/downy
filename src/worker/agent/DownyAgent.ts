@@ -1,3 +1,11 @@
+import { createRequestCredentialTool } from "./tools/credentials";
+import {
+  encryptHeaders,
+  decryptHeaders,
+  readSecret,
+} from "../credentials/crypto";
+import type { CredentialTarget, CredentialOutcome } from "../credentials/types";
+import { connectWithStaticHeaders } from "./tools/mcp-servers";
 import { readFetchBytes, uniqueInboxPath } from "../local-hands/upload";
 /* eslint-disable max-lines -- central Durable Object agent class; split once Think lifecycle hooks settle. */
 import { Think } from "@cloudflare/think";
@@ -273,6 +281,10 @@ export class DownyAgent extends Think {
       }),
       connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
         agent: this,
+      }),
+      request_credential: createRequestCredentialTool({
+        db: this.env.DB,
+        agentSlug: this.name,
       }),
       connect_mcp_server: createConnectMcpServerTool({ agent: this }),
       list_mcp_servers: createListMcpServersTool({ agent: this }),
@@ -967,12 +979,93 @@ export class DownyAgent extends Think {
   // can re-attach silently even when Bearer-token auth is involved. Storage
   // shape: `mcp_server:{id} → StoredMcpServer`.
   //
-  // Token-leak note: bearer tokens land in DO SQLite at rest. Same trust
-  // boundary as workspace files. Never log header values; redact in any
-  // future export endpoint.
-
   async persistMcpServer(config: StoredMcpServer): Promise<void> {
-    await this.ctx.storage.put(mcpServerKey(config.id), config);
+    const { headers, ...safe } = config;
+    if (headers)
+      safe.encryptedHeaders = await encryptHeaders(
+        headers,
+        await readSecret(this.env.CREDENTIAL_KEY),
+        `${this.name}:${config.id}`,
+      );
+    await this.ctx.storage.put(mcpServerKey(config.id), safe);
+  }
+
+  async #decryptMcpServer(config: StoredMcpServer): Promise<StoredMcpServer> {
+    if (config.headers) {
+      // Idempotent one-shot migration of each legacy plaintext registration.
+      await this.persistMcpServer(config);
+      this.ctx.storage.sql.exec(
+        "UPDATE cf_agents_mcp_servers SET server_options = NULL WHERE id = ?",
+        config.id,
+      );
+      return config;
+    }
+    if (!config.encryptedHeaders) return config;
+    this.ctx.storage.sql.exec(
+      "UPDATE cf_agents_mcp_servers SET server_options = NULL WHERE id = ?",
+      config.id,
+    );
+    return {
+      ...config,
+      headers: await decryptHeaders(
+        config.encryptedHeaders,
+        await readSecret(this.env.CREDENTIAL_KEY),
+        `${this.name}:${config.id}`,
+      ),
+    };
+  }
+
+  async migrateMcpCredentials(): Promise<{ migrated: number }> {
+    const stored = await this.ctx.storage.list<StoredMcpServer>({
+      prefix: MCP_SERVER_KEY_PREFIX,
+    });
+    let migrated = 0;
+    for (const config of stored.values()) {
+      if (!config.headers && !config.encryptedHeaders) continue;
+      await this.#decryptMcpServer(config);
+      migrated += 1;
+    }
+    return { migrated };
+  }
+
+  async connectCredential(
+    target: CredentialTarget,
+    headers: Record<string, string>,
+  ): Promise<CredentialOutcome> {
+    // Validate encryption before sending anything to the vendor.
+    await encryptHeaders(
+      {},
+      await readSecret(this.env.CREDENTIAL_KEY),
+      "preflight",
+    );
+    try {
+      const result = await connectWithStaticHeaders(this, {
+        name: target.serverName,
+        url: target.url,
+        type: target.transport,
+        headers,
+      });
+      if (result.state !== "ready") {
+        await this.mcp.removeServer(result.id).catch(() => undefined);
+        return { state: "failed", toolNames: [], error: "Connection failed" };
+      }
+      await this.persistMcpServer({
+        id: result.id,
+        name: target.serverName,
+        url: target.url,
+        transport: target.transport,
+        headers,
+      });
+      const secrets = Object.values(headers);
+      const toolNames = this.mcp
+        .listTools()
+        .filter((t) => t.serverId === result.id)
+        .map((t) => t.name)
+        .filter((name) => !secrets.some((secret) => name.includes(secret)));
+      return { state: "ready", toolNames, error: null };
+    } catch {
+      return { state: "failed", toolNames: [], error: "Connection failed" };
+    }
   }
 
   async forgetMcpServer(id: string): Promise<void> {
@@ -996,7 +1089,8 @@ export class DownyAgent extends Think {
         { id, state: s.state },
       ]),
     );
-    for (const config of stored.values()) {
+    for (const saved of stored.values()) {
+      const config = await this.#decryptMcpServer(saved);
       const key = mcpServerIdentityKey(config.name, config.url);
       const liveForServer = liveByServer.get(key);
       if (liveForServer) {
@@ -1033,22 +1127,23 @@ export class DownyAgent extends Think {
         if (restored) {
           liveByServer.set(key, { id: config.id, state: "ready" });
         }
-      } catch (err) {
+      } catch {
         console.warn("[agent] restoreMcpServer failed", {
           id: config.id,
           name: config.name,
           // Never log headers (Bearer tokens).
-          error: err instanceof Error ? err.message : String(err),
+          error: "Connection restore failed",
         });
       }
     }
   }
 
   async #rebuildStoredMcpServer(id: string): Promise<string | null> {
-    const config = await this.ctx.storage.get<StoredMcpServer>(
+    const stored = await this.ctx.storage.get<StoredMcpServer>(
       mcpServerKey(id),
     );
-    if (!config) return null;
+    if (!stored) return null;
+    const config = await this.#decryptMcpServer(stored);
     const rebuiltId = await rebuildMcpServer(
       this.mcp,
       config,
