@@ -78,6 +78,7 @@ export const worker = await TanStackStart("downy", {
     AI: Ai<AiModels>(),
     POLICY_AUD: process.env.POLICY_AUD ?? "",
     TEAM_DOMAIN: process.env.TEAM_DOMAIN ?? "",
+    DOWNY_MAX_FETCH_BYTES: process.env.DOWNY_MAX_FETCH_BYTES ?? "26214400",
     MODEL_ID: process.env.MODEL_ID ?? "@cf/moonshotai/kimi-k2.6",
     EXA_API_KEY: alchemy.secret(process.env.EXA_API_KEY),
     // Optional: only used when the `openrouter` AI provider is selected in

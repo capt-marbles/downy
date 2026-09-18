@@ -233,3 +233,23 @@ on failure; results retain stderr and elapsed duration.
 Connectors send `allowedRoots` on heartbeat and claim. Use `targetConnectorId` to
 pin work to `mac-studio` or `mac-laptop`; optional `expiresAt` is an epoch in
 milliseconds. Scheduled child requests default to a 24-hour lifetime.
+
+## Retrieve a known file
+
+`filesystem.fetch` takes `{ sourcePath: "/absolute/known/file.pdf", destName?: "report.pdf" }`.
+It always requires operator confirmation, even for `read_only` and even when a
+caller sets `requiresConfirmation: false`: copying local bytes to the cloud is an
+external side effect. This pulls a specific known file into a workflow; it is
+**not a general remote file browser**.
+
+The connector resolves symlinks before checking allowed roots and refuses
+non-regular files. `DOWNY_MAX_FETCH_BYTES` defaults to 25 MiB (26,214,400 bytes) on
+both Worker and connector. Oversized files fail locally before an upload. Raw
+bytes stream to `POST /api/local-hands/:actionId/upload`; only the claiming
+connector for a confirmed, claimed fetch can upload. No base64 or D1 byte storage.
+The Worker independently enforces the cap and computes a digest; the connector
+verifies it against its own SHA-256.
+
+Files appear in `workspace/inbox/<connector-id>/` in the existing workspace browser,
+including on a phone. Name collisions receive `-2`, `-3`, etc. before the extension.
+The result contains `workspacePath`, `bytes`, `sha256`, `contentType`, and `sourcePath`.

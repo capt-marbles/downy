@@ -38,7 +38,7 @@ const CHILD_MUTATION_PATH_ARG_INDEXES = new Map<string, readonly number[]>([
   ["symlink", [1]],
 ]);
 
-function normalizeWorkspacePath(path: string): string {
+export function normalizeWorkspacePath(path: string): string {
   const segments = path.replace(/^\/+/, "").split("/").filter(Boolean);
   if (segments.length === 0) throw new Error("workspace path is required");
   if (segments.some((segment) => segment === "." || segment === "..")) {

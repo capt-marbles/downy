@@ -1,3 +1,4 @@
+import { readFetchBytes, uniqueInboxPath } from "../local-hands/upload";
 /* eslint-disable max-lines -- central Durable Object agent class; split once Think lifecycle hooks settle. */
 import { Think } from "@cloudflare/think";
 import { getAgentByName } from "agents";
@@ -765,6 +766,27 @@ export class DownyAgent extends Think {
       });
       return null;
     }
+  }
+
+  async writeWorkspaceFileBytes(
+    path: string,
+    stream: ReadableStream<Uint8Array>,
+    maxBytes: number,
+  ) {
+    assertChildWorkspaceCallAllowed("writeFileBytes", [path]);
+    const bytes = await readFetchBytes(stream, maxBytes);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const sha256 = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    // Serialize collision selection and write against other uploads in this DO.
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const workspacePath = await uniqueInboxPath(path, (candidate) =>
+        this.workspace.exists(candidate),
+      );
+      await this.workspace.writeFileBytes(workspacePath, bytes);
+      return { workspacePath, bytes: bytes.byteLength, sha256 };
+    });
   }
 
   async writeWorkspaceFile(path: string, content: string): Promise<void> {

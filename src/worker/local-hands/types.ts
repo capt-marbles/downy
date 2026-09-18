@@ -3,6 +3,7 @@ import { z } from "zod";
 export const LocalHandsActionKindSchema = z.enum([
   "shell",
   "filesystem",
+  "filesystem.fetch",
   "browser",
   "xurl",
   "x.research",

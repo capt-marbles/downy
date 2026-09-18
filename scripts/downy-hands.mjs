@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { executeFilesystemFetch } from "./local-hands-files.mjs";
 import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -262,6 +263,32 @@ async function executeGrokResearch(action) {
 }
 
 async function executeAction(action) {
+  if (action.kind === "filesystem.fetch")
+    return executeFilesystemFetch(action, {
+      allowedRoots,
+      maxBytes: Number(process.env.DOWNY_MAX_FETCH_BYTES ?? 25 * 1024 * 1024),
+      upload: async ({ destName, contentType, body }) => {
+        const response = await fetch(
+          `${baseUrl}/api/local-hands/${encodeURIComponent(action.id)}/upload`,
+          {
+            method: "POST",
+            duplex: "half",
+            body,
+            headers: {
+              ...headers(),
+              "content-type": contentType,
+              "x-connector-id": connectorId,
+              "x-dest-name": destName,
+            },
+          },
+        );
+        if (!response.ok)
+          throw new Error(
+            `Upload failed: ${response.status} ${await response.text()}`,
+          );
+        return response.json();
+      },
+    });
   if (action.kind === "codex") return executeCodex(action);
   if (action.kind === "grok.research" || action.kind === "x.research") {
     return executeGrokResearch(action);

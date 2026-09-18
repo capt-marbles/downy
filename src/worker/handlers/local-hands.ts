@@ -1,7 +1,13 @@
+import { assertFetchUpload, inboxPath } from "../local-hands/upload";
 import { z } from "zod";
 
-import { AgentSlugError, slugFromRequest } from "../lib/get-agent";
 import {
+  AgentSlugError,
+  getAgentStub,
+  slugFromRequest,
+} from "../lib/get-agent";
+import {
+  getLocalHandsActionOrThrow,
   claimNextLocalHandsAction,
   completeLocalHandsAction,
   confirmLocalHandsAction,
@@ -39,6 +45,50 @@ export async function handleLocalHandsRequest(
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
     const agentSlug = slugFromRequest(request);
+
+    if (
+      request.method === "POST" &&
+      parts.length === 4 &&
+      parts[3] === "upload"
+    ) {
+      const action = await getLocalHandsActionOrThrow(
+        env.DB,
+        decodeURIComponent(parts[2]),
+      );
+      const connectorId = request.headers.get("x-connector-id") ?? "";
+      try {
+        assertFetchUpload(action, agentSlug, connectorId);
+      } catch {
+        return json(
+          { error: "Upload is not authorized for this claimed action" },
+          403,
+        );
+      }
+      const maxBytes = Number(env.DOWNY_MAX_FETCH_BYTES ?? 25 * 1024 * 1024);
+      const length = Number(request.headers.get("content-length") ?? 0);
+      if (length > maxBytes)
+        return json(
+          { error: `File size ${length} exceeds ${maxBytes} bytes` },
+          413,
+        );
+      const destName = request.headers.get("x-dest-name") ?? "";
+      const expectedName =
+        action.input.destName ??
+        String(action.input.sourcePath).split("/").pop();
+      if (destName !== expectedName || !request.body)
+        return json({ error: "Invalid upload destination or body" }, 400);
+      const path = inboxPath(connectorId, destName);
+      const agent = await getAgentStub(env, agentSlug);
+      try {
+        return json(
+          await agent.writeWorkspaceFileBytes(path, request.body, maxBytes),
+        );
+      } catch (error) {
+        if (String(error).includes("FETCH_TOO_LARGE"))
+          return json({ error: String(error) }, 413);
+        throw error;
+      }
+    }
 
     if (request.method === "GET" && parts.length === 2) {
       const includeCompleted =

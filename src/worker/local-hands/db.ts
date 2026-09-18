@@ -108,9 +108,25 @@ export async function requestLocalHandsAction(
   },
 ): Promise<LocalHandsAction> {
   const now = Date.now();
+  if (args.input.kind === "filesystem.fetch") {
+    z.object({
+      sourcePath: z.string().startsWith("/"),
+      destName: z
+        .string()
+        .min(1)
+        .regex(/^[^/\\]+$/)
+        .refine((name) =>
+          Array.from(name).every((character) => character.charCodeAt(0) >= 32),
+        )
+        .refine((name) => name !== "." && name !== "..")
+        .optional(),
+    }).parse(args.input.input);
+  }
   const id = `hands-${now}-${crypto.randomUUID().slice(0, 8)}`;
   const needsConfirmation =
-    args.input.requiresConfirmation || args.input.riskLevel !== "read_only";
+    args.input.kind === "filesystem.fetch" ||
+    args.input.requiresConfirmation ||
+    args.input.riskLevel !== "read_only";
   await db
     .prepare(
       `INSERT INTO local_hands_actions (
@@ -254,13 +270,14 @@ const KIND_CAPABILITY: Record<LocalHandsActionKind, string> = {
   git: "git.read",
   shell: "shell.read",
   filesystem: "filesystem.read",
+  "filesystem.fetch": "filesystem.read",
   browser: "browser.automation",
   xurl: "xurl.research",
   "x.research": "x.research",
   "grok.research": "grok.research",
 };
 
-export function connectorCanClaim(
+function connectorCanClaim(
   action: LocalHandsAction,
   connector: {
     id: string;
