@@ -4,6 +4,12 @@ Status: selected pilot candidate, recorded 2026-09-18. The operator specified
 their local Aside browser MCP on the Mac Studio. The live MCP connection and
 adapter have not been verified by this planning change; no schedule is enabled.
 
+The operator also nominated **Taskfuel and Treg** as candidate data connectors.
+Catalog discovery on 2026-09-18 confirmed relevant endpoints and connected local
+CLI accounts (Taskfuel account verified; Treg active org: Gameye). That does not
+prove they are connected to Downy's Worker or installed/authenticated on Studio.
+No paid searches or provider calls were made during discovery.
+
 ## Purpose and outcome
 
 Find verified, previously unknown AI developments worth evaluating for game
@@ -25,7 +31,9 @@ review time. Likes and repost counts are context, not labels of usefulness.
 - Queue `kind: "x.research"`, `riskLevel: "read_only"`, and
   `targetConnectorId: "mac-studio"` through the existing local-hands request.
   Bind this pilot to the Studio's Aside backend in trusted local configuration,
-  not just in the research prompt. No laptop or alternate-provider fallback.
+  not just in the research prompt. No laptop or silent alternate-provider fallback.
+  Taskfuel/Treg are explicit comparison branches described below, not substitutes
+  for a failed or sleeping Studio action.
 - The Studio adapter calls the local Aside browser MCP using its actual advertised
   interface. Discover and validate that interface on the Studio before writing
   the bridge; do not assume it matches jev-ultrafast's Chrome/CDP interface.
@@ -43,6 +51,61 @@ The current daemon can invoke a local provider command for `x.research` through
 bundled adapter can normalize output, but does not itself implement an Aside
 connection. The dedicated `request_grok_research` shortcut does not expose
 connector targeting; use the generic request for this pilot.
+
+## Candidate API collection branches: Taskfuel and Treg
+
+These connectors can supply structured candidates for the same Jev triage pass.
+They may reduce browser work, but their coverage and freshness must be measured.
+Aside remains the nominated browser path for X, including inspecting selected
+posts and context when API results are incomplete. Neither catalog is ground truth.
+
+Discovery receipts (catalog prices, not a spend authorization or live quote):
+
+| Connector | Candidate endpoint                              | Documented capability                                        | Catalog price on review date             |
+| --------- | ----------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------- |
+| Taskfuel  | `GET https://x402.ottoai.services/tweet-search` | Query search, newest first, author/text/timestamp/engagement | $0.005 per call                          |
+| Treg      | `tikhub.x.twitter-web-fetch-search-timeline`    | Keyword, cursor, search-type parameters                      | $0.001 per successful call               |
+| Treg      | `treg.x.search.posts`                           | Routed search with provider attribution                      | Child-dependent: $0.001–$0.01476 per hit |
+
+Taskfuel's reviewed endpoint docs do not expose a pagination parameter or specify
+the result limit. Treg's direct endpoint shows a cursor, but its example uses
+`search_type=Top`; verify supported chronological mode and time filters rather
+than assuming them. The routed Treg endpoint exposes a narrower query contract,
+so prefer an explicit child endpoint for the first controlled comparison.
+
+Reproduce discovery without running a search:
+
+```bash
+taskfuel discover GET https://x402.ottoai.services/tweet-search
+treg catalog get tikhub.x.twitter-web-fetch-search-timeline
+treg catalog get treg.x.search.posts
+```
+
+Compare on a small, fixed query set and the same time window before choosing a
+default collector. Record search mode, pagination limits, cache/freshness evidence,
+provider actually used, latency, paid amount, and failures. Normalize post IDs and
+retain all source provenance while deduplicating the union. Agreement between two
+gateways serving the same upstream is not independent corroboration.
+
+Assess verified useful findings, additional findings unique to each source,
+missed items found in the comparison, review time, and total cost. This estimates
+coverage relative to the observed comparison set, not recall over all of X.
+Review a sample of rejected items without provider or Jev scores influencing
+the initial label. Do not tune the rubric to make a preferred provider win.
+
+Before any paid pilot, define a total run budget including pagination, retries,
+verification, and Jev calls. Quote the exact first Taskfuel request and enforce
+`--max-amount`; check Treg's current price and record actual charge receipts.
+Avoid the routed endpoint's default $1 waterfall for this small experiment:
+pin a provider or set an explicit route ceiling and fallback policy. Reconcile
+uncertain charges instead of repeating calls blindly; use supported idempotency
+for genuine retries, with new IDs for fresh scans.
+
+If an API collector later runs in the Worker, use the existing secure credential
+entry/persistence path. Local CLI sign-in is not a Worker credential. Expose only
+approved research endpoints to the job; broad catalogs include write operations
+that this pilot must not acquire. No uploading local keys or reviving revoked
+Exa/OpenRouter credentials is part of this plan.
 
 ## Collection, judgment, and feedback
 

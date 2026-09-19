@@ -426,6 +426,13 @@ outcomes as separate records. A model choosing `DONE` is a claim to verify.
 this pilot. Keep the authenticated browser session on that machine. Do not route
 to the laptop or substitute another browser/provider silently.
 
+**Additional candidates:** the operator nominated Taskfuel and Treg. Their live
+catalogs expose X search endpoints; compare explicit API collection branches
+against the Studio/Aside branch on fixed queries, with source provenance,
+deduplication, freshness checks, and a predefined spend budget. The linked plan
+records endpoint discovery and current gaps. Discovery did not execute searches
+or establish Downy runtime connectivity.
+
 **Plan:** [X research pilot](pilots/x-ai-game-development.md). Use the existing
 `x.research` local-hands action with `targetConnectorId: "mac-studio"`. The
 generic request supports routing; the dedicated Grok shortcut currently does not
