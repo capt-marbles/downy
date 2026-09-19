@@ -711,6 +711,28 @@ export class DownyAgent extends Think {
     const turn = nextUser < 0 ? after : after.slice(0, nextUser);
     const outcome = voiceTurnOutcome(turn);
     const answer = outcome.text;
+    if (outcome.unverifiedFileClaim) {
+      // Model prose alone cannot publish a usable file link or a save receipt.
+      // Correct its unsupported completion before broadcasting the voice result.
+      const reply = turn
+        .filter(
+          (message) =>
+            message.role === "assistant" &&
+            !message.id.startsWith("voice-transcript:") &&
+            message.parts.some((part) => part.type === "text"),
+        )
+        .at(-1);
+      const lastText = reply?.parts
+        .filter((part) => part.type === "text")
+        .at(-1);
+      if (reply && lastText)
+        this.session.updateMessage({
+          ...reply,
+          parts: reply.parts.map((part) =>
+            part === lastText ? { ...part, text: answer } : part,
+          ),
+        });
+    }
     if (outcome.corrected || outcome.filePaths.length) {
       const receipt = {
         id: `voice-outcome:${callId}:${delegationId}`,

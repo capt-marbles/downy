@@ -204,3 +204,49 @@ it("deduplicates read files and escapes link destinations", () => {
     "/agent/my%20agent/workspace/workspace/research/Boat%20%231.md",
   );
 });
+
+it("rejects the observed saved-file claim when no tool wrote or read the linked file", () => {
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: "Done: [workspace/research/cua-pilot-workflow-task.md](/agent/buildroom/workspace/workspace/research/cua-pilot-workflow-task.md)",
+        },
+      ],
+    },
+  ]);
+  expect(result.corrected).toBe(true);
+  expect(result.text).toContain("No report save was confirmed");
+  expect(result.filePaths).toEqual([]);
+  expect(result.text).not.toContain("Done");
+});
+
+it("does not let a successful read validate a different invented report link", () => {
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-read",
+          toolCallId: "read",
+          state: "output-available",
+          input: { path: "workspace/research/source.md" },
+          output: { path: "workspace/research/source.md", content: "Source" },
+        },
+        {
+          type: "text",
+          text: "Saved [the summary](/agent/buildroom/workspace/workspace/research/invented.md)",
+        },
+      ],
+    },
+  ]);
+  expect(result.unverifiedFileClaim).toBe(true);
+  expect(result.filePaths).toEqual([]);
+  expect(voiceOutcomeChatText(result, "buildroom")).not.toContain(
+    "invented.md",
+  );
+});

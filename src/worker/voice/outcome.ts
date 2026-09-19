@@ -23,6 +23,20 @@ function readWorkspacePath(output: unknown): string | undefined {
   }
 }
 
+function hasUnverifiedFileLink(text: string, verified: Set<string>): boolean {
+  for (const match of text.matchAll(
+    /\]\(\/agent\/[^/]+\/workspace\/([^)]+)\)/g,
+  )) {
+    try {
+      const path = normalizeWorkspacePath(decodeURIComponent(match[1]));
+      if (!verified.has(path)) return true;
+    } catch {
+      return true;
+    }
+  }
+  return !verified.size && /workspace\/[^\s]+\.[a-z0-9]+/i.test(text);
+}
+
 // The voice service receives speech, while verified file destinations stay in
 // the persisted chat receipt. Do not make a link out of a model-invented path.
 function spokenText(text: string, paths: Set<string>): string {
@@ -40,6 +54,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
   corrected: boolean;
   savedPaths: string[];
   filePaths: string[];
+  unverifiedFileClaim?: boolean;
 } {
   const parts = messages
     .filter(
@@ -69,6 +84,17 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       else failures.add(name);
     }
   }
+  const finalText =
+    parts.filter((part) => part.type === "text").at(-1)?.text ??
+    "No completed answer was returned. Please check the chat and retry.";
+  if (hasUnverifiedFileLink(finalText, new Set([...savedPaths, ...readPaths])))
+    return {
+      text: "I couldn't verify the file link returned for that request. No report save was confirmed for it. Please retry in chat.",
+      corrected: true,
+      savedPaths: [...savedPaths],
+      filePaths: [...savedPaths],
+      unverifiedFileClaim: true,
+    };
   if (savedPaths.size)
     return {
       text: `Your report is saved in the workspace. I've added a link in chat.${failures.size ? " An additional step failed; check the chat for details." : ""}`,
@@ -88,11 +114,8 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
   // Intermediate promises are not outcomes. Speak only the final text part.
   return {
     text:
-      spokenText(
-        parts.filter((part) => part.type === "text").at(-1)?.text ??
-          "No completed answer was returned. Please check the chat and retry.",
-        readPaths,
-      ) + (readPaths.size ? " I've added the file links in chat." : ""),
+      spokenText(finalText, readPaths) +
+      (readPaths.size ? " I've added the file links in chat." : ""),
     corrected: false,
     savedPaths: [],
     filePaths: [...readPaths],
