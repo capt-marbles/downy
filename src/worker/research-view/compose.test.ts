@@ -2,7 +2,6 @@ import { expect, it, vi } from "vitest";
 import {
   checkedResearchSpec,
   fixedResearchSpec,
-  researchFileHref,
 } from "../../lib/research-view";
 import { composeResearchView, researchPath, researchRecord } from "./compose";
 import type { Experimental_CompositionEvaluator } from "@json-render/core";
@@ -107,9 +106,6 @@ it("rejects unsafe paths and excludes unrelated workspace content", () => {
   expect(researchPath("workspace/corpus/private.md")).toBeNull();
   expect(researchPath("/workspace/research/report.md")).toBe(
     "workspace/research/report.md",
-  );
-  expect(researchFileHref("my agent", "workspace/research/Report #1.md")).toBe(
-    "/agent/my%20agent/workspace/workspace/research/Report%20%231.md",
   );
 });
 it("previews source text rather than repeating the capture disclaimer", () => {

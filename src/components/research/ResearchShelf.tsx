@@ -1,9 +1,11 @@
 import { createContext, useContext } from "react";
+import { Link } from "@tanstack/react-router";
+import { withBack } from "../../lib/back-nav";
+import { encodePath } from "../../lib/api-client";
 import { defineRegistry, JSONUIProvider, Renderer } from "@json-render/react";
 import { ArrowUpRight, FileText, Globe, FlaskConical } from "lucide-react";
 import {
   researchCatalog,
-  researchFileHref,
   type ResearchSnapshot,
 } from "../../lib/research-view";
 import StatusDot from "../ui/StatusDot";
@@ -75,12 +77,17 @@ const { registry } = defineRegistry(researchCatalog, {
               <br />
               {Math.max(1, Math.round(record.size / 1024))} KB
             </span>
-            <a
+            <Link
               className="btn btn-outline btn-sm min-h-11 gap-2"
-              href={researchFileHref(context.slug, record.path)}
+              to="/agent/$slug/workspace/$"
+              params={{ slug: context.slug, _splat: encodePath(record.path) }}
+              state={withBack({
+                href: `/agent/${encodeURIComponent(context.slug)}/research`,
+                label: "research & reports",
+              })}
             >
               Open document <ArrowUpRight size={15} />
-            </a>
+            </Link>
           </div>
         </article>
       );

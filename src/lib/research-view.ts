@@ -102,10 +102,6 @@ export const ResearchSnapshotSchema = z.object({
 });
 export type ResearchSnapshot = z.infer<typeof ResearchSnapshotSchema>;
 
-export function researchFileHref(slug: string, path: string): string {
-  return `/agent/${encodeURIComponent(slug)}/workspace/${path.split("/").map(encodeURIComponent).join("/")}`;
-}
-
 export function fixedResearchSpec(
   records: ResearchRecord[],
 ): ResearchSnapshot["spec"] {
