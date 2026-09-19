@@ -91,20 +91,29 @@ export async function attachLiveSession(
   secret: SecretBinding | undefined,
   id: string,
 ): Promise<WebSocket> {
-  const response = await fetch(
-    `https://api.openai.com/v1/live/sessions/${encodeURIComponent(id)}/attach`,
-    {
-      headers: {
-        Upgrade: "websocket",
-        Authorization: `Bearer ${await readSecret(secret)}`,
+  const key = await readSecret(secret);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(
+      `https://api.openai.com/v1/live/sessions/${encodeURIComponent(id)}/attach`,
+      {
+        headers: {
+          Upgrade: "websocket",
+          Authorization: `Bearer ${key}`,
+        },
+        signal: controller.signal,
       },
-      signal: AbortSignal.timeout(10_000),
-    },
-  );
-  if (!response.webSocket) {
-    await response.body?.cancel();
-    throw new VoiceProviderError(response.status);
+    );
+    if (!response.webSocket) {
+      await response.body?.cancel();
+      throw new VoiceProviderError(response.status);
+    }
+    response.webSocket.accept();
+    return response.webSocket;
+  } finally {
+    // Workerd keeps fetch's abort signal attached after WebSocket upgrade.
+    // This deadline bounds connection setup, not the lifetime of a live call.
+    clearTimeout(timeout);
   }
-  response.webSocket.accept();
-  return response.webSocket;
 }
