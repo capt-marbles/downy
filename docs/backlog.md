@@ -447,6 +447,63 @@ This pilot does not depend on DW-12's custom browser executor. Use the existing
 Aside interface first. DW-11's truthful completion behavior and the applicable
 DW-13 verification checks are prerequisites for calling the pilot successful.
 
+### DW-15 — P1: Make voice a usable phone and desktop interaction channel
+
+**Current evidence:** [InputBox](../src/components/chat/InputBox.tsx) already
+records audio and inserts editable transcriptions into the composer. The
+[/api/transcribe handler](../src/worker/handlers/transcribe.ts) uses
+`@cf/openai/whisper-large-v3-turbo` through `env.AI`. This is recorded dictation,
+not a full duplex conversation. Live iPhone behavior has not been verified here.
+
+**Recommended sequence:** validate and polish existing dictation, add explicit
+read-aloud for replies/digests, then evaluate conversational voice. Keep the
+existing agent, tools, transcript, credential cards, and approval flow shared
+between text and voice; do not create a second assistant with divergent state.
+
+**Cloudflare candidate:** the beta `@cloudflare/voice` SDK offers voice/input
+mixins and React hooks over WebSocket. Its Workers AI adapters include Nova-3
+for transcription, Flux for conversational input, and Aura for speech output,
+using the AI binding. Evaluate compatibility with Downy's existing Think class
+and package versions before choosing an integration shape. See
+[Cloudflare voice documentation](https://developers.cloudflare.com/agents/communication-channels/voice/).
+
+**Optional local candidate:** assuming the operator means
+[jamiepine/voicebox](https://github.com/jamiepine/voicebox), investigate it for
+Studio-based transcription and custom spoken output. Its MCP `speak` path plays
+on the host machine, so iPhone playback needs audio delivery to Downy's client;
+connecting MCP alone is insufficient. Disable personality rewriting when reading
+canonical replies so speech does not change their meaning. See
+[Voicebox MCP](https://docs.voicebox.sh/overview/mcp-server).
+
+Voicebox's documented remote API lacks authentication. Any remote integration
+must use a protected bridge, not expose the raw service. Studio sleep must leave
+text available and show voice unavailability; any cloud fallback must be explicit.
+See [remote-mode documentation](https://docs.voicebox.sh/overview/remote-mode).
+Cloudflare-hosted audio is the proposed default for phone availability; this
+backlog does not select or install Voicebox.
+
+**Acceptance:**
+
+- Dictation has clear recording/transcribing/error states, cancel, duration and
+  upload limits, and editable text before submission. Stop mic tracks on cancel,
+  navigation, and failure. Silence must not silently submit an invented command.
+- Read-aloud has play/stop controls and plays on the user's active device. Keep
+  full text/source links visible; distinguish a spoken summary from a verbatim
+  reading. Do not read credentials or reinterpret confirmation cards.
+- Conversational mode has explicit start/end, visible listening/thinking/speaking
+  states, interruption, and text fallback. Avoid duplicate turns after reconnect.
+  Stopping speech cannot imply rollback of a tool action already submitted.
+- Voice uses the same operator gates and out-of-band credential entry as chat.
+  No raw audio in tool arguments or model context; define retention explicitly,
+  with no persisted recordings by default. UI audio plumbing adds no agent tools.
+- Test iPhone Safari and home-screen mode behind Cloudflare Access, permission
+  denial, playback activation, headphones, interruptions, background/resume,
+  session expiry, network loss, and Studio offline where applicable.
+- Measure transcription accuracy on game-development names, end-to-end response
+  latency, and total audio/model/runtime cost. Verify live rather than infer
+  readiness from SDK examples. No claim of background or lock-screen listening
+  without device evidence.
+
 ## Suggested delivery order
 
 1. **Make the current loop trustworthy:** DW-01 and DW-02, with the narrow
