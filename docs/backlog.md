@@ -455,10 +455,33 @@ records audio and inserts editable transcriptions into the composer. The
 `@cf/openai/whisper-large-v3-turbo` through `env.AI`. This is recorded dictation,
 not a full duplex conversation. Live iPhone behavior has not been verified here.
 
-**Recommended sequence:** validate and polish existing dictation, add explicit
-read-aloud for replies/digests, then evaluate conversational voice. Keep the
-existing agent, tools, transcript, credential cards, and approval flow shared
-between text and voice; do not create a second assistant with divergent state.
+**Operator priority:** as close to real-time conversation as possible; either
+OpenAI voice family is acceptable. Prioritize a full-duplex voice pilot rather
+than making separate dictation/read-aloud improvements prerequisites. Retain
+existing dictation/text as fallback. Keep the existing agent, tools, transcript,
+credential cards, and approval flow shared between text and voice.
+
+**Preferred pilot:** GPT-Live 1 over browser WebRTC, with client delegation to
+the existing Downy backend. It supports listening while speaking and conversation
+during backend work. This is an architectural fit, not a measured latency win
+over Realtime. The latter remains a comparison candidate if the pilot is poor.
+See [OpenAI's voice architecture comparison](https://developers.openai.com/api/docs/guides/voice-agents)
+and [client delegation](https://developers.openai.com/api/docs/guides/live-delegation).
+
+Keep media between the browser and OpenAI; Cloudflare handles authenticated
+session setup, backend work, and task state. Keep project credentials server-side.
+An interruption updates or cancels work according to application state; it must
+not enqueue the same action again. Delegation events contain metadata, so assemble
+requests from transcript context and verified task state rather than treating an
+event as a complete task. Preserve delegation IDs when returning results.
+
+Start with a short spoken discussion of an existing X research digest, including
+follow-up questions, interruptions, and corrections. Validate actual account
+access, iPhone playback, useful-answer latency, and session lifecycle before
+enabling new tasks by voice. No paid session has been started by this planning
+change. GPT-Live's published rate is $0.05 per session minute, billed per second,
+plus backend costs; recheck before implementation. See
+[model pricing](https://developers.openai.com/api/docs/models/gpt-live-1).
 
 **Cloudflare candidate:** the beta `@cloudflare/voice` SDK offers voice/input
 mixins and React hooks over WebSocket. Its Workers AI adapters include Nova-3
@@ -479,8 +502,9 @@ Voicebox's documented remote API lacks authentication. Any remote integration
 must use a protected bridge, not expose the raw service. Studio sleep must leave
 text available and show voice unavailability; any cloud fallback must be explicit.
 See [remote-mode documentation](https://docs.voicebox.sh/overview/remote-mode).
-Cloudflare-hosted audio is the proposed default for phone availability; this
-backlog does not select or install Voicebox.
+The phone's interactive voice path must not depend on Studio being awake. This
+backlog does not select or install Voicebox; Cloudflare audio remains an alternative
+to the preferred OpenAI conversation pilot.
 
 **Acceptance:**
 
@@ -494,8 +518,9 @@ backlog does not select or install Voicebox.
   states, interruption, and text fallback. Avoid duplicate turns after reconnect.
   Stopping speech cannot imply rollback of a tool action already submitted.
 - Voice uses the same operator gates and out-of-band credential entry as chat.
-  No raw audio in tool arguments or model context; define retention explicitly,
-  with no persisted recordings by default. UI audio plumbing adds no agent tools.
+  Audio goes only to the selected speech/voice provider, not into tool arguments
+  or the backend text agent's context. Define retention explicitly, with no
+  Downy-persisted recordings by default. UI audio plumbing adds no agent tools.
 - Test iPhone Safari and home-screen mode behind Cloudflare Access, permission
   denial, playback activation, headphones, interruptions, background/resume,
   session expiry, network loss, and Studio offline where applicable.
@@ -503,6 +528,14 @@ backlog does not select or install Voicebox.
   latency, and total audio/model/runtime cost. Verify live rather than infer
   readiness from SDK examples. No claim of background or lock-screen listening
   without device evidence.
+- Measure median and p95 audible useful-answer latency separately from connection
+  startup, acknowledgments, backend/tool time, and interruption-to-silence time.
+  Test pauses and mid-sentence corrections without manual stop/send between turns.
+  Short factual answers can use supplied context; tasks requiring current state
+  must delegate. Never announce completion before a verified backend receipt.
+- End the provider session on explicit hang-up and enforce an idle timeout and
+  duration cap. Reconcile usage on disconnect; a lost phone connection must not
+  leave an unbounded paid session or silently duplicate backend work.
 
 ## Suggested delivery order
 
