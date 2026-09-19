@@ -113,6 +113,8 @@ export async function buildModelStatus(args: {
 
 function providerLabel(provider: AiProvider): string {
   switch (provider) {
+    case "cloud-computer":
+      return "ChatGPT subscription (Cloudflare Computer)";
     case "kimi":
       return "Workers AI";
     case "openrouter":
@@ -127,6 +129,8 @@ function providerLabel(provider: AiProvider): string {
 
 function modelName(provider: AiProvider, env: Env): string {
   switch (provider) {
+    case "cloud-computer":
+      return env.DOWNY_CODEX_MODEL;
     case "kimi":
       return env.MODEL_ID;
     case "openrouter":
@@ -140,6 +144,8 @@ function modelName(provider: AiProvider, env: Env): string {
 
 function contextWindow(provider: AiProvider): number | null {
   switch (provider) {
+    case "cloud-computer":
+      return null;
     case "kimi":
       return 128_000;
     case "openrouter":
@@ -157,6 +163,11 @@ function estimateCost(
   usage: ModelTokenUsage,
 ): { cost: number | null; note: string } {
   switch (provider) {
+    case "cloud-computer":
+      return {
+        cost: null,
+        note: "Uses your ChatGPT Codex allowance. Cloudflare compute is billed separately; no automatic API fallback.",
+      };
     case "kimi":
       return {
         cost: price(usage, KIMI_INPUT_PER_MILLION, KIMI_OUTPUT_PER_MILLION),

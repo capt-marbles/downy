@@ -1,3 +1,4 @@
+import { handleCloudComputerRequest } from "./worker/handlers/cloud-computer";
 import { handleCorpusRequest } from "./worker/handlers/corpus";
 import { handleVoiceRequest } from "./worker/handlers/voice";
 import { reconcileCorpus } from "./worker/corpus/runner";
@@ -29,6 +30,8 @@ import { getAgent, listAgents } from "./worker/db/profile";
 export * from "@tanstack/react-start/server-entry";
 export { DownyAgent } from "./worker/agent/DownyAgent";
 export { ChildAgent } from "./worker/agent/ChildAgent";
+export { CloudComputer } from "./worker/cloud-computer/CloudComputer";
+export { WorkspaceProxy } from "@cloudflare/computer";
 export { VoiceCall } from "./worker/voice/VoiceCall";
 
 function isApiOrSocketRequest(url: URL, request: Request): boolean {
@@ -115,6 +118,9 @@ export default {
 
     const agentPageRedirect = await redirectInvalidAgentPage(request, env);
     if (agentPageRedirect) return agentPageRedirect;
+
+    if (url.pathname.startsWith("/api/cloud-computer"))
+      return handleCloudComputerRequest(request, env);
 
     if (url.pathname === "/api/voice") return handleVoiceRequest(request, env);
 

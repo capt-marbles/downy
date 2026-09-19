@@ -1,3 +1,4 @@
+import CloudComputerCard from "../components/CloudComputerCard";
 import { createFileRoute } from "@tanstack/react-router";
 
 import AppearanceCard from "../components/AppearanceCard";
@@ -28,6 +29,7 @@ function SettingsPage() {
       <div className="grid gap-4">
         <AppearanceCard />
         <PreferencesCard />
+        <CloudComputerCard />
       </div>
     </PageShell>
   );

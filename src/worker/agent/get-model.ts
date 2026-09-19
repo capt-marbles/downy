@@ -1,3 +1,4 @@
+import { cloudComputerModel } from "../cloud-computer/model";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
@@ -105,6 +106,7 @@ const friendlyLocalPiFetch: typeof fetch = async (input, init) => {
 };
 
 const REGISTRY: Record<AiProvider, (env: Env) => LanguageModel> = {
+  "cloud-computer": cloudComputerModel,
   kimi: (env) => createWorkersAI({ binding: env.AI }).chat(env.MODEL_ID),
 
   "pi-local": (env) => {

@@ -1,3 +1,4 @@
+import CloudComputerCard from "../CloudComputerCard";
 import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import type { UIMessage } from "ai";
@@ -457,6 +458,7 @@ export default function ChatPage() {
               </button>
             </div>
           ) : null}
+          <CloudComputerCard compact />
           <BrowserResearchPanel key={`browser-${slug}`} slug={slug} />
           <VoiceCallPanel
             key={slug}

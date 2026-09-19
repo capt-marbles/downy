@@ -13,6 +13,7 @@
     ".wrangler",
     "scripts",
     "aisdk-pi-proxy",
+    "cloud-computer/*.mjs",
     "src/routeTree.gen.ts",
     "worker-configuration.d.ts"
   ],

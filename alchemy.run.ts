@@ -3,6 +3,7 @@
 import alchemy from "alchemy";
 import {
   Ai,
+  Container,
   D1Database,
   DurableObjectNamespace,
   R2Bucket,
@@ -12,6 +13,7 @@ import {
 
 import type { ChildAgent as ChildAgentClass } from "./src/worker/agent/ChildAgent.ts";
 import type { DownyAgent as DownyAgentClass } from "./src/worker/agent/DownyAgent.ts";
+import type { CloudComputer as CloudComputerClass } from "./src/worker/cloud-computer/CloudComputer.ts";
 import type { VoiceCall as VoiceCallClass } from "./src/worker/voice/VoiceCall.ts";
 
 const app = await alchemy("downy", {
@@ -71,13 +73,26 @@ const piRelayVpc = process.env.PI_RELAY_VPC_SERVICE_ID
     }
   : undefined;
 
+const cloudComputer =
+  process.env.DOWNY_CLOUD_COMPUTER_ENABLED === "true"
+    ? await Container<CloudComputerClass>("CloudComputer", {
+        className: "CloudComputer",
+        name: "downy-cloud-computer",
+        build: { context: "./cloud-computer", dockerfile: "Dockerfile" },
+        maxInstances: 1,
+        instanceType: "basic",
+      })
+    : undefined;
+
 export const worker = await TanStackStart("downy", {
   name: "downy",
   adopt: true,
   compatibilityDate: "2025-09-02",
-  compatibilityFlags: ["nodejs_compat"],
+  compatibilityFlags: ["nodejs_compat", "enable_ctx_exports"],
   crons: ["*/5 * * * *"],
   bindings: {
+    DOWNY_CODEX_MODEL: process.env.DOWNY_CODEX_MODEL ?? "gpt-5.5",
+    ...(cloudComputer ? { CloudComputer: cloudComputer } : {}),
     DOWNY_VOICE_ENABLED: process.env.DOWNY_VOICE_ENABLED ?? "false",
     // Provision this secret out of band; never accept an API key in chat.
     ...(process.env.DOWNY_VOICE_ENABLED === "true"

@@ -167,7 +167,13 @@ export const SystemStatusResponseSchema = z.object({
 export type SystemStatus = z.infer<typeof SystemStatusResponseSchema>;
 
 export const ModelStatusSchema = z.object({
-  provider: z.enum(["kimi", "pi-local", "pi-prod", "openrouter"]),
+  provider: z.enum([
+    "kimi",
+    "pi-local",
+    "pi-prod",
+    "openrouter",
+    "cloud-computer",
+  ]),
   providerLabel: z.string(),
   model: z.string(),
   contextWindowTokens: z.number().nullable(),

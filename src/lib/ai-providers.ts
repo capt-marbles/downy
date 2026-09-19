@@ -1,5 +1,6 @@
 export const AI_PROVIDERS = [
   "kimi",
+  "cloud-computer",
   "pi-local",
   "pi-prod",
   "openrouter",

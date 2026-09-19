@@ -1,3 +1,5 @@
+import { readAiProvider } from "../agent/get-model";
+import { computerStub } from "../cloud-computer/stub";
 import { DurableObject } from "cloudflare:workers";
 import {
   appendCaption,
@@ -79,6 +81,20 @@ export class VoiceCall extends DurableObject {
     // already be billed. A fresh explicit button press uses a fresh call ID.
     if (this.call?.callId === callId) return this.status();
     this.starting = true;
+    // Warm the optional reasoning runtime while GPT-Live starts independently.
+    // A wake failure never tears down the audio call or changes its billing.
+    this.ctx.waitUntil(
+      readAiProvider(this.env.DB)
+        .then(async (provider) => {
+          if (provider === "cloud-computer") {
+            const response = await computerStub(this.env).fetch(
+              new Request("https://computer.internal/wake", { method: "POST" }),
+            );
+            await response.body?.cancel();
+          }
+        })
+        .catch(() => {}),
+    );
     const now = Date.now();
     this.call = {
       callId,
