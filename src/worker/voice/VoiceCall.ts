@@ -19,6 +19,13 @@ import {
 } from "./provider";
 import { voiceDeadline } from "./policy";
 
+const TRANSCRIPT_PREFIX = "pending-transcript:";
+interface PendingTranscript {
+  callId: string;
+  slug: string;
+  text: string;
+}
+
 interface Call extends VoiceStatus {
   slug: string;
   providerId?: string;
@@ -41,6 +48,7 @@ export class VoiceCall extends DurableObject {
   private socket: WebSocket | undefined;
   private events: Promise<void> = Promise.resolve();
   private starting = false;
+  private transcriptDelivery: Promise<void> | undefined;
   private attaching: Promise<void> | undefined;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
@@ -81,6 +89,12 @@ export class VoiceCall extends DurableObject {
     // already be billed. A fresh explicit button press uses a fresh call ID.
     if (this.call?.callId === callId) return this.status();
     this.starting = true;
+    try {
+      await this.flushTranscripts();
+    } catch (error) {
+      this.starting = false;
+      throw error;
+    }
     // Warm the optional reasoning runtime while GPT-Live starts independently.
     // A wake failure never tears down the audio call or changes its billing.
     this.ctx.waitUntil(
@@ -163,6 +177,7 @@ export class VoiceCall extends DurableObject {
 
   async heartbeat(callId: string): Promise<VoiceStatus | null> {
     if (this.call?.callId !== callId) return null;
+    await this.flushTranscripts();
     if (this.call.state === "active") {
       // Check the OLD lease before extending it. Returning from a suspended
       // browser must not resurrect an expired call.
@@ -295,7 +310,9 @@ export class VoiceCall extends DurableObject {
     if (!call || call.callId !== callId || call.state === "closed") return;
     if (event.event_id && call.seen.includes(event.event_id)) return;
     if (event.event_id) call.seen = [...call.seen.slice(-255), event.event_id];
-    call.captions = appendCaption(call.captions, event);
+    const captions = appendCaption(call.captions, event);
+    if (captions !== call.captions) call.transcriptSaved = false;
+    call.captions = captions;
     if (event.type === "session.input_transcript.delta" && event.delta) {
       call.activityAt = Date.now();
       call.inputRevision++;
@@ -306,6 +323,9 @@ export class VoiceCall extends DurableObject {
         event.session.expires_at * 1000,
       );
     if (event.type === "session.closed") {
+      // Save the outbox entry before marking closed or cancelling its alarm.
+      // Recovery must still deliver captions if this isolate stops here.
+      await this.queueTranscript(call);
       call.usageSeconds = event.usage?.seconds;
       call.state = "closed";
       call.working = false;
@@ -318,7 +338,6 @@ export class VoiceCall extends DurableObject {
         seconds: call.usageSeconds ?? null,
         finalization: "confirmed",
       });
-      await this.ctx.storage.deleteAlarm();
       this.socket?.close(1000, "Call ended");
       this.socket = undefined;
       // Include any final captions arriving between hangup and session.closed.
@@ -362,9 +381,33 @@ export class VoiceCall extends DurableObject {
     transcript: string,
   ) {
     const call = this.call;
-    if (!call) return;
+    if (!call || call.callId !== callId) return;
     try {
-      if (!transcript.trim()) {
+      // The sideband delegation and caption streams can arrive out of order.
+      // Wait outside the event queue so late caller captions can still arrive.
+      if (
+        !call.captions.some(
+          (caption) => caption.role === "user" && caption.text.trim(),
+        )
+      ) {
+        const deadline = Date.now() + 1500;
+        while (
+          Date.now() < deadline &&
+          !call.captions.some(
+            (caption) => caption.role === "user" && caption.text.trim(),
+          )
+        )
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        transcript = captionText(call.captions);
+        revision = call.inputRevision;
+      }
+      if (
+        !call.captions.some(
+          (caption) => caption.role === "user" && caption.text.trim(),
+        )
+      ) {
+        if (this.call?.callId !== callId || this.call.state !== "active")
+          return;
         this.send({
           type: "session.commentary.append",
           delegation_id: id,
@@ -404,13 +447,70 @@ export class VoiceCall extends DurableObject {
     const call = this.call;
     if (!call || (call.transcriptSaved && !final) || !call.captions.length)
       return;
-    const agent = await getAgentStub(this.env, call.slug);
-    await agent.saveVoiceTranscript(call.callId, captionText(call.captions));
-    call.transcriptSaved = true;
-    await this.persist();
+    // Durable outbox: closing the provider or starting another call must not
+    // discard captions when the agent is temporarily unavailable.
+    await this.queueTranscript(call);
+    await this.flushTranscripts();
+  }
+
+  private async queueTranscript(call: Call) {
+    if (!call.captions.length) return;
+    await this.ctx.storage.put<PendingTranscript>(
+      `${TRANSCRIPT_PREFIX}${call.callId}`,
+      {
+        callId: call.callId,
+        slug: call.slug,
+        text: captionText(call.captions),
+      },
+    );
+  }
+
+  private async flushTranscripts(): Promise<void> {
+    if (this.transcriptDelivery) return this.transcriptDelivery;
+    this.transcriptDelivery = this.deliverTranscripts();
+    try {
+      await this.transcriptDelivery;
+    } finally {
+      this.transcriptDelivery = undefined;
+    }
+  }
+
+  private async deliverTranscripts() {
+    const pending = await this.ctx.storage.list<PendingTranscript>({
+      prefix: TRANSCRIPT_PREFIX,
+      limit: 10,
+    });
+    for (const [key, receipt] of pending) {
+      try {
+        const agent = await getAgentStub(this.env, receipt.slug);
+        await agent.saveVoiceTranscript(receipt.callId, receipt.text);
+        const latest = await this.ctx.storage.get<PendingTranscript>(key);
+        // A final caption may have superseded this snapshot during delivery.
+        if (latest?.text !== receipt.text) continue;
+        await this.ctx.storage.delete(key);
+        if (
+          this.call?.callId === receipt.callId &&
+          captionText(this.call.captions) === receipt.text
+        ) {
+          this.call.transcriptSaved = true;
+          await this.persist();
+        }
+      } catch {
+        // Retry the idempotent chat receipt, never the model/task itself.
+        console.warn("[voice] transcript delivery pending");
+      }
+    }
+    const remaining = await this.ctx.storage.list({
+      prefix: TRANSCRIPT_PREFIX,
+      limit: 1,
+    });
+    if (remaining.size) await this.ctx.storage.setAlarm(Date.now() + 15_000);
+    else if (this.call?.state === "closed" || this.call?.state === "error")
+      await this.ctx.storage.deleteAlarm();
   }
 
   override async alarm() {
+    await this.flushTranscripts();
     const call = this.call;
     if (!call || call.state === "closed" || call.state === "error") return;
     if (

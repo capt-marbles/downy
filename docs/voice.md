@@ -69,6 +69,14 @@ Disabling voice on a subsequent deploy should follow ending any open calls.
 - Voice refers to reports by title rather than spelling out paths or URLs.
   Successful workspace reads and verified report saves add clickable Files links
   to chat; failed reads and paths invented in model prose do not produce links.
+- Captions stay visible after hangup. Server-side transcript receipts are queued
+  durably before finalizing the call and retried if the chat agent is temporarily
+  unavailable, including after a coordinator restart or a later call. Transcript
+  delivery retries never repeat model work or tools. The queue stores bounded
+  captions only, not audio.
+- If delegation arrives before any caller captions, the server waits up to 1.5
+  seconds for them outside the event queue. It asks the caller to repeat the
+  question if no text arrives; it does not invent or replay a task.
 - Read-only lookups already submitted can finish after hangup; results remain
   in chat. Hangup does not cancel or roll back accepted work.
 - Downy saves **no audio recordings**. Session creation sets `store: false`.
@@ -111,3 +119,18 @@ Implementation references: [WebRTC](https://developers.openai.com/api/docs/guide
 [client delegation](https://developers.openai.com/api/docs/guides/live-delegation),
 [server control](https://developers.openai.com/api/docs/guides/voice-server-controls?api=live),
 and [session lifecycle](https://developers.openai.com/api/docs/guides/live-conversations).
+
+### 2026-09-19 iPhone home-screen investigation
+
+The operator reported that an example-CUA-pilot lookup failed in the iPhone PWA
+and the captions disappeared on hangup; the laptop retry succeeded. The laptop
+request and captions were present in the agent history, but a matching failed
+phone call was not. The retained records do not establish the exact incident
+cause or a platform-specific WebRTC defect.
+
+Regression tests reproduced two concrete failure paths: a failed final transcript
+save was never retried after the call closed, and delegation arriving before
+caller captions dispatched no lookup. Durable transcript delivery and bounded
+caption waiting fix those paths. The UI also retains its local captions after
+hangup. A new physical iPhone PWA call is still needed to verify the original
+experience after deployment.

@@ -129,19 +129,30 @@ export default function VoiceCallPanel({
           {view.error}
         </p>
       ) : null}
-      {active && view.captions.length ? (
+      {view.captions.length ? (
         <div
           className="mt-2 max-h-32 overflow-auto text-sm"
-          aria-label="Live captions (approximate)"
+          aria-label={
+            active
+              ? "Live captions (approximate)"
+              : "Call captions (approximate)"
+          }
         >
-          {view.captions.slice(-3).map((caption, index) => (
-            <p key={`${caption.startMs}-${index}`} className="mt-1">
-              <span className="text-base-content/50">
-                {caption.role === "user" ? "You" : "Downy"}:{" "}
-              </span>
-              {caption.text}
+          {!active && (
+            <p className="text-xs text-base-content/50">
+              Call ended · approximate captions
             </p>
-          ))}
+          )}
+          {(active ? view.captions.slice(-3) : view.captions).map(
+            (caption, index) => (
+              <p key={`${caption.startMs}-${index}`} className="mt-1">
+                <span className="text-base-content/50">
+                  {caption.role === "user" ? "You" : "Downy"}:{" "}
+                </span>
+                {caption.text}
+              </p>
+            ),
+          )}
         </div>
       ) : null}
     </section>

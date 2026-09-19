@@ -55,8 +55,7 @@ function sentEvents(socket: Socket) {
   return socket.sent.map((data) => SentEvent.parse(JSON.parse(data)));
 }
 
-function fixture() {
-  const records = new Map<string, unknown>();
+function fixture(records = new Map<string, unknown>()) {
   const pending: Promise<unknown>[] = [];
   let ready: Promise<unknown> = Promise.resolve();
   const storage = {
@@ -64,6 +63,16 @@ function fixture() {
     put: vi.fn(async (key: string, value: unknown) => {
       records.set(key, structuredClone(value));
     }),
+    list: vi.fn(
+      async ({ prefix, limit }: { prefix: string; limit: number }) =>
+        new Map(
+          [...records]
+            .filter(([key]) => key.startsWith(prefix))
+            .slice(0, limit)
+            .map(([key, value]) => [key, structuredClone(value)]),
+        ),
+    ),
+    delete: vi.fn(async (key: string) => records.delete(key)),
     setAlarm: vi.fn(async () => {}),
     deleteAlarm: vi.fn(async () => {}),
   };
@@ -210,4 +219,156 @@ it("closes through the durable alarm after browser disappearance", async () => {
   await f.call.alarm();
   expect((await f.call.heartbeat("one"))?.state).toBe("closing");
   expect(f.storage.setAlarm).toHaveBeenCalled();
+});
+
+it("retries a failed final transcript save after hangup without losing it to the next call", async () => {
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "phone", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Suggest an example CUA pilot",
+    start_ms: 0,
+    end_ms: 100,
+  });
+  await f.drain();
+  mocks.transcript.mockRejectedValueOnce(
+    new Error("Temporary agent disconnect"),
+  );
+  f.socket.event({ type: "session.closed" });
+  await f.drain();
+  expect(mocks.transcript).toHaveBeenCalledTimes(1);
+  await f.call.alarm();
+  expect(mocks.transcript).toHaveBeenCalledTimes(2);
+  expect(mocks.transcript).toHaveBeenLastCalledWith(
+    "phone",
+    expect.stringContaining("example CUA pilot"),
+  );
+});
+
+it("waits for the caller transcript when delegation arrives before its captions", async () => {
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "phone", "offer");
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "task", target: "client" },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Suggest an example CUA pilot",
+    start_ms: 0,
+    end_ms: 100,
+  });
+  await vi.advanceTimersByTimeAsync(500);
+  await f.drain();
+  expect(mocks.lookup).toHaveBeenCalledTimes(1);
+  expect(mocks.lookup.mock.calls[0][2]).toContain("example CUA pilot");
+});
+
+it("recovers the phone transcript after coordinator restart and a new laptop call", async () => {
+  const phone = fixture();
+  await phone.ready();
+  await phone.call.start("research", "phone", "offer");
+  phone.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Suggest an example CUA pilot",
+    end_ms: 100,
+  });
+  await phone.drain();
+  mocks.transcript.mockRejectedValue(new Error("Temporary agent disconnect"));
+  phone.socket.event({ type: "session.closed" });
+  await phone.drain();
+  expect(phone.records.has("pending-transcript:phone")).toBe(true);
+  const laptop = fixture(phone.records);
+  await laptop.ready();
+  await laptop.call.start("research", "laptop", "offer");
+  expect(phone.records.has("pending-transcript:phone")).toBe(true);
+  mocks.transcript.mockResolvedValue(undefined);
+  await laptop.call.alarm();
+  expect(mocks.transcript).toHaveBeenLastCalledWith(
+    "phone",
+    expect.stringContaining("example CUA pilot"),
+  );
+  expect(phone.records.has("pending-transcript:phone")).toBe(false);
+});
+
+it("does not re-run model work when retrying the transcript after hangup", async () => {
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "phone", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Suggest an example CUA pilot",
+    end_ms: 100,
+  });
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "task", target: "client" },
+  });
+  await f.drain();
+  expect(mocks.lookup).toHaveBeenCalledTimes(1);
+  mocks.transcript.mockRejectedValueOnce(
+    new Error("Temporary agent disconnect"),
+  );
+  f.socket.event({ type: "session.closed" });
+  await f.drain();
+  await f.call.alarm();
+  expect(mocks.lookup).toHaveBeenCalledTimes(1);
+  expect(mocks.transcript).toHaveBeenCalledTimes(2);
+});
+
+it("bounds waiting for absent captions and does not invent a lookup", async () => {
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "phone", "offer");
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "task", target: "client" },
+  });
+  await vi.advanceTimersByTimeAsync(1600);
+  await f.drain();
+  expect(mocks.lookup).not.toHaveBeenCalled();
+  expect(
+    f.socket.sent.some((value) => value.includes("Please repeat it")),
+  ).toBe(true);
+});
+
+it("retains final captions that supersede a transcript being delivered", async () => {
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "phone", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Suggest a CUA pilot",
+    end_ms: 100,
+  });
+  await f.drain();
+  let finish: (() => void) | undefined;
+  mocks.transcript.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const ending = f.call.end("phone");
+  await vi.advanceTimersByTimeAsync(0);
+  f.socket.event({
+    type: "session.output_transcript.delta",
+    delta: "A safe public-page capture",
+    start_ms: 200,
+    end_ms: 300,
+  });
+  f.socket.event({ type: "session.closed" });
+  await vi.advanceTimersByTimeAsync(0);
+  finish?.();
+  await ending;
+  await f.drain();
+  await f.call.alarm();
+  expect(mocks.transcript).toHaveBeenLastCalledWith(
+    "phone",
+    expect.stringContaining("A safe public-page capture"),
+  );
+  expect(f.records.has("pending-transcript:phone")).toBe(false);
 });
