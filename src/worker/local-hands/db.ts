@@ -1,5 +1,9 @@
 import { posix } from "node:path";
 import { z } from "zod";
+import {
+  BrowserReadInputSchema,
+  XSearchInputSchema,
+} from "../../lib/browser-research";
 
 import {
   LocalHandsActionSchema,
@@ -108,6 +112,16 @@ export async function requestLocalHandsAction(
   },
 ): Promise<LocalHandsAction> {
   const now = Date.now();
+  const browserRead =
+    args.input.kind === "browser" || args.input.kind === "x.research";
+  if (browserRead) {
+    if (args.input.riskLevel !== "read_only")
+      throw new Error("Browser research is read-only");
+    (args.input.kind === "browser"
+      ? BrowserReadInputSchema
+      : XSearchInputSchema
+    ).parse(args.input.input);
+  }
   if (args.input.kind === "filesystem.fetch") {
     z.object({
       sourcePath: z.string().startsWith("/"),
@@ -147,9 +161,10 @@ export async function requestLocalHandsAction(
       JSON.stringify(args.input.input),
       now,
       now,
-      args.input.targetConnectorId ?? null,
+      args.input.targetConnectorId ?? (browserRead ? "mac-studio" : null),
       KIND_CAPABILITY[args.input.kind],
-      args.input.expiresAt ?? (args.scheduled ? now + 86_400_000 : null),
+      args.input.expiresAt ??
+        (args.scheduled || browserRead ? now + 86_400_000 : null),
     )
     .run();
   return getLocalHandsActionOrThrow(db, id);
@@ -330,6 +345,7 @@ export async function claimNextLocalHandsAction(
       AND (target_connector_id IS NULL OR target_connector_id = ?)
       AND (required_capability IS NULL OR required_capability IN (SELECT value FROM json_each(?)))
       AND (expires_at IS NULL OR expires_at > ?)
+      AND (? IS NULL OR kind IN (SELECT value FROM json_each(?)))
     ORDER BY created_at ASC, id ASC LIMIT 20`,
     )
     .bind(
@@ -337,6 +353,8 @@ export async function claimNextLocalHandsAction(
       connector.id,
       JSON.stringify(connector.capabilities),
       now,
+      args.input.kinds ? JSON.stringify(args.input.kinds) : null,
+      args.input.kinds ? JSON.stringify(args.input.kinds) : null,
     )
     .all<ActionRow>();
   for (const row of rows.results ?? []) {

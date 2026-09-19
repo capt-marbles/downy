@@ -45,7 +45,11 @@ it("two simultaneous claims yield the action exactly once", async () => {
 });
 it("does not claim expired actions or missing capabilities", async () => {
   await enqueue({ expiresAt: Date.now() - 1 });
-  await enqueue({ kind: "browser" });
+  await enqueue({
+    kind: "browser",
+    targetConnectorId: "mac-laptop",
+    input: { url: "https://github.com/trycua/cua" },
+  });
   expect(await claim()).toBeNull();
 });
 it("scheduled actions default to a 24 hour expiry", async () => {

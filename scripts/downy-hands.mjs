@@ -1,9 +1,17 @@
 #!/usr/bin/env node
 
+import { executeBrowserResearch } from "./local-hands-browser.mjs";
 import { executeFilesystemFetch } from "./local-hands-files.mjs";
 import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  mkdir,
+  writeFile,
+  rename,
+} from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -30,18 +38,28 @@ const allowedRoots = (process.env.DOWNY_HANDS_ALLOWED_ROOTS ?? homedir())
   .map((entry) => path.resolve(entry))
   .filter(Boolean);
 
+const asideEnabled = process.env.DOWNY_HANDS_ASIDE_ENABLED === "1";
+const browserOnly = process.env.DOWNY_HANDS_BROWSER_ONLY === "1";
 const capabilities = [
-  "shell.read",
-  "filesystem.read",
-  "browser.automation",
-  "xurl.research",
-  "x.research",
-  "grok.research",
-  "codex.coding",
-  "git.read",
+  ...(browserOnly ? [] : ["filesystem.read", "codex.coding"]),
+  ...(asideEnabled ? ["browser.automation", "x.research"] : []),
+  ...(!browserOnly && grokResearchCommand ? ["grok.research"] : []),
 ];
-
-function headers() {
+if (!capabilities.length) throw new Error("No local executors enabled");
+const stateDirectory =
+  process.env.DOWNY_HANDS_STATE_DIR ??
+  path.join(
+    homedir(),
+    ".local",
+    "state",
+    "downy-hands",
+    encodeURIComponent(connectorId),
+    encodeURIComponent(agentSlug),
+  );
+const pendingPath = path.join(stateDirectory, "pending.json");
+let cachedAccessToken;
+let tokenExpiresAt = 0;
+async function headers() {
   const value = {
     "content-type": "application/json",
     "x-agent-slug": agentSlug,
@@ -49,6 +67,29 @@ function headers() {
   if (accessClientId && accessClientSecret) {
     value["cf-access-client-id"] = accessClientId;
     value["cf-access-client-secret"] = accessClientSecret;
+  } else if (process.env.DOWNY_HANDS_ACCESS_SESSION === "1") {
+    if (!cachedAccessToken || Date.now() > tokenExpiresAt - 60_000) {
+      try {
+        const { stdout } = await execFileAsync(
+          process.env.DOWNY_HANDS_CLOUDFLARED_BIN ?? "cloudflared",
+          ["access", "token", "--app", baseUrl],
+          { timeout: 10_000, maxBuffer: 32_000 },
+        );
+        const token = stdout.trim();
+        const claims = JSON.parse(
+          Buffer.from(token.split(".")[1], "base64url").toString(),
+        );
+        if (!claims.exp || claims.exp * 1000 <= Date.now())
+          throw new Error("expired");
+        cachedAccessToken = token;
+        tokenExpiresAt = claims.exp * 1000;
+      } catch {
+        throw new Error(
+          "ACCESS_LOGIN_REQUIRED: run cloudflared access login for the Downy URL on Studio",
+        );
+      }
+    }
+    value.cookie = `CF_Authorization=${cachedAccessToken}`;
   }
   return value;
 }
@@ -56,21 +97,48 @@ function headers() {
 async function post(pathname, body) {
   const response = await fetch(`${baseUrl}${pathname}`, {
     method: "POST",
-    headers: headers(),
+    headers: await headers(),
     body: JSON.stringify(body),
+    redirect: "manual",
+    signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) {
+  if (
+    !response.ok ||
+    !response.headers.get("content-type")?.includes("application/json")
+  ) {
+    if ([302, 401, 403].includes(response.status)) {
+      cachedAccessToken = undefined;
+      tokenExpiresAt = 0;
+    }
     throw new Error(
-      `${response.status} ${response.statusText}: ${await response.text()}`,
+      `DOWNY_HTTP_${response.status}: request failed; check Access sign-in and connectivity`,
     );
   }
   return response.json();
 }
 
+async function savePending(value) {
+  await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
+  await writeFile(`${pendingPath}.tmp`, JSON.stringify(value), { mode: 0o600 });
+  await rename(`${pendingPath}.tmp`, pendingPath);
+}
+async function deliverPending() {
+  let pending;
+  try {
+    pending = JSON.parse(await readFile(pendingPath, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  await complete(pending.action, pending.status, pending.result, pending.error);
+  await rm(pendingPath);
+  console.log(`delivered ${pending.action.id} (${pending.status})`);
+}
+
 async function heartbeat() {
   await post("/api/local-hands/heartbeat", {
     connectorId,
-    name: `Downy Hands on ${process.env.HOSTNAME ?? "local"}`,
+    name: connectorId,
     capabilities,
     allowedRoots,
   });
@@ -79,6 +147,11 @@ async function heartbeat() {
 async function claim() {
   return post("/api/local-hands/claim", {
     connectorId,
+    kinds: [
+      ...(browserOnly ? [] : ["filesystem.fetch", "codex"]),
+      ...(asideEnabled ? ["browser", "x.research"] : []),
+      ...(!browserOnly && grokResearchCommand ? ["grok.research"] : []),
+    ],
     capabilities,
     allowedRoots,
   });
@@ -263,6 +336,22 @@ async function executeGrokResearch(action) {
 }
 
 async function executeAction(action) {
+  if (
+    asideEnabled &&
+    (action.kind === "browser" || action.kind === "x.research")
+  )
+    return executeBrowserResearch(action, {
+      connectorId,
+      asideBin: process.env.DOWNY_HANDS_ASIDE_BIN ?? "aside",
+      expectedAccount: process.env.DOWNY_HANDS_X_ACCOUNT ?? "gogameye",
+      ...(process.env.DOWNY_HANDS_BROWSER_HOSTS
+        ? {
+            allowedHosts: process.env.DOWNY_HANDS_BROWSER_HOSTS.split(",")
+              .map((host) => host.trim())
+              .filter(Boolean),
+          }
+        : {}),
+    });
   if (action.kind === "filesystem.fetch")
     return executeFilesystemFetch(action, {
       allowedRoots,
@@ -275,7 +364,7 @@ async function executeAction(action) {
             duplex: "half",
             body,
             headers: {
-              ...headers(),
+              ...(await headers()),
               "content-type": contentType,
               "x-connector-id": connectorId,
               "x-dest-name": destName,
@@ -290,44 +379,76 @@ async function executeAction(action) {
       },
     });
   if (action.kind === "codex") return executeCodex(action);
-  if (action.kind === "grok.research" || action.kind === "x.research") {
+  if (action.kind === "grok.research") {
     return executeGrokResearch(action);
   }
-  return {
-    mode: "skeleton",
-    message:
-      "Local hands connector received the action but no executor is enabled yet for this kind.",
-    action: {
-      id: action.id,
-      kind: action.kind,
-      riskLevel: action.riskLevel,
-      input: action.input,
-    },
-  };
+  throw new Error("UNSUPPORTED_ACTION: no executor enabled for this kind");
 }
 
 async function handleClaimedAction(action) {
   console.log(`claimed ${action.id} (${action.kind}, ${action.riskLevel})`);
+  // Persist an interrupted receipt before running. A restart reports failure;
+  // it never blindly repeats an action whose execution outcome is unknown.
+  await savePending({
+    action: { id: action.id },
+    status: "failed",
+    result: null,
+    error:
+      "CONNECTOR_INTERRUPTED: Studio restarted during execution; retry explicitly",
+  });
+  let pending;
   try {
-    const result = await executeAction(action);
-    await complete(action, "completed", result);
+    pending = {
+      action: { id: action.id },
+      status: "completed",
+      result: await executeAction(action),
+      error: null,
+    };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await complete(action, "failed", null, message);
-    console.error(`failed ${action.id}: ${message}`);
+    const code =
+      String(error.message).match(/^[A-Z][A-Z_]+/)?.[0] ?? "EXECUTOR_FAILED";
+    pending = {
+      action: { id: action.id },
+      status: "failed",
+      result: null,
+      error: `${code}: Studio could not complete this action. Check the local executor or browser sign-in and retry.`,
+    };
   }
+  await savePending(pending);
+  // Network failures leave the completed receipt on disk. Next loop retries
+  // delivery, not executeAction, even after a process restart.
+  await deliverPending();
 }
 
 async function loop() {
   console.log(`Downy hands connecting to ${baseUrl} for agent ${agentSlug}`);
   console.log(`Allowed local roots: ${allowedRoots.join(", ")}`);
+  let heartbeatBusy = false;
+  const heartbeatTimer = setInterval(async () => {
+    if (heartbeatBusy) return;
+    heartbeatBusy = true;
+    try {
+      await heartbeat();
+    } catch {
+      /* Main loop reports bounded errors. */
+    } finally {
+      heartbeatBusy = false;
+    }
+  }, 30_000);
+  heartbeatTimer.unref();
   for (;;) {
     try {
       await heartbeat();
+      await deliverPending();
       const { action } = await claim();
       if (action) await handleClaimedAction(action);
     } catch (error) {
-      console.error(error instanceof Error ? error.message : error);
+      console.error(
+        error instanceof Error &&
+          /^(ACCESS_LOGIN_REQUIRED|DOWNY_HTTP_)/.test(error.message)
+          ? error.message
+          : "CONNECTOR_RETRY: transport or delivery unavailable; retrying without re-executing",
+      );
     }
     if (process.env.DOWNY_HANDS_ONCE === "1") return;
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));

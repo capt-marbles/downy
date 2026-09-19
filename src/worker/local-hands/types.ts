@@ -118,6 +118,7 @@ export type LocalHandsHeartbeatInput = z.infer<
 
 export const LocalHandsClaimInputSchema = z.object({
   connectorId: z.string().min(1).max(120),
+  kinds: z.array(LocalHandsActionKindSchema).min(1).optional(),
   capabilities: z.array(LocalHandsCapabilitySchema).default([]),
   allowedRoots: z.array(z.string().startsWith("/")).default([]),
 });

@@ -1,8 +1,8 @@
-# Downy local hands skeleton
+# Downy local hands
 
 Local hands is the bridge between the Cloudflare-hosted Buildroom agent and tools that should run locally: shell, filesystem, browser automation, Xurl/Hermes, Grok/SuperGrok, Codex, and git.
 
-This first version is intentionally a polling protocol skeleton. It gives Downy a durable queue, confirmation gates, connector heartbeat, claim, and completion semantics with guarded local execution.
+The polling protocol gives Downy a durable queue, confirmation gates, connector heartbeat, claim, and completion semantics with guarded local execution.
 
 ## Protocol
 
@@ -33,7 +33,7 @@ pending_confirmation -> queued -> claimed -> completed
 
 Read-only requests can be queued immediately if `requiresConfirmation=false`. Anything with local writes, external side effects, or destructive risk is forced through confirmation.
 
-## Local skeleton daemon
+## Local daemon
 
 ```bash
 DOWNY_URL=https://downy.andrewdmwalker.workers.dev \
@@ -49,7 +49,7 @@ CF_ACCESS_CLIENT_SECRET=... \
 node scripts/downy-hands.mjs
 ```
 
-The daemon heartbeats, claims, and completes actions. It currently includes a guarded `codex` executor for `read_only` actions. Other kinds still return a skeleton placeholder result.
+The daemon heartbeats, claims, and completes actions. It currently includes a guarded `codex` executor for `read_only` actions. It advertises only enabled executors; unsupported kinds fail instead of returning placeholder success.
 
 ### Codex executor
 
@@ -253,3 +253,78 @@ verifies it against its own SHA-256.
 Files appear in `workspace/inbox/<connector-id>/` in the existing workspace browser,
 including on a phone. Name collisions receive `-2`, `-3`, etc. before the extension.
 The result contains `workspacePath`, `bytes`, `sha256`, `contentType`, and `sourcePath`.
+
+## Studio browser research from iPhone
+
+Open the agent chat and expand **Studio browser** above the call/composer controls.
+Choose **Search X**, enter a query, and tap **Research on Studio**. Use
+`from:trycua CUA-S1` as a known-source smoke test, then try
+`AI (gamedev OR "game development") -filter:replies` for the pilot.
+The panel shows queued, reading, completed and failed requests, including when
+Studio is offline. Open the report when finished; it is also linked in chat.
+The agent can read the saved sources with its existing workspace tools.
+
+`x.research` accepts `{ query, maxResults? }` (1–20, default 10).
+`browser` accepts `{ url }` for a specific X post or a public source page.
+These operations require `read_only`, default to `mac-studio`, and expire after
+24 hours if unstarted. Existing confirmation requests remain gated.
+`request_grok_research` is retained as the agent shortcut but now queues an Aside
+X search, not a Grok model call. No extra agent tools are registered.
+
+Enable the local adapter on the Studio that holds the intended Aside profile:
+
+```bash
+DOWNY_HANDS_CONNECTOR_ID=mac-studio \
+DOWNY_HANDS_ASIDE_ENABLED=1 \
+DOWNY_HANDS_BROWSER_ONLY=1 \
+DOWNY_HANDS_X_ACCOUNT=gogameye \
+node scripts/downy-hands.mjs
+```
+
+Node 24+ and the Aside CLI must be on PATH. Aside must be running and signed into
+X as the configured account. Optional `DOWNY_HANDS_ASIDE_BIN` pins the executable.
+`DOWNY_HANDS_BROWSER_ONLY=1` advertises only browser/X capabilities, avoiding
+unrelated jobs during this pilot. Otherwise filesystem fetch and Codex are
+advertised too, plus Grok only when its command is configured. Run only one daemon
+per connector/agent pair.
+
+The adapter uses a fixed, bounded read program with a 60-second deadline. Input
+cannot supply code, selectors or clicks. It checks the X account, captures
+observed canonical post links, and closes its own tab. It never posts, likes,
+follows, sends DMs, or exports cookies. X searches use Latest and collect only
+rendered posts; this is not an exhaustive monitor or claim verification. Empty
+results count as success only when X explicitly reports no results. A missing
+page, login challenge or account mismatch is a visible failure.
+
+Public reads default to github.com, huggingface.co, developers.cloudflare.com,
+developers.openai.com, openai.com, typesafe.ai and cua.ai. Operators can replace
+this exact-host list using comma-separated `DOWNY_HANDS_BROWSER_HOSTS`. X reads
+remain limited to search and post URLs. Page text is untrusted evidence and does
+not authorize subsequent actions. Redirects to another origin are rejected.
+
+Results are saved as Markdown and JSON under
+`workspace/research/browser/<action-id>.*`. A deterministic chat receipt links
+the report; completion does not start another model turn automatically.
+
+For an interactive pilot behind Access, run:
+
+```bash
+cloudflared access login https://downy.andrewdmwalker.workers.dev
+DOWNY_HANDS_ACCESS_SESSION=1 node scripts/downy-hands.mjs
+```
+
+Use the same browser settings above. The daemon reads cloudflared's local token
+cache without logging the token; no browser cookie extraction or Access bypass
+is used. When the session expires, sign in again on Studio. This session-based
+pilot is not permanent unattended authentication. Service-token operation needs
+an Access policy and Worker identity validation that accept the chosen service
+identity; configuring that is separate from this pilot.
+
+Heartbeats continue during reads. Completed receipts are atomically saved with
+owner-only permissions in `~/.local/state/downy-hands/<connector>/<agent>/`
+(or `DOWNY_HANDS_STATE_DIR`) before delivery. Network failures retry delivery
+without rerunning the browser. A restart during execution reports interruption
+and requires an explicit new request. A crash between server claim and writing
+the local receipt can still leave a claimed job requiring operator recovery;
+the UI flags slow claimed jobs instead of pretending they completed. Do not run
+two processes with the same connector ID or erase pending receipts.

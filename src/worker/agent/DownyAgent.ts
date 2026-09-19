@@ -1,4 +1,9 @@
 import { advanceCampaignWorkflow } from "../campaign-room/advance";
+import {
+  BrowserResearchSchema,
+  browserResearchPath,
+  browserResearchMarkdown,
+} from "../../lib/browser-research";
 import { voiceReadTools, voiceToolSet } from "../voice/policy";
 import type { AdvanceWorkflowInput } from "../buildroom/workflows";
 import { syncCorpus } from "../corpus/sync";
@@ -33,7 +38,10 @@ import {
   isSyntheticUserMessage,
   parseSlugHeader,
 } from "./background-task-utils";
-import { assertChildWorkspaceCallAllowed } from "./child-workspace-rpc";
+import {
+  assertChildWorkspaceCallAllowed,
+  normalizeWorkspacePath,
+} from "./child-workspace-rpc";
 import type { ActivePlan } from "./tools/todo-write";
 import { DEFAULT_AI_PROVIDER, getModelFor, readAiProvider } from "./get-model";
 import {
@@ -727,6 +735,38 @@ export class DownyAgent extends Think {
         messages: this.messages,
       }),
     );
+  }
+
+  async saveBrowserResearch(actionId: string, value: unknown): Promise<string> {
+    const result = BrowserResearchSchema.parse(value);
+    const path = normalizeWorkspacePath(browserResearchPath(actionId));
+    assertChildWorkspaceCallAllowed("writeFile", [path]);
+    // The handler passes the immutable, completed D1 result. Re-delivery writes
+    // the same files and receipt, without another browser read or model turn.
+    await this.workspace.writeFile(path, browserResearchMarkdown(result));
+    await this.workspace.writeFile(
+      path.replace(/\.md$/, ".json"),
+      JSON.stringify(result, null, 2),
+    );
+    const message = {
+      id: `browser-research:${actionId}`,
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: `**Studio browser research completed**\n\nCaptured ${result.sources.length} source(s). [Open report](/agent/${encodeURIComponent(this.name)}/workspace/${path}).\n\nThe source text is saved in the workspace for follow-up questions. This is a bounded browser capture, not an exhaustive search or independent verification.`,
+        },
+      ],
+    };
+    if (!this.session.getMessage(message.id))
+      await this.session.appendMessage(message);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+    return path;
   }
 
   // Dev-only reset. Wipes the conversation, resets the bootstrap sentinel, and

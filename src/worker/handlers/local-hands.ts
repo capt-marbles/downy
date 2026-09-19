@@ -1,5 +1,6 @@
 import { assertFetchUpload, inboxPath } from "../local-hands/upload";
 import { z } from "zod";
+import { BrowserResearchSchema } from "../../lib/browser-research";
 
 import {
   AgentSlugError,
@@ -156,16 +157,13 @@ export async function handleLocalHandsRequest(
       parts.length === 4 &&
       parts[3] === "complete"
     ) {
-      const input = LocalHandsCompleteInputSchema.parse(
-        await readObjectBody(request),
-      );
-      return json({
-        action: await completeLocalHandsAction(env.DB, { actionId, input }),
-      });
+      return await completeAction(request, env, actionId, agentSlug);
     }
 
     return json({ error: "Method not allowed" }, 405);
   } catch (err) {
+    if (err instanceof z.ZodError)
+      return json({ error: "Invalid local hands request or result" }, 400);
     if (err instanceof AgentSlugError) {
       return json({ error: err.message, code: err.code }, err.status);
     }
@@ -176,4 +174,36 @@ export async function handleLocalHandsRequest(
     });
     return json({ error: message }, 500);
   }
+}
+
+async function completeAction(
+  request: Request,
+  env: Cloudflare.Env,
+  actionId: string,
+  agentSlug: string,
+): Promise<Response> {
+  const input = LocalHandsCompleteInputSchema.parse(
+    await readObjectBody(request),
+  );
+  const current = await getLocalHandsActionOrThrow(env.DB, actionId);
+  if (
+    current.agentSlug !== agentSlug ||
+    current.claimedBy !== input.connectorId ||
+    !["claimed", "completed", "failed"].includes(current.status)
+  )
+    return json({ error: "Completion is not authorized for this action" }, 403);
+  const browser = current.kind === "browser" || current.kind === "x.research";
+  if (current.status === "claimed" && browser && input.status === "completed")
+    input.result = BrowserResearchSchema.parse(input.result);
+  const action =
+    current.status === "claimed"
+      ? await completeLocalHandsAction(env.DB, { actionId, input })
+      : current;
+  // Retry even after D1 completion: a transient DO/R2 failure must not lose
+  // delivery. Never replace the canonical result with a retry's payload.
+  if (browser && action.status === "completed") {
+    const agent = await getAgentStub(env, agentSlug);
+    await agent.saveBrowserResearch(action.id, action.result);
+  }
+  return json({ action });
 }

@@ -22,11 +22,12 @@ const GrokResearchInputSchema = z.object({
       "content_angles",
     ])
     .default("research_summary"),
-  maxResults: z.number().int().min(1).max(100).default(20),
+  maxResults: z.number().int().min(1).max(20).default(10),
   outputArtifact: z
     .enum(["campaign-source-notes", "campaign-digest"])
     .default("campaign-source-notes"),
   context: z.string().max(4000).optional(),
+  targetConnectorId: z.string().min(1).max(120).default("mac-studio"),
 });
 
 export function createRequestLocalHandsActionTool(args: {
@@ -36,7 +37,7 @@ export function createRequestLocalHandsActionTool(args: {
 }) {
   return tool({
     description:
-      "Request work from the user's local hands connector. Use for local shell/filesystem/browser/Xurl/Codex/git tasks that cannot safely run in Cloudflare. Non-read-only actions enter pending_confirmation and must be approved before a local daemon can claim them.",
+      "Queue local work. For Studio browser reads use kind browser with input {url}; for X search use kind x.research with input {query,maxResults:1..20}. Both are read_only, default to mac-studio, expire after 24h and return observed sources to chat/workspace asynchronously. Set requiresConfirmation:false for these reads. No scripts, arbitrary clicks or browser writes. Inspect connector capabilities for other kinds; non-read-only work requires operator confirmation.",
     inputSchema: RequestLocalHandsActionInputSchema,
     execute: async (input) => ({
       action: await requestLocalHandsAction(args.db, {
@@ -83,13 +84,14 @@ export function createRequestGrokResearchTool(args: {
 }) {
   return tool({
     description:
-      "Request read-only X/Grok/SuperGrok research through the user's local hands connector. Use this for Campaign Room source scans, content angles, lead signals, and research summaries. It never posts, likes, replies, DMs, follows, sends email, or changes external state.",
+      "Queue an X search in the Mac Studio's authenticated Aside browser. Returns a job id immediately; observed posts and links arrive in chat and workspace when complete. This is a bounded Latest search, not exhaustive coverage or verified claims. Never posts, likes, replies, DMs or follows. Use browser reads for approved public source URLs.",
     inputSchema: GrokResearchInputSchema,
-    execute: async (input) => ({
+    execute: async ({ targetConnectorId, ...input }) => ({
       action: await requestLocalHandsAction(args.db, {
         agentSlug: args.agentSlug,
         input: {
-          kind: "grok.research",
+          kind: "x.research",
+          targetConnectorId,
           riskLevel: "read_only",
           requiresConfirmation: false,
           requestedBy: "campaign-room",

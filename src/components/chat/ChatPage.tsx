@@ -14,6 +14,7 @@ import { alertDialog, confirmDialog } from "../ui/dialog";
 import AgentPanel from "./AgentPanel";
 import InputBox from "./InputBox";
 import VoiceCallPanel from "./VoiceCallPanel";
+import BrowserResearchPanel from "./BrowserResearchPanel";
 import MessageView, { turnHasSideEffects } from "./MessageView";
 import TodoList from "./TodoList";
 import VpcConnectivityWarning from "./VpcConnectivityWarning";
@@ -456,6 +457,7 @@ export default function ChatPage() {
               </button>
             </div>
           ) : null}
+          <BrowserResearchPanel key={`browser-${slug}`} slug={slug} />
           <VoiceCallPanel
             key={slug}
             slug={slug}
