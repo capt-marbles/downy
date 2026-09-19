@@ -328,3 +328,21 @@ and requires an explicit new request. A crash between server claim and writing
 the local receipt can still leave a claimed job requiring operator recovery;
 the UI flags slow claimed jobs instead of pretending they completed. Do not run
 two processes with the same connector ID or erase pending receipts.
+
+### Installed Studio pilot (2026-09-18)
+
+The user LaunchAgent `com.downy.hands.browser` runs the Node 24 connector from
+`~/.local/share/downy-hands/studio.mjs`. Its owner-only environment file is
+`~/.config/downy-hands/studio-browser.env`; logs are in
+`~/Library/Logs/downy-hands/`. The executable is bundled from this repository's
+`scripts/downy-hands.mjs` and its imports with the existing esbuild installation.
+Rebuild that bundle when changing the adapter, then restart the LaunchAgent.
+The bundle lives on the user disk so launchd does not depend on project-volume
+access at startup. Aside and the Studio must still be running.
+
+Release `e13890e` deployed the phone panel and completion handler. Live testing
+at a 390 × 844 viewport proved queued → Studio read → saved report → chat receipt
+for `from:trycua CUA-S1` (four posts), then the AI/game-development query (five
+posts). This is browser viewport testing, not physical iPhone Safari acceptance.
+The public-page adapter also uses a fixed native-main DOM read because Aside's
+role locator did not resolve GitHub's native main landmark.

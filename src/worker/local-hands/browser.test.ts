@@ -93,13 +93,19 @@ it("accepts only bounded read requests and operator-approved destinations", () =
 // Execute the actual generated program against the Aside contract. This catches
 // escaping, missing top-level await and unsupported locator-chaining regressions.
 function asideFixture(
-  options: { account?: string; empty?: boolean; noResults?: boolean } = {},
+  options: {
+    account?: string;
+    empty?: boolean;
+    noResults?: boolean;
+    pageUrl?: string;
+    publicText?: string;
+  } = {},
 ) {
   const closed = vi.fn();
   const run = vi.fn(async (_bin: string, args: string[]) => {
     const lines: string[] = [];
     const page = {
-      url: () => "https://x.com/search?q=CUA-S1&f=live",
+      url: () => options.pageUrl ?? "https://x.com/search?q=CUA-S1&f=live",
       title: async () => "X search",
       getByRole: (role: string) => {
         if (role !== "button") throw new Error("Unsupported locator API");
@@ -113,7 +119,7 @@ function asideFixture(
           ? []
           : [
               {
-                text: "An observed announcement",
+                text: options.publicText ?? "An observed announcement",
                 links: [
                   "https://x.com/trycua/status/123",
                   "https://x.com/trycua/status/123",
@@ -392,4 +398,26 @@ it("browser-only claims leave legacy actions with no capability untouched", asyn
     }),
   ).toBeNull();
   expect((await getLocalHandsActionOrThrow(db, old.id)).status).toBe("queued");
+});
+
+it("reads native main content when Aside has no matching role locator", async () => {
+  const input = {
+    kind: "browser",
+    riskLevel: "read_only",
+    input: { url: "https://github.com/trycua/cua" },
+  };
+  const fixture = asideFixture({
+    pageUrl: input.input.url,
+    publicText: "Repository public README content. ".repeat(10),
+  });
+  const read = await executeBrowserResearch(input, fixture);
+  expect(read.sources[0].url).toBe(input.input.url);
+  expect(read.sources[0].text).toContain("Repository public README");
+  expect(fixture.closed).toHaveBeenCalledOnce();
+  await expect(
+    executeBrowserResearch(
+      input,
+      asideFixture({ pageUrl: input.input.url, publicText: "Just a moment" }),
+    ),
+  ).rejects.toThrow("BROWSER_BLOCKED");
 });

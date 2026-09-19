@@ -121,12 +121,17 @@ function asideReadProgram(request) {
         if (!sources.length && !(request.operation === "x_search" && /No results for/.test(state.tree)))
           throw new Error("BROWSER_INCOMPLETE: X returned no verifiable posts; this is not a successful empty scan");
       } else {
-        const main = target.getByRole("main");
-        if (await main.count() !== 1) throw new Error("BROWSER_INCOMPLETE: public page has no unambiguous main content");
-        const text = await main.innerText();
+        // Aside's role locator does not resolve native <main> on all sites.
+        // Snapshot establishes the landmark; read that exact DOM scope.
+        const sections = await target.evaluate(() => Array.from(document.querySelectorAll("main, [role=main]")).map(main => ({
+          text: main.innerText,
+          links: Array.from(main.querySelectorAll("a[href]")).slice(0,40).map(link => link.href),
+        })));
+        if (sections.length !== 1) throw new Error("BROWSER_INCOMPLETE: public page has no unambiguous main content");
+        const { text, links } = sections[0];
         if (text.trim().length < 80 || /Verify you are human|Checking your browser|Just a moment/.test(text))
           throw new Error("BROWSER_BLOCKED: page needs operator attention");
-        sources.push({ url: actual.href, text: text.slice(0,24000), links: cleanLinks(await target.evaluate(() => Array.from(document.querySelectorAll("main a[href], [role=main] a[href]")).slice(0,40).map(link => link.href))), truncated: text.length > 24000 });
+        sources.push({ url: actual.href, text: text.slice(0,24000), links: cleanLinks(links), truncated: text.length > 24000 });
       }
       console.log(${JSON.stringify(marker)} + JSON.stringify({
         provider:"aside", operation:request.operation, ...(request.query ? {query:request.query} : {}),
