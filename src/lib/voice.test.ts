@@ -90,7 +90,7 @@ it("blocks execution even if a model calls a hidden write tool", async () => {
   });
   await expect(
     tools.publish.execute?.({}, { toolCallId: "test", messages: [] }),
-  ).rejects.toThrow("read-only");
+  ).rejects.toThrow("This action did not run");
   expect(executed).toBe(false);
 });
 
@@ -132,4 +132,75 @@ it("rejects attempts to inject provider settings, arbitrary events, or oversized
       callId,
     }).success,
   ).toBe(false);
+});
+
+it("allows only new report writes while keeping background workers and external tools blocked", async () => {
+  const saved: string[] = [];
+  const baseWrite = tool({
+    inputSchema: z.object({ path: z.string(), content: z.string() }),
+    execute: async (): Promise<string> => {
+      throw new Error("unrestricted writer must not run");
+    },
+  });
+  const tools = voiceToolSet(
+    { write: baseWrite, spawn_background_task: baseWrite },
+    async (path) => {
+      saved.push(path);
+    },
+  );
+  expect(
+    voiceReadTools(
+      ["read", "write", "spawn_background_task", "tool_mail_send"],
+      true,
+    ),
+  ).toEqual(["read", "write"]);
+  expect(
+    await tools.write.execute?.(
+      {
+        path: "workspace/research/combined-research-summary.md",
+        content: "# Summary",
+      },
+      { toolCallId: "save", messages: [] },
+    ),
+  ).toMatchObject({
+    saved: true,
+    path: "workspace/research/combined-research-summary.md",
+  });
+  for (const path of [
+    "identity/USER.md",
+    "skills/unsafe.md",
+    "workspace/research/browser/capture.md",
+    "workspace/research/../secret.md",
+    "workspace/research/report.json",
+  ]) {
+    await expect(
+      tools.write.execute?.(
+        { path, content: "unsafe" },
+        { toolCallId: "bad", messages: [] },
+      ),
+    ).rejects.toThrow();
+  }
+  await expect(
+    tools.spawn_background_task.execute?.(
+      { path: "workspace/research/anything.md", content: "unsafe" },
+      { toolCallId: "spawn", messages: [] },
+    ),
+  ).rejects.toThrow("This action did not run");
+  expect(saved).toEqual(["workspace/research/combined-research-summary.md"]);
+});
+
+it("never reports saved when the server rejects an existing report or verification fails", async () => {
+  const original = tool({
+    inputSchema: z.object({}),
+    execute: async () => "unused",
+  });
+  const tools = voiceToolSet({ write: original }, async () => {
+    throw new Error("Report already exists");
+  });
+  await expect(
+    tools.write.execute?.(
+      { path: "workspace/research/report.md", content: "# New text" },
+      { toolCallId: "save", messages: [] },
+    ),
+  ).rejects.toThrow("already exists");
 });

@@ -1,8 +1,11 @@
 import { VOICE_IDLE_MS, VOICE_LEASE_MS, VOICE_MAX_MS } from "../../lib/voice";
-import type { ToolSet } from "ai";
+import { tool, type ToolSet } from "ai";
+import { z } from "zod";
+import { normalizeWorkspacePath } from "../agent/child-workspace-rpc";
 
 // Positive allowlist: new tools and MCP tools never acquire voice permissions
-// implicitly. Even a prompt injection or misheard approval stays read-only.
+// implicitly. Spoken approval never grants external actions. The only write
+// exception is a constrained, new Markdown report with a verified save.
 const VOICE_READ_TOOLS = new Set([
   "read",
   "list",
@@ -15,15 +18,24 @@ const VOICE_READ_TOOLS = new Set([
   "list_scheduled_tasks",
 ]);
 
-export function voiceReadTools(names: string[]): string[] {
-  return names.filter((name) => VOICE_READ_TOOLS.has(name));
+export function voiceReadTools(
+  names: string[],
+  reportsEnabled = false,
+): string[] {
+  return names.filter(
+    (name) =>
+      VOICE_READ_TOOLS.has(name) || (reportsEnabled && name === "write"),
+  );
 }
 
-export function voiceToolSet(tools: ToolSet): ToolSet {
+export function voiceToolSet(
+  tools: ToolSet,
+  saveReport?: (path: string, content: string) => Promise<void>,
+): ToolSet {
   // Think merges tool overrides rather than replacing the tool set, and its
   // beforeToolCall hook is currently observational. Block executors as well
   // as hiding schemas so an out-of-allowlist model call cannot execute.
-  return Object.fromEntries(
+  const restricted = Object.fromEntries(
     Object.entries(tools).map(([name, definition]) => [
       name,
       VOICE_READ_TOOLS.has(name)
@@ -33,12 +45,39 @@ export function voiceToolSet(tools: ToolSet): ToolSet {
             needsApproval: false,
             execute: async () => {
               throw new Error(
-                "Voice preview is read-only. Use the chat controls for this action.",
+                "Voice only permits reads and new workspace reports. This action did not run. Use the chat controls for other actions.",
               );
             },
           },
     ]),
   );
+  if (saveReport && tools.write)
+    restricted.write = tool({
+      description:
+        "Save a NEW Markdown report requested by the caller under workspace/research/, workspace/reports/ or workspace/drafts/. Read the sources first; include their paths/URLs and evidence limits. Use a simple filename ending .md, without subdirectories. Existing files cannot be overwritten. Returns saved:true only after verification. Other writes and background workers are unavailable in voice.",
+      inputSchema: z.object({
+        path: z.string().max(200),
+        content: z.string().min(1).max(100_000),
+      }),
+      execute: async ({ path, content }) => {
+        const normalized = normalizeWorkspacePath(path);
+        if (
+          !/^workspace\/(?:research|reports|drafts)\/[a-zA-Z0-9_-]+\.md$/.test(
+            normalized,
+          )
+        )
+          throw new Error(
+            "Voice can only save new Markdown reports in the approved workspace folders.",
+          );
+        await saveReport(normalized, content);
+        return {
+          saved: true,
+          path: normalized,
+          bytesWritten: new TextEncoder().encode(content).byteLength,
+        };
+      },
+    });
+  return restricted;
 }
 
 export function voiceDeadline(state: {

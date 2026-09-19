@@ -9,8 +9,9 @@ const inputSchema = z.object({
   kind: z
     .string()
     .min(1)
+    .default("task")
     .describe(
-      "Short category tag for the background task, e.g. 'research', 'scrape-batch', 'summarize-feed'.",
+      "Optional category tag, e.g. 'research' or 'summarize-feed'. Defaults to 'task'; the brief carries the instructions.",
     ),
   brief: z
     .string()

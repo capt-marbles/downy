@@ -6,11 +6,22 @@ between the browser and OpenAI. A separate authenticated server connection passe
 lookups to the existing Downy agent. Kimi, Jev, workspace storage, and chat remain
 the existing backend; the Mac Studio does not need to be awake.
 
-This first release is **read-only**. It can discuss the conversation and read
-existing workspace material, such as an X research digest. It cannot publish,
-send, schedule, change files, connect services, or approve gates. These tools are
-both hidden and blocked at execution. Use the existing chat controls for actions
-and credential cards for secrets. There are no new agent tools.
+Voice can discuss and read existing workspace material and save a **new Markdown
+report** when explicitly requested. It uses the existing `write` tool with a
+voice-specific executor: a single `.md` filename directly under
+`workspace/research/`, `workspace/reports/` or `workspace/drafts/`, up to 100,000
+characters. It cannot overwrite files, alter raw browser captures, publish,
+send, schedule, connect services, approve gates or dispatch general background
+workers. Those tools remain hidden and blocked at execution. Use chat controls
+for other actions and credential cards for secrets. No agent tools were added.
+
+Report writes check that the destination is new and read the saved content back
+before returning `saved:true`. The voice handoff derives save/failure status from
+tool results, not an assistant promise. Failed tool calls produce an explicit
+failure receipt in chat and spoken feedback; a verified save gets a report link.
+It speaks only the final answer, skipping planning preambles. The original
+missing-`kind` background-task bug is also fixed for normal chat: the optional
+category now defaults to `task`; the brief remains required.
 
 ## Operator setup
 
@@ -74,8 +85,8 @@ before enabling it.
 
 Automated tests cover the request contract, browser permissions and cleanup,
 mute, blocked autoplay, caption bounds, stale/duplicate delegations, expiry,
-cross-origin rejection, server-secret isolation, and execution-level read-only
-restrictions. They simulate the provider; they do not prove live audio quality or
+cross-origin rejection, server-secret isolation, and execution-level action
+restrictions and verified report saves. They simulate the provider; they do not prove live audio quality or
 account access.
 
 Before treating this as live-ready, run a short call on desktop and on an iPhone
@@ -84,8 +95,9 @@ in Safari and home-screen mode, behind Access:
 1. Ask about a known workspace digest; confirm the answer cites the same file
    in chat. Check a follow-up that needs another read.
 2. Interrupt: “No, the second digest.” Confirm the correction is respected.
-3. Ask to publish or approve something; verify voice directs you to chat and
-   performs no write.
+3. Ask to combine existing captures into a new report; verify the saved file
+   and its link. Try an existing filename: it must not overwrite. Ask to publish
+   or approve something; voice must direct you to chat without performing it.
 4. Check mute, headphones, sound activation, microphone denial, and hangup.
 5. Background the app and disconnect the network. Verify microphone release,
    the server close state, and no surprise reconnection or duplicated lookup.

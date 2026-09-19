@@ -103,7 +103,7 @@ export default function VoiceCallPanel({
               <Phone size={16} /> Start a call
             </button>
             <span className="text-xs text-base-content/50">
-              Voice preview · read-only · 15 min limit
+              Voice · read & draft reports · 15 min limit
             </span>
           </>
         )}

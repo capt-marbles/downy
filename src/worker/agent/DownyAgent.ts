@@ -5,6 +5,7 @@ import {
   browserResearchMarkdown,
 } from "../../lib/browser-research";
 import { voiceReadTools, voiceToolSet } from "../voice/policy";
+import { voiceTurnOutcome } from "../voice/outcome";
 import type { AdvanceWorkflowInput } from "../buildroom/workflows";
 import { syncCorpus } from "../corpus/sync";
 import { corpusRepos, type CorpusCursor } from "../corpus/types";
@@ -420,11 +421,21 @@ export class DownyAgent extends Think {
     );
     if (latestUser?.id.startsWith("voice-request:")) {
       return {
-        system: `${system}\n\nThis turn is a read-only voice lookup. Answer the caller's latest question, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. Do not claim to send, publish, approve, schedule, change, or connect anything. Direct those requests to the chat controls. Never ask for or repeat credentials. Keep your answer short enough to speak, and include source paths in the chat.`,
+        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short and link any saved report in chat.`,
         model: getModelFor(this.env, aiProvider),
-        activeTools: voiceReadTools(Object.keys(ctx.tools)),
-        tools: voiceToolSet(ctx.tools),
-        maxSteps: 8,
+        activeTools: voiceReadTools(Object.keys(ctx.tools), true),
+        tools: voiceToolSet(ctx.tools, (path, content) =>
+          this.ctx.blockConcurrencyWhile(async () => {
+            if (await this.workspace.exists(path))
+              throw new Error(
+                "Report already exists. Choose a new filename; voice cannot overwrite files.",
+              );
+            await this.workspace.writeFile(path, content);
+            if ((await this.workspace.readFile(path)) !== content)
+              throw new Error("Report save could not be verified.");
+          }),
+        ),
+        maxSteps: 12,
       };
     }
     const mcpTools = toolRegistry.buildMcpProxyTools({
@@ -698,19 +709,34 @@ export class DownyAgent extends Think {
     const after = this.messages.slice(index + 1);
     const nextUser = after.findIndex((message) => message.role === "user");
     const turn = nextUser < 0 ? after : after.slice(0, nextUser);
-    const answer =
-      turn
-        .filter(
-          (message) =>
-            message.role === "assistant" &&
-            !message.id.startsWith("voice-transcript:"),
-        )
-        .flatMap((message) =>
-          message.parts
-            .filter((part) => part.type === "text")
-            .map((part) => part.text),
-        )
-        .join("\n") || "Please check the chat for the lookup status.";
+    const outcome = voiceTurnOutcome(turn);
+    const answer = outcome.text;
+    if (outcome.corrected) {
+      const receipt = {
+        id: `voice-outcome:${callId}:${delegationId}`,
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: [
+              answer,
+              ...outcome.savedPaths.map(
+                (path) =>
+                  `[Open report](/agent/${encodeURIComponent(this.name)}/workspace/${path})`,
+              ),
+            ].join("\n\n"),
+          },
+        ],
+      };
+      if (!this.session.getMessage(receipt.id))
+        await this.session.appendMessage(receipt);
+      this.broadcast(
+        JSON.stringify({
+          type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+          messages: this.messages,
+        }),
+      );
+    }
     await this.ctx.storage.put(key, answer);
     return answer;
   }
