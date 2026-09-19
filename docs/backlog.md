@@ -420,6 +420,26 @@ outcomes as separate records. A model choosing `DONE` is a claim to verify.
 - Keep publishing approval separate. Verified task completion does not establish
   audience engagement, qualified leads, or permission for the next action.
 
+### DW-14 — P1: Pilot AI-for-game-development research on X using Studio's Aside
+
+**Operator preference:** use the local Aside browser MCP on **mac-studio** for
+this pilot. Keep the authenticated browser session on that machine. Do not route
+to the laptop or substitute another browser/provider silently.
+
+**Plan:** [X research pilot](pilots/x-ai-game-development.md). Use the existing
+`x.research` local-hands action with `targetConnectorId: "mac-studio"`. The
+generic request supports routing; the dedicated Grok shortcut currently does not
+expose that field. No new top-level agent tool is needed.
+
+**Acceptance:** prove one live, bounded, read-only collection through Studio's
+Aside MCP; retain source receipts and coverage limits; run Jev triage and verify
+the digest's claims; capture operator feedback and a sample of rejected items.
+Prove offline Studio and expired-task behavior before enabling recurrence.
+
+This pilot does not depend on DW-12's custom browser executor. Use the existing
+Aside interface first. DW-11's truthful completion behavior and the applicable
+DW-13 verification checks are prerequisites for calling the pilot successful.
+
 ## Suggested delivery order
 
 1. **Make the current loop trustworthy:** DW-01 and DW-02, with the narrow
