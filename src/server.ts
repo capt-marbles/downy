@@ -1,4 +1,5 @@
 import { handleCloudComputerRequest } from "./worker/handlers/cloud-computer";
+import { handleResearchViewRequest } from "./worker/handlers/research-view";
 import { handleCorpusRequest } from "./worker/handlers/corpus";
 import { handleVoiceRequest } from "./worker/handlers/voice";
 import { reconcileCorpus } from "./worker/corpus/runner";
@@ -126,6 +127,8 @@ export default {
       return handleCloudComputerRequest(request, env);
 
     if (url.pathname === "/api/voice") return handleVoiceRequest(request, env);
+    if (url.pathname === "/api/research-view")
+      return handleResearchViewRequest(request, env);
 
     if (
       url.pathname === "/api/admin/reset-state" ||

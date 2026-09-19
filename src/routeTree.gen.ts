@@ -15,6 +15,7 @@ import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsArchivedAgentsRouteImport } from './routes/settings.archived-agents'
 import { Route as AgentSlugIndexRouteImport } from './routes/agent.$slug.index'
 import { Route as AgentSlugSettingsRouteImport } from './routes/agent.$slug.settings'
+import { Route as AgentSlugResearchRouteImport } from './routes/agent.$slug.research'
 import { Route as AgentSlugWorkspaceIndexRouteImport } from './routes/agent.$slug.workspace.index'
 import { Route as AgentSlugSkillsIndexRouteImport } from './routes/agent.$slug.skills.index'
 import { Route as AgentSlugMcpIndexRouteImport } from './routes/agent.$slug.mcp.index'
@@ -53,6 +54,11 @@ const AgentSlugIndexRoute = AgentSlugIndexRouteImport.update({
 const AgentSlugSettingsRoute = AgentSlugSettingsRouteImport.update({
   id: '/agent/$slug/settings',
   path: '/agent/$slug/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentSlugResearchRoute = AgentSlugResearchRouteImport.update({
+  id: '/agent/$slug/research',
+  path: '/agent/$slug/research',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentSlugWorkspaceIndexRoute = AgentSlugWorkspaceIndexRouteImport.update({
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/unauthenticated': typeof UnauthenticatedRoute
   '/settings/archived-agents': typeof SettingsArchivedAgentsRoute
   '/settings/': typeof SettingsIndexRoute
+  '/agent/$slug/research': typeof AgentSlugResearchRoute
   '/agent/$slug/settings': typeof AgentSlugSettingsRoute
   '/agent/$slug/': typeof AgentSlugIndexRoute
   '/agent/$slug/background-tasks/$taskId': typeof AgentSlugBackgroundTasksTaskIdRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/unauthenticated': typeof UnauthenticatedRoute
   '/settings/archived-agents': typeof SettingsArchivedAgentsRoute
   '/settings': typeof SettingsIndexRoute
+  '/agent/$slug/research': typeof AgentSlugResearchRoute
   '/agent/$slug/settings': typeof AgentSlugSettingsRoute
   '/agent/$slug': typeof AgentSlugIndexRoute
   '/agent/$slug/background-tasks/$taskId': typeof AgentSlugBackgroundTasksTaskIdRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/unauthenticated': typeof UnauthenticatedRoute
   '/settings/archived-agents': typeof SettingsArchivedAgentsRoute
   '/settings/': typeof SettingsIndexRoute
+  '/agent/$slug/research': typeof AgentSlugResearchRoute
   '/agent/$slug/settings': typeof AgentSlugSettingsRoute
   '/agent/$slug/': typeof AgentSlugIndexRoute
   '/agent/$slug/background-tasks/$taskId': typeof AgentSlugBackgroundTasksTaskIdRoute
@@ -162,6 +171,7 @@ export interface FileRouteTypes {
     | '/unauthenticated'
     | '/settings/archived-agents'
     | '/settings/'
+    | '/agent/$slug/research'
     | '/agent/$slug/settings'
     | '/agent/$slug/'
     | '/agent/$slug/background-tasks/$taskId'
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/unauthenticated'
     | '/settings/archived-agents'
     | '/settings'
+    | '/agent/$slug/research'
     | '/agent/$slug/settings'
     | '/agent/$slug'
     | '/agent/$slug/background-tasks/$taskId'
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/unauthenticated'
     | '/settings/archived-agents'
     | '/settings/'
+    | '/agent/$slug/research'
     | '/agent/$slug/settings'
     | '/agent/$slug/'
     | '/agent/$slug/background-tasks/$taskId'
@@ -214,6 +226,7 @@ export interface RootRouteChildren {
   UnauthenticatedRoute: typeof UnauthenticatedRoute
   SettingsArchivedAgentsRoute: typeof SettingsArchivedAgentsRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
+  AgentSlugResearchRoute: typeof AgentSlugResearchRoute
   AgentSlugSettingsRoute: typeof AgentSlugSettingsRoute
   AgentSlugIndexRoute: typeof AgentSlugIndexRoute
   AgentSlugBackgroundTasksTaskIdRoute: typeof AgentSlugBackgroundTasksTaskIdRoute
@@ -269,6 +282,13 @@ declare module '@tanstack/react-router' {
       path: '/agent/$slug/settings'
       fullPath: '/agent/$slug/settings'
       preLoaderRoute: typeof AgentSlugSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agent/$slug/research': {
+      id: '/agent/$slug/research'
+      path: '/agent/$slug/research'
+      fullPath: '/agent/$slug/research'
+      preLoaderRoute: typeof AgentSlugResearchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agent/$slug/workspace/': {
@@ -342,6 +362,7 @@ const rootRouteChildren: RootRouteChildren = {
   UnauthenticatedRoute: UnauthenticatedRoute,
   SettingsArchivedAgentsRoute: SettingsArchivedAgentsRoute,
   SettingsIndexRoute: SettingsIndexRoute,
+  AgentSlugResearchRoute: AgentSlugResearchRoute,
   AgentSlugSettingsRoute: AgentSlugSettingsRoute,
   AgentSlugIndexRoute: AgentSlugIndexRoute,
   AgentSlugBackgroundTasksTaskIdRoute: AgentSlugBackgroundTasksTaskIdRoute,

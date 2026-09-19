@@ -971,6 +971,89 @@ export class DownyAgent extends Think {
     return out;
   }
 
+  #researchViewPending: Promise<ResearchSnapshot> | null = null;
+
+  async getResearchView(): Promise<ResearchSnapshot | null> {
+    const parsed = ResearchSnapshotSchema.safeParse(
+      await this.ctx.storage.get("research-view:v1"),
+    );
+    if (!parsed.success) return null;
+    const snapshot = parsed.data;
+    const checks = await Promise.all(
+      snapshot.records.map(async (record) => {
+        const path = researchPath(record.path);
+        const stat = path ? await this.workspace.stat(path) : null;
+        return stat?.type === "file" && stat.updatedAt === record.updatedAt;
+      }),
+    );
+    if (checks.some((ok) => !ok)) {
+      snapshot.records = snapshot.records.filter((_, i) => checks[i]);
+      snapshot.spec = fixedResearchSpec(snapshot.records);
+      snapshot.composition.state = "fallback";
+      snapshot.composition.reason =
+        "Some files changed or were removed. Refresh this view to include their current contents.";
+    }
+    snapshot.checkedAt = Date.now();
+    return snapshot;
+  }
+
+  async composeResearchView(mode: ResearchViewMode): Promise<ResearchSnapshot> {
+    ResearchViewModeSchema.parse(mode);
+    if (this.#researchViewPending) return this.#researchViewPending;
+    this.#researchViewPending = this.#composeResearchView(mode);
+    try {
+      return await this.#researchViewPending;
+    } finally {
+      this.#researchViewPending = null;
+    }
+  }
+
+  async #composeResearchView(
+    mode: ResearchViewMode,
+  ): Promise<ResearchSnapshot> {
+    const files = (await this.listWorkspaceFiles())
+      .filter((file) => file.size <= 128_000 && researchPath(file.path))
+      // eslint-disable-next-line unicorn/no-array-sort -- Fresh filtered array; the project targets ES2022.
+      .sort(
+        (a, b) => b.updatedAt - a.updatedAt || a.path.localeCompare(b.path),
+      );
+    const records = [];
+    // Read at most twelve bounded documents. Corpus and credentials never enter
+    // the candidate set; inference only sees their prepared title/kind labels.
+    for (const file of files.slice(0, 12)) {
+      const path = researchPath(file.path)!;
+      const read = await this.readWorkspaceFile(path);
+      if (!read?.stat || read.stat.size > 128_000) continue;
+      const record = researchRecord(
+        path,
+        read.content,
+        read.stat,
+        records.length,
+      );
+      if (
+        mode === "cua" &&
+        !/cua|browser/i.test(`${path} ${record.title} ${record.excerpt}`)
+      )
+        continue;
+      records.push(record);
+    }
+    const audit = { models: [] as string[], calls: 0, inputTokens: 0 };
+    const evaluate = createCloudflareEvaluator(this.env.AI, (entry) => {
+      if (!audit.models.includes(entry.model)) audit.models.push(entry.model);
+      audit.calls++;
+      audit.inputTokens += entry.inputTokens;
+    });
+    const snapshot = await composeResearchView(
+      records,
+      mode,
+      evaluate,
+      audit,
+      Math.max(0, files.length - 12),
+    );
+    await this.ctx.storage.put("research-view:v1", snapshot);
+    return snapshot;
+  }
+
   async readWorkspaceFile(
     path: string,
   ): Promise<{ content: string; stat: FileInfo | null } | null> {
@@ -1604,3 +1687,16 @@ export class DownyAgent extends Think {
     return `workspace/notes/${date}-${kindSlug}-${shortId}.md`;
   }
 }
+import {
+  ResearchSnapshotSchema,
+  ResearchViewModeSchema,
+  fixedResearchSpec,
+  type ResearchSnapshot,
+  type ResearchViewMode,
+} from "../../lib/research-view";
+import { createCloudflareEvaluator } from "../research-view/cloudflare-evaluator";
+import {
+  composeResearchView,
+  researchPath,
+  researchRecord,
+} from "../research-view/compose";
