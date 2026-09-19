@@ -211,6 +211,18 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       model: this.env.DOWNY_CODEX_MODEL,
     });
   }
+  override async alarm(): Promise<void> {
+    // Computer's RPC heartbeat is transport activity, not user work. Enforce
+    // idle sleep ourselves so that heartbeat cannot keep compute billed forever.
+    if (this.#busy || this.#queued > 0) {
+      await this.ctx.storage.setAlarm(Date.now() + 3 * 60_000);
+      return;
+    }
+    if (this.ctx.container?.running) await this.ctx.container.destroy();
+    this.#ready = undefined;
+    this.#setState("sleeping");
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     // The computer's FUSE/RPC connection is internal and remains available
@@ -293,6 +305,7 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
     } finally {
       this.#busy = false;
       release();
+      await this.ctx.storage.setAlarm(Date.now() + 15 * 60_000);
     }
   }
 }

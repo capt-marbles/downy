@@ -69,7 +69,8 @@ along with the other encrypted credentials.
 - `CREDENTIAL_KEY`: existing Secrets Store binding, base64 32-byte key.
 - `enable_ctx_exports`: required with Downy's existing compatibility date for
   Computer's private workspace proxy.
-- One `basic` instance, 15-minute inactivity timeout, bounded inference queue.
+- One `basic` instance, bounded inference queue, and an explicit 15-minute idle
+  alarm so SDK heartbeats cannot keep compute running indefinitely.
 - `@cloudflare/computer` and `computerd` are pinned to 0.3.1; Codex to 0.154.0.
   Wrangler 4.135.0 is used for the newer container networking runtime.
 
