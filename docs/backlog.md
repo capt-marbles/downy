@@ -8,6 +8,11 @@ repetitive knowledge work**, attributed to Grep.ai. Its canonical URL was not
 provided. This assessment uses that text; its performance and deployment claims
 have not been independently verified.
 
+Additional source review: [browser-use/jev-ultrafast](jev-ultrafast-review.md),
+pinned to upstream commit `1231850a0bf1a0c0341fe408ef1668dbbfdfac46`.
+Its browser execution pattern informs DW-11 through DW-13; it does not supply
+the outcome-learning system described below.
+
 ## Assessment
 
 The strongest fit is the separation of evidence gathering, bounded judgment,
@@ -341,15 +346,92 @@ run review view. Avoid another layout system or a stream of raw tool JSON.
 - Show which observations are immature or missing, and why an experiment or
   policy proposal is not yet supported by enough evidence.
 
+### DW-11 — P0: Stop reporting unsupported connector actions as completed
+
+**Evidence:** `scripts/downy-hands.mjs` advertises `browser.automation`, but
+`executeAction` has no browser executor. Unsupported kinds return a skeleton
+result, which `handleClaimedAction` submits with status `completed`.
+
+**Acceptance:**
+
+- Advertise only capabilities backed by enabled executors. A capability shared
+  by multiple kinds must not imply that all those kinds are implemented; enforce
+  kind support during routing or reject unsupported kinds explicitly.
+- An unsupported action returns an actionable failure, never a success receipt.
+  Report missing configuration separately from a failed external operation.
+- Tests cover an unsupported browser action, disabled optional executors, and
+  successful supported actions. Queue UI must not imply the browser work happened.
+
+### DW-12 — P2: Pilot a bounded Jev browser executor on local hands
+
+**Depends on:** DW-11, DW-07, DW-08, and DW-13; DW-02/05 for measurement.
+
+**Work:** adapt the observed-control choice pattern from jev-ultrafast to the
+existing browser action path. Start on a controlled search/filter fixture, then
+one approved public research site. No posting, purchasing, credential entry, or
+new always-visible tool. Keep the browser on the selected connector and Jev on
+Downy's existing Workers AI binding; do not adopt the demo's vendor credentials.
+
+**Acceptance:**
+
+- Build operation-compatible choices from observed controls. Batch the operation
+  and conditional target questions in one Jev request; execute only the selected
+  operation's target. Reject unknown IDs and malformed probability distributions.
+  Adapt and test against Cloudflare's schema and response wrapper.
+- Code enforces allowed origins and operations. An observed button is not
+  permission to click it. Treat page instructions as untrusted; restrict and
+  redact transmitted observations, including URLs and ordinary field values.
+  Excluding password inputs alone does not protect authenticated page content.
+- Require an explicit policy for uncertain operation or target choices. A Jev
+  error or uncertainty stops automatic action or escalates; the draft evaluator's
+  fail-open policy does not authorize browser mutations.
+- Revalidate page and target identity immediately before execution, including
+  after text generation. Consume each decision once before mutation. Preserve
+  the action receipt before observing again; unknown outcomes follow DW-08.
+- Use an existing approved text model only when a field needs generated text.
+  Reuse generated text only when the complete relevant context is unchanged.
+- Bound total elapsed time, actions, decisions, retries, and observation size.
+  Detect unsupported frames, controls, and navigation instead of guessing.
+- Test stale targets, covered/disabled controls, mismatched operation/target,
+  interrupted actions, low confidence, model outages, and denied destinations.
+  Compare verified success and full-run cost/latency, counting failed attempts.
+
+### DW-13 — P1: Verify completion independently of the executor's claim
+
+**Depends on:** DW-02; complements DW-03 outcome definitions and DW-08 receipts.
+
+**Work:** define a task-specific completion contract before execution. Keep
+executor completion, independently verified task completion, and later business
+outcomes as separate records. A model choosing `DONE` is a claim to verify.
+
+**Acceptance:**
+
+- Use fresh observable state and deterministic checks wherever possible: expected
+  destination, query parameters, selected filters, returned records, or a provider
+  receipt. Record verifier version, evidence, time, and explicit unknown results.
+- A browser search that returns the wrong route/date/filter fails verification
+  even if the agent says it succeeded. Fixture tests include plausible wrong
+  results, stale evidence, missing receipts, and a verifier outage.
+- Semantic checks retain their model provenance and uncertainty; the executing
+  model agreeing with itself is not independent ground truth.
+- Benchmarks include startup, observation, inference, retries, and verification
+  in end-to-end totals, with component timings separately available. Record all
+  attempts and all model usage; a text helper's bill is not the total run cost.
+- Keep publishing approval separate. Verified task completion does not establish
+  audience engagement, qualified leads, or permission for the next action.
+
 ## Suggested delivery order
 
 1. **Make the current loop trustworthy:** DW-01 and DW-02, with the narrow
    decision view from DW-10. The 0.61 package example should become explainable
-   or explicitly uncertain, without tuning the system merely to pass it.
+   or explicitly uncertain, without tuning the system merely to pass it. Fix
+   DW-11 before further connector tests so unsupported work cannot look successful.
 2. **Establish evidence for learning:** DW-03 and DW-04, plus DW-05. Start with
    manual observations so platform API availability does not block the design.
 3. **Reduce recurring work:** DW-06 and DW-07. Complete DW-08 before extending
-   externally acting automation. Prove savings on Downy's own workload.
+   externally acting automation. Add DW-13 completion contracts and prove savings
+   on Downy's own workload. DW-12 is an optional later browser pilot, not a
+   prerequisite for improving the current LinkedIn draft workflow.
 4. **Test controlled adaptation:** DW-09 only after the evaluation and rollback
    mechanisms exist. Never trade away operator gates to improve completion rate.
 
