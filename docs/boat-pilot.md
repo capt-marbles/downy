@@ -64,26 +64,64 @@ processes; see <https://docs.boat.dev/snapshots>.
 
 ## Acceptance record
 
-Prepared on 2026-09-19. Local validation: 140 tests pass, `pnpm ci:check`
-passes, and the production build passes. Boat CLI authentication is complete
-for the operator's `gameyedocker` account. The account reports
-`canStart: false`, `checkoutRequired: true`, and `subscription_required`;
-billing activation is the live-test blocker. No sandbox has been provisioned,
-no new subscription purchased, and the Boat integration is not deployed yet.
+Provisioned and deployed on 2026-09-19 after the operator enabled billing.
+Sandbox `bx_k7y88evu` is a dedicated small machine with a two-hour TTL and a
+systemd-supervised Codex 0.154.0 bridge. Downy can wake it through its restricted
+service key. The key expires on 2026-09-26 and must be rotated if the pilot
+continues. No D1 migration was run. Cloudflare Computer remains available.
+
+Local validation: 142 tests pass, `pnpm ci:check` passes, and the production build
+passes. Live bridge health, initialization and the Worker wake endpoint pass.
+The private Boat port gate requires a token-to-cookie handshake; Downy performs
+that separately before sending bridge credentials. Redirects on credential-bearing
+requests are rejected using Workers-supported manual redirect handling.
+
+Deployment: `5044859e-7e3c-459f-86a8-d8a613cb49b2`. The operator signed into
+ChatGPT once. Downy acknowledged the encrypted checkpoint and ran real
+`gpt-5.5` tool steps before and after stop/resume and OS reboot. No API fallback
+was used. Each test temporarily selected Boat and restored the previous
+server-side provider afterward.
 
 Do not call this pilot accepted based only on unit tests or `ready` status.
 Record timestamps, sandbox id, image/bridge revision, model and bounded
 pass/fail evidence here after each live test. Never record credential values,
 private desktop URLs, login codes, raw provider payloads or authorization headers.
 
-| Test                  | Required evidence                                                                                     | Live result                 |
-| --------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------- |
-| Sign in once          | Connected and encrypted checkpoint acknowledged; real model/tool step                                 | Pending billing activation  |
-| Stop/resume           | Provider reaches archived, then ready; new model/tool step works without login                        | Pending                     |
-| Full OS reboot        | Boot id changes; service and authenticated model/tool step recover                                    | Pending                     |
-| Research report       | Read bounded public sources through existing Downy tools; save a report and read it through Files     | Pending                     |
-| Confirmation boundary | A confirmation-required action remains pending until operator approval; Boat never executes it itself | Pending                     |
-| iPhone experience     | Status visible, report readable, voice survives reasoning warm-up                                     | Pending operator phone test |
+| Test                  | Required evidence                                        | Live result                                                                                |
+| --------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Sign in once          | Connected, checkpoint acknowledged, real model/tool step | Passed: report read, 34.7s                                                                 |
+| Stop/resume           | Snapshot stop then awake; model/tool step without login  | Passed: snapshot at 19:22:25 UTC; report read, 42.4s                                       |
+| Full OS reboot        | Changed boot id; service and model/tool step recover     | Passed: systemd active and browser queue tool succeeded without login                      |
+| Research report       | Fresh public capture, report write and Files read        | Passed: report saved and read back; desktop Files rendered                                 |
+| Confirmation boundary | Required action remains pending, no execution            | Passed: caller false could not bypass filesystem.fetch confirmation; test request rejected |
+| iPhone experience     | Status visible, report readable, voice warm-up works     | Pending operator phone test                                                                |
+
+The deliberate OS reboot changed the boot id from
+`e47bc773-a565-4366-a4a1-f2c63181a875` to
+`7c715933-3f4b-4f56-a7a3-cec8fee7fee3`. Both authenticated status and a
+real Downy tool call were verified afterward.
+
+The first post-reboot browser prompt returned a report of an unavailable native
+`request_user_input` tool and created no action. A bounded retry explicitly
+pointing at the dynamic Downy function queued successfully (11.7s). This is a
+model/tool-selection reliability finding, not proof of a hosting defect; track
+it before promoting Boat to the default. No automatic retry or broad native
+capability was enabled to hide it.
+
+The Studio rejected `docs.boat.dev` under its existing public-host allowlist.
+The permitted `github.com/trycua/cua` capture then completed as
+`hands-1789846109006-3210d2b3`, with one source. The negative confirmation test,
+`hands-1789846083014-b3ae6308`, remained unclaimed with no result and was rejected
+by the tester. No local file was transferred. The report is
+`workspace/research/boat-pilot-2026-09-19.md` (3,870 characters), saved and read
+back by the model in 124.6s, then independently retrieved through the Files API
+and rendered in the desktop Files UI. No archive error occurred. This timing
+includes multiple model/tool steps and is not a single inference latency.
+
+For the remaining phone test, select **Boat pilot (ChatGPT subscription)** in
+Settings, start a call, and ask: “Summarize the Boat pilot CUA report.” Confirm
+the wake/working status, listen for the answer, and open its Files link. A phone
+voice round trip has not yet been observed; desktop checks do not establish it.
 
 The reboot test is separate from provider stop/resume. Read the Linux boot id
 before and after a deliberate reboot while no work is running. A successful

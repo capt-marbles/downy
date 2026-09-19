@@ -16,6 +16,9 @@ const HostedSchema = z.object({
 // A single operator-provisioned sandbox. Model inputs cannot select a machine,
 // execute Boat commands, create billable VMs, or read the service credential.
 export class BoatClient {
+  private session:
+    | { endpoint: string; cookie: string; expiresAt: number }
+    | undefined;
   constructor(private readonly env: Env) {}
 
   private async api(
@@ -29,15 +32,16 @@ export class BoatClient {
       )
     )
       throw new Error("Boat pilot is not configured");
+    const apiKey = await readSecret(this.env.BOAT_API_KEY);
     const response = await fetch(
       `https://boat.dev/api/v1/sandboxes/${this.env.BOAT_SANDBOX_ID}${path}`,
       {
         ...(method === "GET"
           ? { method }
           : { method, body: JSON.stringify(body) }),
-        redirect: "error",
+        redirect: "manual",
         headers: {
-          Authorization: `Bearer ${await readSecret(this.env.BOAT_API_KEY)}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         signal: AbortSignal.timeout(20_000),
@@ -79,16 +83,51 @@ export class BoatClient {
   }
   async bridge(endpoint: string, path: string, body?: unknown) {
     const url = new URL(endpoint);
-    url.pathname = path; // Preserve Boat's private port token, never log the URL.
-    return fetch(url, {
+    if (
+      !this.session ||
+      this.session.endpoint !== endpoint ||
+      Date.now() >= this.session.expiresAt
+    ) {
+      // Boat's port gate consumes _token with a 302 and sets a cookie. Resolve
+      // that handshake using GET without bridge credentials or a request body;
+      // never automatically redirect a credential bootstrap or model request.
+      url.pathname = "/health";
+      const handshake = await fetch(new URL(url), {
+        redirect: "manual",
+        signal: AbortSignal.timeout(20_000),
+      });
+      const location = handshake.headers.get("location");
+      const cookie = handshake.headers.get("set-cookie")?.split(";")[0];
+      await handshake.body?.cancel();
+      if (
+        ![302, 303].includes(handshake.status) ||
+        !location ||
+        new URL(location, url).origin !== url.origin ||
+        !cookie ||
+        !/^[a-zA-Z0-9_-]+=[^\s;,]+$/.test(cookie)
+      )
+        throw new Error("Boat private gateway handshake failed");
+      this.session = { endpoint, cookie, expiresAt: Date.now() + 5 * 60_000 };
+    }
+    url.pathname = path;
+    url.searchParams.delete("_token");
+    const response = await fetch(url, {
       method: body === undefined ? "GET" : "POST",
-      redirect: "error",
+      redirect: "manual",
       headers: {
+        Cookie: this.session.cookie,
         Authorization: `Bearer ${await readSecret(this.env.BOAT_BRIDGE_TOKEN)}`,
         "Content-Type": "application/json",
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(path === "/step" ? 180_000 : 20_000),
     });
+    // Workers only support follow/manual; reject redirects without forwarding
+    // the independent bridge credential or any model/bootstrap request body.
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      throw new Error("Unexpected Boat bridge redirect");
+    }
+    return response;
   }
 }

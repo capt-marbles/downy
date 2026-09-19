@@ -24,7 +24,7 @@ it("scopes lifecycle calls to the fixed pilot, never sends credentials in bodies
   ]);
   expect(calls[0].init.body).toBe('{"ttlSeconds":7200,"noEnv":true}');
   expect(calls[1].init.body).toBe('{"force":false}');
-  expect(calls[0].init.redirect).toBe("error");
+  expect(calls[0].init.redirect).toBe("manual");
 });
 
 it("rejects mismatched sandbox identity and untrusted/public bridge addresses", async () => {
@@ -46,22 +46,63 @@ it("rejects mismatched sandbox identity and untrusted/public bridge addresses", 
   await expect(client.endpoint()).rejects.toThrow();
 });
 
-it("keeps the private port token while forwarding only the bridge credential", async () => {
-  const fetcher = vi.fn().mockResolvedValue(Response.json({ ready: true }));
+it("exchanges the private port token before sending bridge credentials or bootstrap body", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: {
+          location: "/health",
+          "set-cookie": "boat_port=private-cookie; HttpOnly; Secure",
+        },
+      }),
+    )
+    .mockResolvedValue(Response.json({ ready: true }));
   vi.stubGlobal("fetch", fetcher);
   await new BoatClient(env).bridge(
     "https://pilot.on.boat.dev/?_token=port-secret",
     "/initialize",
     { key: "encryption-secret" },
   );
-  const [url, init] = fetcher.mock.calls[0] as [URL, RequestInit];
+  const [handshakeUrl, handshake] = fetcher.mock.calls[0] as [URL, RequestInit];
+  expect(handshakeUrl.pathname).toBe("/health");
+  expect(handshakeUrl.searchParams.get("_token")).toBe("port-secret");
+  expect(handshake.headers).toBeUndefined();
+  expect(handshake.body).toBeUndefined();
+  expect(handshake.redirect).toBe("manual");
+  const [url, init] = fetcher.mock.calls[1] as [URL, RequestInit];
   expect(url.pathname).toBe("/initialize");
-  expect(url.searchParams.get("_token")).toBe("port-secret");
+  expect(url.searchParams.has("_token")).toBe(false);
   expect(new Headers(init.headers).get("Authorization")).toBe(
     "Bearer bridge-secret",
   );
+  expect(new Headers(init.headers).get("Cookie")).toBe(
+    "boat_port=private-cookie",
+  );
   expect(JSON.stringify(init)).not.toContain("boat-account-secret");
-  expect(init.redirect).toBe("error");
+  expect(init.redirect).toBe("manual");
+});
+
+it("rejects cross-origin gateway redirects without releasing any bridge credential", async () => {
+  const fetcher = vi.fn().mockResolvedValue(
+    new Response(null, {
+      status: 302,
+      headers: {
+        location: "https://evil.test/",
+        "set-cookie": "boat_port=private-cookie; Secure",
+      },
+    }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  await expect(
+    new BoatClient(env).bridge(
+      "https://pilot.on.boat.dev/?_token=private",
+      "/initialize",
+      { key: "private-key" },
+    ),
+  ).rejects.toThrow("gateway handshake failed");
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
 it("does not reflect provider error bodies containing credentials", async () => {
@@ -72,4 +113,45 @@ it("does not reflect provider error bodies containing credentials", async () => 
   await expect(new BoatClient(env).info()).rejects.toThrow(
     "Boat control request failed (403)",
   );
+});
+
+it("rejects control and bridge redirects without following credential-bearing requests", async () => {
+  const fetcher = vi.fn().mockResolvedValue(
+    new Response(null, {
+      status: 302,
+      headers: { location: "https://evil.test/" },
+    }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  await expect(new BoatClient(env).info()).rejects.toThrow(
+    "Boat control request failed (302)",
+  );
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  fetcher
+    .mockReset()
+    .mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: {
+          location: "/health",
+          "set-cookie": "boat_port=cookie; Secure",
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "https://evil.test/" },
+      }),
+    );
+  await expect(
+    new BoatClient(env).bridge(
+      "https://pilot.on.boat.dev/?_token=port-secret",
+      "/initialize",
+      { key: "secret" },
+    ),
+  ).rejects.toThrow("Unexpected Boat bridge redirect");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  const [, request] = fetcher.mock.calls[1] as [URL, RequestInit];
+  expect(request.redirect).toBe("manual");
 });

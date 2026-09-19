@@ -28,6 +28,15 @@ type Saved = {
   error: string | null;
 };
 const IDLE_MS = 15 * 60_000;
+function diagnostic(error: unknown) {
+  const type = error instanceof Error ? error.name : "unknown";
+  const status =
+    error instanceof Error
+      ? /^Boat control request failed \((\d{3})\)$/.exec(error.message)?.[1]
+      : undefined;
+  // Bounded fields only: never provider payloads, URLs, headers, or auth state.
+  console.error("[boat-computer] operation failed", { type, status });
+}
 
 export class BoatComputer extends DurableObject {
   private client: BoatClient;
@@ -167,7 +176,8 @@ export class BoatComputer extends DurableObject {
             this.saved.loginPending ? Date.now() + 10_000 : this.saved.idleAt,
           );
         }
-      } catch {
+      } catch (error) {
+        diagnostic(error);
         await this.state(
           "error",
           "Boat could not save or stop cleanly. Retrying; the two-hour runtime limit remains in force.",
@@ -198,7 +208,8 @@ export class BoatComputer extends DurableObject {
               "Boat reports a runtime error. Wake the pilot to retry.",
             );
           }
-        } catch {
+        } catch (error) {
+          diagnostic(error);
           if (!this.queued)
             await this.state("error", "Could not verify Boat runtime status.");
         }
@@ -266,7 +277,8 @@ export class BoatComputer extends DurableObject {
           return Response.json(result);
         }
         return Response.json({ ready: true });
-      } catch {
+      } catch (error) {
+        diagnostic(error);
         this.endpoint = undefined;
         await this.state(
           "error",
