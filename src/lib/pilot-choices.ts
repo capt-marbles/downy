@@ -8,6 +8,26 @@ export const PilotOptionIdSchema = z.enum([
   "recovery",
 ]);
 export type PilotOptionId = z.infer<typeof PilotOptionIdSchema>;
+export const PilotSourceUrlsSchema = z
+  .array(
+    z
+      .string()
+      .max(2048)
+      .url()
+      .refine((value) => {
+        const url = new URL(value);
+        return (
+          ["http:", "https:"].includes(url.protocol) &&
+          !url.username &&
+          !url.password
+        );
+      }, "Use a web URL without embedded credentials"),
+  )
+  .length(3)
+  .refine(
+    (urls) => new Set(urls).size === 3,
+    "Add three different source URLs",
+  );
 export const PILOT_OPTIONS = [
   {
     id: "single-page",
@@ -81,6 +101,14 @@ export const PilotChoiceSchema = z.object({
   expiresAt: z.number(),
   selectedId: PilotOptionIdSchema.nullable(),
   selectedAt: z.number().nullable(),
+  sources: z
+    .object({
+      urls: PilotSourceUrlsSchema,
+      revision: z.uuid(),
+      savedAt: z.number(),
+    })
+    .nullable()
+    .optional(),
   spec: PilotSpecSchema,
   composition: z.object({
     state: z.enum(["jev", "fallback"]),
@@ -168,4 +196,57 @@ export function isPilotOptionsRequest(transcript: string): boolean {
     /\b(options|choices|choose|which|pick|try)\b/i.test(latest) &&
     !/\b(don't|do not|cancel|stop)\b/i.test(latest)
   );
+}
+
+export function pilotVoiceSelection(transcript: string): PilotOptionId | null {
+  const turns = transcript.split(/(?:^|\n)You:\s*/);
+  const latest =
+    turns.length > 1
+      ? turns
+          .at(-1)!
+          .split(/\nDowny:/)[0]
+          .trim()
+      : "";
+  if (
+    !/\bc[\s.-]*u[\s.-]*a\b/i.test(transcript) ||
+    /\?|\b(don['’]t|do not|not|cancel|stop|maybe|unsure|or)\b/i.test(latest) ||
+    !/^(?:(?:okay|ok|yes)[,.]?\s+)?(?:i (?:think|want|choose|pick|select)|i['’]d like|i would like|let['’]?s (?:choose|pick|go with)|choose|pick|select|the (?:first|second|third)|option (?:one|two|three|[123]))\b/i.test(
+      latest,
+    )
+  )
+    return null;
+  const matches: PilotOptionId[] = [];
+  if (
+    /\b(?:read(?:ing)? (?:one|a) (?:public (?:documentation )?)?page|single[ -]page|first (?:one|option)|option (?:one|1))\b/i.test(
+      latest,
+    )
+  )
+    matches.push("single-page");
+  if (
+    /\b(?:compar(?:e|ing) three sources|three[ -]source comparison|second (?:one|option)|option (?:two|2))\b/i.test(
+      latest,
+    )
+  )
+    matches.push("source-comparison");
+  if (
+    /\b(?:recover(?:y|ing)?|broken link|third (?:one|option)|option (?:three|3))\b/i.test(
+      latest,
+    )
+  )
+    matches.push("recovery");
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function savedPilotSources(
+  choice: PilotChoice,
+  urls: string[],
+  now: number,
+  revision: string,
+): PilotChoice {
+  const checked = PilotSourceUrlsSchema.parse(urls);
+  if (choice.selectedId !== "source-comparison")
+    throw new Error("Select the source comparison first");
+  if (JSON.stringify(choice.sources?.urls) === JSON.stringify(checked))
+    return choice;
+  return { ...choice, sources: { urls: checked, revision, savedAt: now } };
 }

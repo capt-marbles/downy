@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createPilotChoices: vi.fn(),
   getPilotChoice: vi.fn(),
   selectPilotChoice: vi.fn(),
+  savePilotSources: vi.fn(),
 }));
 vi.mock("../lib/active-agent", () => ({ getActiveAgentStub: mocks.active }));
 const env = {} as Cloudflare.Env;
@@ -28,6 +29,34 @@ beforeEach(() => {
     id: ticket,
     selectedId: "recovery",
   });
+});
+it("validates source entry without fetching pages or running a task", async () => {
+  const urls = ["https://one.test", "https://two.test", "https://three.test"];
+  mocks.savePilotSources.mockResolvedValue({
+    choice: { sources: { urls } },
+    error: null,
+  });
+  const make = (values: string[]) =>
+    new Request(
+      `https://downy.test/api/pilot-choices?ticket=${ticket}&sources=1`,
+      {
+        method: "POST",
+        headers: {
+          origin: "https://downy.test",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ urls: values }),
+      },
+    );
+  expect((await handlePilotChoicesRequest(make(urls), env)).status).toBe(200);
+  expect(mocks.savePilotSources).toHaveBeenCalledWith(ticket, urls);
+  mocks.savePilotSources.mockClear();
+  expect(
+    (await handlePilotChoicesRequest(make(urls.slice(0, 2)), env)).status,
+  ).toBe(400);
+  expect(mocks.savePilotSources).not.toHaveBeenCalled();
+  expect(mocks.selectPilotChoice).not.toHaveBeenCalled();
+  expect(mocks.createPilotChoices).not.toHaveBeenCalled();
 });
 it("restores a saved choice without composing or selecting", async () => {
   const response = await handlePilotChoicesRequest(

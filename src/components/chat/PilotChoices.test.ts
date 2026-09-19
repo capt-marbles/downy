@@ -47,3 +47,24 @@ it("keeps expired options readable while preventing a new selection", () => {
   expect(html.match(/disabled=""/g)).toHaveLength(3);
   expect(html).toContain("These options expired");
 });
+it("shows URL fields when a voice selection is restored and repopulates saved sources", () => {
+  const selected: PilotChoice = {
+    ...fixture,
+    selectedId: "source-comparison",
+    selectedAt: 20,
+  };
+  const html = render(selected);
+  expect(html.match(/type="url"/g)).toHaveLength(3);
+  expect(html).toContain("Save sources");
+  const restored = render({
+    ...selected,
+    sources: {
+      urls: ["https://one.test", "https://two.test", "https://three.test"],
+      revision: fixture.id,
+      savedAt: 30,
+    },
+  });
+  expect(restored).toContain('value="https://two.test"');
+  expect(restored).toContain("Update sources");
+  expect(restored).toContain("Three URLs saved");
+});

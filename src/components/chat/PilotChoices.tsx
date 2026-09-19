@@ -8,6 +8,7 @@ import { useCurrentAgentSlug } from "../../lib/agents";
 import {
   PILOT_OPTIONS,
   PilotChoiceSchema,
+  PilotSourceUrlsSchema,
   pilotCatalog,
   type PilotChoice,
   type PilotOptionId,
@@ -107,10 +108,11 @@ export default function PilotChoices({ ticketId }: { ticketId: string }) {
     },
     refetchInterval: (state) =>
       !state.state.data ||
-      state.state.data.selectedId ||
-      state.state.data.expiresAt <= Date.now()
+      (!state.state.data.selectedId && state.state.data.expiresAt <= Date.now())
         ? false
-        : 5000,
+        : state.state.data.selectedId
+          ? 15000
+          : 5000,
   });
   const selection = useMutation({
     mutationFn: async (id: PilotOptionId) => {
@@ -166,6 +168,13 @@ export default function PilotChoices({ ticketId }: { ticketId: string }) {
           <Renderer spec={choice.spec} registry={registry} />
         </JSONUIProvider>
       </ChoiceContext.Provider>
+      {choice.selectedId === "source-comparison" && (
+        <PilotSources
+          key={choice.sources?.revision || "new"}
+          choice={choice}
+          slug={slug}
+        />
+      )}
       <div
         aria-live="polite"
         className="mt-3 text-xs leading-relaxed text-base-content/60"
@@ -193,6 +202,101 @@ export default function PilotChoices({ ticketId }: { ticketId: string }) {
         Your choice expires after 24 hours if unanswered.
       </details>
     </section>
+  );
+}
+
+function PilotSources({ choice, slug }: { choice: PilotChoice; slug: string }) {
+  const client = useQueryClient();
+  const save = useMutation({
+    mutationFn: async (urls: string[]) => {
+      const checked = PilotSourceUrlsSchema.safeParse(urls);
+      if (!checked.success)
+        throw new Error(
+          "Add three different web URLs without embedded credentials.",
+        );
+      const response = await agentFetch(
+        slug,
+        `/api/pilot-choices?ticket=${choice.id}&sources=1`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ urls: checked.data }),
+        },
+      );
+      const result = ReplySchema.safeParse(await response.json());
+      if (
+        !response.ok ||
+        !result.success ||
+        result.data.error ||
+        !result.data.choice
+      )
+        throw new Error(
+          result.success
+            ? result.data.error || "Could not save sources. Try again."
+            : "Could not save sources. Try again.",
+        );
+      client.setQueryData(
+        ["pilot-choice", slug, choice.id],
+        result.data.choice,
+      );
+    },
+  });
+  return (
+    <form
+      className="mt-4 rounded-lg border border-base-300 bg-base-100 p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        save.mutate(
+          [1, 2, 3].map((i) => {
+            const value = data.get(`source${i}`);
+            return typeof value === "string" ? value.trim() : "";
+          }),
+        );
+      }}
+    >
+      <fieldset disabled={save.isPending} className="grid min-w-0 gap-3">
+        <legend className="mb-2 text-sm font-semibold">
+          Three source URLs
+        </legend>
+        <p className="text-xs text-base-content/65">
+          Paste one public page per field. Saving prepares the brief; it doesn’t
+          start research.
+        </p>
+        {[1, 2, 3].map((i) => (
+          <label key={i} className="grid min-w-0 gap-1 text-xs">
+            Source {i}
+            <input
+              name={`source${i}`}
+              type="url"
+              inputMode="url"
+              required
+              maxLength={2048}
+              defaultValue={choice.sources?.urls[i - 1] || ""}
+              placeholder="https://…"
+              className="input input-bordered min-h-11 w-full min-w-0 text-sm"
+            />
+          </label>
+        ))}
+        <button type="submit" className="btn btn-primary btn-sm min-h-11">
+          {save.isPending
+            ? "Saving sources…"
+            : choice.sources
+              ? "Update sources"
+              : "Save sources"}
+        </button>
+      </fieldset>
+      <div aria-live="polite" className="mt-2 text-xs text-base-content/65">
+        {save.error && (
+          <p role="alert" className="text-error">
+            {save.error.message}
+          </p>
+        )}
+        {choice.sources && (
+          <p>Three URLs saved. The pages haven’t been read yet.</p>
+        )}
+      </div>
+    </form>
   );
 }
 

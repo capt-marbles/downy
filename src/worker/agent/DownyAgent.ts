@@ -687,11 +687,19 @@ export class DownyAgent extends Think {
       key,
       "This lookup was already received. Check the chat for its result; it has not been run again.",
     );
-    if (isPilotOptionsRequest(transcript)) {
-      const choice = await this.createPilotChoices();
-      const answer = `I've put three CUA pilot options in chat: read one public page, compare three sources, or test recovery from a broken link. Tap one to record your preference. Nothing starts until you ask. ${choice.composition.state === "fallback" ? "The layout service was unavailable, so I used a standard list." : ""}`;
-      await this.ctx.storage.put(key, answer);
-      return answer;
+    const pilotAnswer = await handlePilotVoiceRequest(transcript, {
+      latest: async () => {
+        const latest = await this.ctx.storage.get<string>(
+          "pilot-choice:latest",
+        );
+        return latest ? this.getPilotChoice(latest) : null;
+      },
+      create: () => this.createPilotChoices(),
+      select: (ticket, option) => this.selectPilotChoice(ticket, option),
+    });
+    if (pilotAnswer !== null) {
+      await this.ctx.storage.put(key, pilotAnswer);
+      return pilotAnswer;
     }
     const submitted = await this.saveMessages([
       {
@@ -995,8 +1003,7 @@ export class DownyAgent extends Think {
   async #createPilotChoices(): Promise<PilotChoice> {
     const latest = await this.ctx.storage.get<string>("pilot-choice:latest");
     const existing = latest ? await this.getPilotChoice(latest) : null;
-    if (existing && !existing.selectedId && existing.expiresAt > Date.now())
-      return existing;
+    if (existing && existing.expiresAt > Date.now()) return existing;
     const models: string[] = [];
     const choice = await composePilotChoices(
       crypto.randomUUID(),
@@ -1037,6 +1044,7 @@ export class DownyAgent extends Think {
     );
     if (!parsed.success) return null;
     if (parsed.data.selectedId) await this.#syncPilotSelection(parsed.data);
+    if (parsed.data.sources) await this.#syncPilotSources(parsed.data);
     return parsed.data;
   }
 
@@ -1085,6 +1093,95 @@ export class DownyAgent extends Think {
     }
   }
 
+  async savePilotSources(
+    id: string,
+    urls: string[],
+  ): Promise<{ choice: PilotChoice | null; error: string | null }> {
+    if (!this.session.getMessage(`pilot-choice:${id}`))
+      return {
+        choice: null,
+        error: "These options are no longer in this conversation.",
+      };
+    const result = await this.ctx.storage.transaction(async (txn) => {
+      const parsed = PilotChoiceSchema.safeParse(
+        await txn.get(`pilot-choice:${id}`),
+      );
+      if (!parsed.success) return { choice: null, error: "Choice not found." };
+      try {
+        const choice = savedPilotSources(
+          parsed.data,
+          urls,
+          Date.now(),
+          crypto.randomUUID(),
+        );
+        await txn.put(`pilot-choice:${id}`, choice);
+        return { choice, error: null };
+      } catch {
+        return {
+          choice: parsed.data,
+          error:
+            "Select the comparison and supply three different web URLs without embedded credentials.",
+        };
+      }
+    });
+    if (result.choice?.sources) await this.#syncPilotSources(result.choice);
+    return result;
+  }
+
+  async #syncPilotSources(choice: PilotChoice): Promise<void> {
+    if (!choice.sources) return;
+    const key = `sources:${choice.id}:${choice.sources.revision}`;
+    const pending = this.#pilotReceiptPending.get(key);
+    if (pending) return pending;
+    const delivery = this.#deliverPilotSources(choice);
+    this.#pilotReceiptPending.set(key, delivery);
+    try {
+      await delivery;
+    } finally {
+      this.#pilotReceiptPending.delete(key);
+    }
+  }
+
+  async #deliverPilotSources(choice: PilotChoice): Promise<void> {
+    if (!choice.sources) return;
+    const id = `pilot-sources:${choice.id}:${choice.sources.revision}`;
+    const messages: UIMessage[] = [
+      {
+        id,
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: `I saved these three URLs for the CUA source comparison. This prepares the brief only; do not start research yet. The pages have not been read or verified.\n\n${choice.sources.urls.map((url, i) => `Source ${i + 1}: ${url}`).join("\n")}`,
+          },
+        ],
+      },
+      {
+        id: `${id}:receipt`,
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: "Your three source URLs are saved with the comparison pilot. No pages have been fetched and no research has started. Ask me to prepare the comparison when you're ready.",
+          },
+        ],
+      },
+    ];
+    let appended = false;
+    for (const message of messages) {
+      if (this.session.getMessage(message.id)) continue;
+      await this.session.appendMessage(message);
+      appended = true;
+    }
+    if (appended)
+      this.broadcast(
+        JSON.stringify({
+          type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+          messages: this.messages,
+        }),
+      );
+  }
+
   async #deliverPilotSelection(choice: PilotChoice): Promise<void> {
     const option = PILOT_OPTIONS.find((item) => item.id === choice.selectedId);
     if (!option) return;
@@ -1108,7 +1205,7 @@ export class DownyAgent extends Think {
         parts: [
           {
             type: "text",
-            text: `Selected **${option.title}**. Your preference is saved. No task has started. Ask me to prepare the pilot when you're ready.`,
+            text: `Selected **${option.title}**. Your preference is saved. No task has started. ${option.id === "source-comparison" ? "Add your three public source URLs in the selected card above and tap **Save sources** to prepare the brief." : "Ask me to prepare the pilot when you are ready."}`,
           },
         ],
       },
@@ -1859,9 +1956,10 @@ import {
   PilotChoiceSchema,
   PilotOptionIdSchema,
   PILOT_OPTIONS,
-  isPilotOptionsRequest,
+  savedPilotSources,
   selectedPilot,
   type PilotChoice,
   type PilotOptionId,
 } from "../../lib/pilot-choices";
+import { handlePilotVoiceRequest } from "../pilot-choices/voice";
 import { composePilotChoices } from "../pilot-choices/compose";

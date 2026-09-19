@@ -70,6 +70,9 @@ it("keeps the API key in the authorization header and restricts the browser even
     Authorization: "Bearer secret-value",
   });
   expect(options.body).not.toContain("secret-value");
+  expect(options.body).toContain(
+    "Always delegate requests to show CUA pilot options and explicit pilot selections, even when the options are already in conversation context.",
+  );
   if (typeof options.body !== "string") throw new Error("Expected JSON body");
   const body: unknown = JSON.parse(options.body);
   expect(body).toMatchObject({

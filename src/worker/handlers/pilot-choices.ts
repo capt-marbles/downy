@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { PilotOptionIdSchema } from "../../lib/pilot-choices";
+import {
+  PilotOptionIdSchema,
+  PilotSourceUrlsSchema,
+} from "../../lib/pilot-choices";
 import { getActiveAgentStub } from "../lib/active-agent";
 import { AgentSlugError } from "../lib/get-agent";
 const headers = { "Cache-Control": "private, no-store" };
@@ -24,10 +27,12 @@ export async function handlePilotChoicesRequest(
       );
     const id = url.searchParams.get("ticket");
     const option = url.searchParams.get("option");
+    const savingSources = url.searchParams.get("sources") === "1";
     if (
       (id && !z.uuid().safeParse(id).success) ||
       (option && !PilotOptionIdSchema.safeParse(option).success) ||
-      (!id && option)
+      (!id && (option || savingSources)) ||
+      (savingSources && option)
     )
       return Response.json(
         { error: "Invalid choice request" },
@@ -53,6 +58,25 @@ export async function handlePilotChoicesRequest(
         { choice: await stub.createPilotChoices() },
         { headers },
       );
+    if (savingSources) {
+      const body = z
+        .object({ urls: PilotSourceUrlsSchema })
+        .strict()
+        .safeParse(await request.json().catch(() => null));
+      if (!body.success)
+        return Response.json(
+          {
+            error:
+              "Supply three different web URLs without embedded credentials.",
+          },
+          { status: 400, headers },
+        );
+      const result = await stub.savePilotSources(id, body.data.urls);
+      return Response.json(result, {
+        status: result.error ? 409 : 200,
+        headers,
+      });
+    }
     if (!option)
       return Response.json(
         { error: "Missing option" },

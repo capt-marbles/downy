@@ -4,6 +4,7 @@ import {
   fixedPilotSpec,
   isPilotOptionsRequest,
   selectedPilot,
+  savedPilotSources,
   type PilotChoice,
 } from "./pilot-choices";
 
@@ -28,6 +29,49 @@ it("saves one preference, tolerates the same retry, and rejects changing it", ()
   expect(original.selectedId).toBeNull();
   expect(selectedPilot(saved, "single-page", 200)).toBe(saved);
   expect(() => selectedPilot(saved, "recovery", 51)).toThrow("already");
+});
+
+it("saves and updates three sources only for a selected comparison, with idempotent retries", () => {
+  const urls = [
+    "https://one.test/docs",
+    "https://two.test/docs",
+    "https://three.test/docs",
+  ];
+  expect(() => savedPilotSources(pending(), urls, 50, "revision")).toThrow();
+  const choice = selectedPilot(pending(), "source-comparison", 50);
+  const saved = savedPilotSources(choice, urls, 60, "revision");
+  expect(saved.sources?.urls).toEqual(urls);
+  expect(savedPilotSources(saved, urls, 70, "retry")).toBe(saved);
+  expect(
+    savedPilotSources(
+      saved,
+      [...urls.slice(0, 2), "https://changed.test"],
+      80,
+      "next",
+    ).sources?.revision,
+  ).toBe("next");
+  expect(() =>
+    savedPilotSources(choice, urls.slice(0, 2), 60, "revision"),
+  ).toThrow();
+  expect(() =>
+    savedPilotSources(choice, [urls[0], urls[0], urls[2]], 60, "revision"),
+  ).toThrow();
+  expect(() =>
+    savedPilotSources(
+      choice,
+      ["javascript:alert(1)", ...urls.slice(1)],
+      60,
+      "revision",
+    ),
+  ).toThrow();
+  expect(() =>
+    savedPilotSources(
+      choice,
+      ["https://user:secret@example.com", ...urls.slice(1)],
+      60,
+      "revision",
+    ),
+  ).toThrow();
 });
 it("rejects a pending choice at its expiry boundary", () => {
   expect(() => selectedPilot(pending(), "recovery", 100)).toThrow("expired");
