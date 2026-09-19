@@ -30,6 +30,7 @@ function SettingsPage() {
         <AppearanceCard />
         <PreferencesCard />
         <CloudComputerCard />
+        <CloudComputerCard backend="boat-computer" />
       </div>
     </PageShell>
   );

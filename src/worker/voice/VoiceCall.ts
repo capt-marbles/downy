@@ -86,8 +86,8 @@ export class VoiceCall extends DurableObject {
     this.ctx.waitUntil(
       readAiProvider(this.env.DB)
         .then(async (provider) => {
-          if (provider === "cloud-computer") {
-            const response = await computerStub(this.env).fetch(
+          if (provider === "cloud-computer" || provider === "boat-computer") {
+            const response = await computerStub(this.env, provider).fetch(
               new Request("https://computer.internal/wake", { method: "POST" }),
             );
             await response.body?.cancel();

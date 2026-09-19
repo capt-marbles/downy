@@ -6,7 +6,8 @@ import {
 import { useAiProvider, useShowThinking } from "../lib/preferences";
 
 const PROVIDER_LABELS: Record<AiProvider, string> = {
-  "cloud-computer": "Cloud computer (ChatGPT subscription)",
+  "cloud-computer": "Cloudflare computer (ChatGPT subscription)",
+  "boat-computer": "Boat pilot (ChatGPT subscription)",
   kimi: "Kimi K2.6 (Workers AI)",
   "pi-local": "Pi proxy (local)",
   "pi-prod": "Pi proxy (prod)",

@@ -113,6 +113,8 @@ export async function buildModelStatus(args: {
 
 function providerLabel(provider: AiProvider): string {
   switch (provider) {
+    case "boat-computer":
+      return "ChatGPT subscription (Boat pilot)";
     case "cloud-computer":
       return "ChatGPT subscription (Cloudflare Computer)";
     case "kimi":
@@ -129,6 +131,7 @@ function providerLabel(provider: AiProvider): string {
 
 function modelName(provider: AiProvider, env: Env): string {
   switch (provider) {
+    case "boat-computer":
     case "cloud-computer":
       return env.DOWNY_CODEX_MODEL;
     case "kimi":
@@ -144,6 +147,7 @@ function modelName(provider: AiProvider, env: Env): string {
 
 function contextWindow(provider: AiProvider): number | null {
   switch (provider) {
+    case "boat-computer":
     case "cloud-computer":
       return null;
     case "kimi":
@@ -163,6 +167,11 @@ function estimateCost(
   usage: ModelTokenUsage,
 ): { cost: number | null; note: string } {
   switch (provider) {
+    case "boat-computer":
+      return {
+        cost: null,
+        note: "Uses your ChatGPT Codex allowance. Boat compute is billed separately; no automatic API fallback.",
+      };
     case "cloud-computer":
       return {
         cost: null,

@@ -4,6 +4,7 @@
     "src/routes/**/*.tsx",
     "src/server.ts",
     "cloud-computer/server.mjs",
+    "boat-computer/server.mjs",
     "scripts/**/*.{js,mjs}",
     "alchemy.run.ts",
     "vite.config.ts",

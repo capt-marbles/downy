@@ -11,7 +11,10 @@ import { computerStub } from "./stub";
 // step and yields tool intent; only Think executes tools, with existing gates.
 // A fresh Codex thread per step also prevents a broader earlier tool grant from
 // leaking into the restricted voice path.
-export function cloudComputerModel(env: Env): LanguageModelV3 {
+export function cloudComputerModel(
+  env: Env,
+  provider: "cloud-computer" | "boat-computer" = "cloud-computer",
+): LanguageModelV3 {
   const modelId = env.DOWNY_CODEX_MODEL;
   async function generate(
     options: LanguageModelV3CallOptions,
@@ -44,7 +47,7 @@ export function cloudComputerModel(env: Env): LanguageModelV3 {
       throw new Error(
         "Forced tool choice is not supported by the cloud computer yet.",
       );
-    const response = await computerStub(env).fetch(
+    const response = await computerStub(env, provider).fetch(
       new Request("https://computer.internal/step", {
         method: "POST",
         signal: options.abortSignal,
@@ -65,7 +68,7 @@ export function cloudComputerModel(env: Env): LanguageModelV3 {
     if (!response.ok)
       throw new Error(
         response.status === 401
-          ? "Reconnect ChatGPT in Settings → Cloud computer. Your work has been preserved."
+          ? "Reconnect ChatGPT in Settings → the selected computer card. Your work has been preserved."
           : response.status === 429
             ? "ChatGPT usage limit reached. No paid API fallback was used."
             : "Cloud computer could not complete this step. Check its status; no paid API fallback was used.",
@@ -105,7 +108,7 @@ export function cloudComputerModel(env: Env): LanguageModelV3 {
   }
   return {
     specificationVersion: "v3",
-    provider: "cloud-computer",
+    provider,
     modelId,
     supportedUrls: {},
     doGenerate: generate,

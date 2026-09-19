@@ -13,6 +13,7 @@ import {
 
 import type { ChildAgent as ChildAgentClass } from "./src/worker/agent/ChildAgent.ts";
 import type { DownyAgent as DownyAgentClass } from "./src/worker/agent/DownyAgent.ts";
+import type { BoatComputer as BoatComputerClass } from "./src/worker/boat-computer/BoatComputer.ts";
 import type { CloudComputer as CloudComputerClass } from "./src/worker/cloud-computer/CloudComputer.ts";
 import type { VoiceCall as VoiceCallClass } from "./src/worker/voice/VoiceCall.ts";
 
@@ -84,6 +85,14 @@ const cloudComputer =
       })
     : undefined;
 
+const boatComputer =
+  process.env.DOWNY_BOAT_ENABLED === "true"
+    ? DurableObjectNamespace<BoatComputerClass>("BoatComputer", {
+        className: "BoatComputer",
+        sqlite: true,
+      })
+    : undefined;
+
 export const worker = await TanStackStart("downy", {
   name: "downy",
   adopt: true,
@@ -91,6 +100,11 @@ export const worker = await TanStackStart("downy", {
   compatibilityFlags: ["nodejs_compat", "enable_ctx_exports"],
   crons: ["*/5 * * * *"],
   bindings: {
+    BOAT_SANDBOX_ID: process.env.BOAT_SANDBOX_ID ?? "",
+    ...(boatComputer ? { BoatComputer: boatComputer } : {}),
+    BOAT_API_KEY: await SecretRef({ name: "DOWNY_BOAT_API_KEY" }),
+    BOAT_BRIDGE_TOKEN: await SecretRef({ name: "DOWNY_BOAT_BRIDGE_TOKEN" }),
+    BOAT_CREDENTIAL_KEY: await SecretRef({ name: "DOWNY_BOAT_CREDENTIAL_KEY" }),
     DOWNY_CODEX_MODEL: process.env.DOWNY_CODEX_MODEL ?? "gpt-5.5",
     ...(cloudComputer ? { CloudComputer: cloudComputer } : {}),
     DOWNY_VOICE_ENABLED: process.env.DOWNY_VOICE_ENABLED ?? "false",

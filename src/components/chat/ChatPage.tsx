@@ -459,6 +459,7 @@ export default function ChatPage() {
             </div>
           ) : null}
           <CloudComputerCard compact />
+          <CloudComputerCard compact backend="boat-computer" />
           <BrowserResearchPanel key={`browser-${slug}`} slug={slug} />
           <VoiceCallPanel
             key={slug}

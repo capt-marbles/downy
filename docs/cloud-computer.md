@@ -11,6 +11,10 @@ and saved artifacts. Starting a voice call warms the computer concurrently with
 the audio connection. GPT-Live audio and Cloudflare compute still have their
 own billing; Codex consumes the account's subscription allowance.
 
+An isolated [Boat pilot](boat-pilot.md) offers the same restricted reasoning
+bridge on an alternative host. It has a separate login and model choice;
+enabling it does not replace this Cloudflare provider.
+
 ## Boundary
 
 Downy retains its transcript, workspace, tools, workflow gates, and approval

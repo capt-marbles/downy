@@ -107,6 +107,7 @@ const friendlyLocalPiFetch: typeof fetch = async (input, init) => {
 
 const REGISTRY: Record<AiProvider, (env: Env) => LanguageModel> = {
   "cloud-computer": cloudComputerModel,
+  "boat-computer": (env) => cloudComputerModel(env, "boat-computer"),
   kimi: (env) => createWorkersAI({ binding: env.AI }).chat(env.MODEL_ID),
 
   "pi-local": (env) => {

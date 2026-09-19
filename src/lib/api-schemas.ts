@@ -173,6 +173,7 @@ export const ModelStatusSchema = z.object({
     "pi-prod",
     "openrouter",
     "cloud-computer",
+    "boat-computer",
   ]),
   providerLabel: z.string(),
   model: z.string(),

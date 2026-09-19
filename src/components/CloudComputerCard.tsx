@@ -18,8 +18,10 @@ const LABELS = {
 
 export default function CloudComputerCard({
   compact = false,
+  backend = "cloud-computer",
 }: {
   compact?: boolean;
+  backend?: "cloud-computer" | "boat-computer";
 }) {
   const [provider] = useAiProvider();
   const [login, setLogin] = useState<{
@@ -28,19 +30,19 @@ export default function CloudComputerCard({
   } | null>(null);
   const client = useQueryClient();
   const { data, error } = useQuery({
-    queryKey: ["cloud-computer"],
-    enabled: !compact || provider === "cloud-computer",
+    queryKey: [backend],
+    enabled: !compact || provider === backend,
     refetchInterval: 2_000,
     queryFn: async () => {
-      const response = await fetch("/api/cloud-computer");
+      const response = await fetch(`/api/${backend}`);
       if (!response.ok)
         throw new Error("Could not read cloud computer status.");
       return ComputerStatusSchema.parse(await response.json());
     },
   });
   const action = useMutation({
-    mutationFn: async (path: "wake" | "login" | "restart") => {
-      const response = await fetch(`/api/cloud-computer/${path}`, {
+    mutationFn: async (path: "wake" | "login" | "restart" | "sleep") => {
+      const response = await fetch(`/api/${backend}/${path}`, {
         method: "POST",
       });
       if (!response.ok)
@@ -49,9 +51,9 @@ export default function CloudComputerCard({
         );
       if (path === "login") setLogin(LoginSchema.parse(await response.json()));
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: ["cloud-computer"] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: [backend] }),
   });
-  if (compact && provider !== "cloud-computer") return null;
+  if (compact && provider !== backend) return null;
   return (
     <section
       className={
@@ -81,8 +83,8 @@ export default function CloudComputerCard({
         </strong>
       </div>
       <p className="mt-1 text-xs text-base-content/60">
-        Cloudflare · Codex{data ? ` · ${data.model}` : ""} · ChatGPT
-        subscription
+        {backend === "boat-computer" ? "Boat pilot" : "Cloudflare"} · Codex
+        {data ? ` · ${data.model}` : ""} · ChatGPT subscription
       </p>
       {(error || action.error || data?.error) && (
         <p className="mt-2 text-sm text-warning" role="alert">
@@ -122,6 +124,15 @@ export default function CloudComputerCard({
             >
               Restart computer
             </button>
+            {backend === "boat-computer" && (
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={action.isPending || data.state === "running"}
+                onClick={() => action.mutate("sleep")}
+              >
+                Sleep computer
+              </button>
+            )}
           </div>
           {login && !data.authenticated && (
             <div className="mt-3 rounded-lg border border-base-300 p-3">

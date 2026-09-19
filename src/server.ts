@@ -30,6 +30,7 @@ import { getAgent, listAgents } from "./worker/db/profile";
 export * from "@tanstack/react-start/server-entry";
 export { DownyAgent } from "./worker/agent/DownyAgent";
 export { ChildAgent } from "./worker/agent/ChildAgent";
+export { BoatComputer } from "./worker/boat-computer/BoatComputer";
 export { CloudComputer } from "./worker/cloud-computer/CloudComputer";
 export { WorkspaceProxy } from "@cloudflare/computer";
 export { VoiceCall } from "./worker/voice/VoiceCall";
@@ -119,6 +120,8 @@ export default {
     const agentPageRedirect = await redirectInvalidAgentPage(request, env);
     if (agentPageRedirect) return agentPageRedirect;
 
+    if (url.pathname.startsWith("/api/boat-computer"))
+      return handleCloudComputerRequest(request, env, "boat-computer");
     if (url.pathname.startsWith("/api/cloud-computer"))
       return handleCloudComputerRequest(request, env);
 

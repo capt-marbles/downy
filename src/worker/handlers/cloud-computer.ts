@@ -5,15 +5,20 @@ import { computerStub } from "../cloud-computer/stub";
 export async function handleCloudComputerRequest(
   request: Request,
   env: Env,
+  provider: "cloud-computer" | "boat-computer" = "cloud-computer",
 ): Promise<Response> {
   const path =
-    new URL(request.url).pathname.replace("/api/cloud-computer", "") ||
-    "/status";
+    new URL(request.url).pathname.replace(`/api/${provider}`, "") || "/status";
   const allowed =
     request.method === "GET"
       ? path === "/status"
       : request.method === "POST" &&
-        ["/wake", "/login", "/restart"].includes(path);
+        [
+          "/wake",
+          "/login",
+          "/restart",
+          ...(provider === "boat-computer" ? ["/sleep"] : []),
+        ].includes(path);
   if (!allowed) return Response.json({ error: "Not found" }, { status: 404 });
   if (request.method === "POST") {
     const origin = request.headers.get("origin");
@@ -21,7 +26,7 @@ export async function handleCloudComputerRequest(
       return Response.json({ error: "Invalid origin" }, { status: 403 });
   }
   try {
-    const stub = computerStub(env);
+    const stub = computerStub(env, provider);
     const response = await stub.fetch(
       new Request(`https://computer.internal${path}`, {
         method: request.method,
