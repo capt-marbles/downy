@@ -1,4 +1,5 @@
 import { handleCorpusRequest } from "./worker/handlers/corpus";
+import { handleVoiceRequest } from "./worker/handlers/voice";
 import { reconcileCorpus } from "./worker/corpus/runner";
 import { handleComposioRequest } from "./worker/handlers/composio";
 import { handleCredentialsRequest } from "./worker/handlers/credentials";
@@ -28,6 +29,7 @@ import { getAgent, listAgents } from "./worker/db/profile";
 export * from "@tanstack/react-start/server-entry";
 export { DownyAgent } from "./worker/agent/DownyAgent";
 export { ChildAgent } from "./worker/agent/ChildAgent";
+export { VoiceCall } from "./worker/voice/VoiceCall";
 
 function isApiOrSocketRequest(url: URL, request: Request): boolean {
   if (url.pathname.startsWith("/api/")) return true;
@@ -113,6 +115,8 @@ export default {
 
     const agentPageRedirect = await redirectInvalidAgentPage(request, env);
     if (agentPageRedirect) return agentPageRedirect;
+
+    if (url.pathname === "/api/voice") return handleVoiceRequest(request, env);
 
     if (
       url.pathname === "/api/admin/reset-state" ||

@@ -13,6 +13,7 @@ import { useCurrentAgentSlug } from "../../lib/agents";
 import { alertDialog, confirmDialog } from "../ui/dialog";
 import AgentPanel from "./AgentPanel";
 import InputBox from "./InputBox";
+import VoiceCallPanel from "./VoiceCallPanel";
 import MessageView, { turnHasSideEffects } from "./MessageView";
 import TodoList from "./TodoList";
 import VpcConnectivityWarning from "./VpcConnectivityWarning";
@@ -124,6 +125,8 @@ function readBackgroundTaskSource(
 
 export default function ChatPage() {
   const slug = useCurrentAgentSlug();
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [dictating, setDictating] = useState(false);
   const agent = useAgent({
     agent: "DownyAgent",
     name: slug,
@@ -453,7 +456,15 @@ export default function ChatPage() {
               </button>
             </div>
           ) : null}
+          <VoiceCallPanel
+            key={slug}
+            slug={slug}
+            disabled={dictating || editDraft !== null}
+            onActiveChange={setVoiceActive}
+          />
           <InputBox
+            voiceActive={voiceActive}
+            onRecordingChange={setDictating}
             onSend={handleSend}
             onStop={loggedStop}
             busy={isWorking}

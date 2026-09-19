@@ -449,7 +449,14 @@ DW-13 verification checks are prerequisites for calling the pilot successful.
 
 ### DW-15 — P1: Make voice a usable phone and desktop interaction channel
 
-**Current evidence:** [InputBox](../src/components/chat/InputBox.tsx) already
+**Implementation:** the GPT-Live WebRTC call preview is now implemented; see
+[voice calls](voice.md) for setup, limits, and the live acceptance checklist.
+It includes Start a call, mute/end, captions, read-only workspace lookups through
+the existing agent, and durable session cleanup. Automated provider/browser tests
+do not establish live readiness. OpenAI secret provisioning, deployment, actual
+account access, and desktop/iPhone call acceptance remain operator rollout steps.
+
+**Dictation baseline:** [InputBox](../src/components/chat/InputBox.tsx) already
 records audio and inserts editable transcriptions into the composer. The
 [/api/transcribe handler](../src/worker/handlers/transcribe.ts) uses
 `@cf/openai/whisper-large-v3-turbo` through `env.AI`. This is recorded dictation,

@@ -14,6 +14,8 @@ interface Props {
   onSend: (text: string) => void;
   onStop?: () => void;
   busy?: boolean;
+  voiceActive?: boolean;
+  onRecordingChange?: (recording: boolean) => void;
   placeholder?: string;
   /**
    * Externally controlled draft. When this changes (and is non-null), the
@@ -67,6 +69,8 @@ export default function InputBox({
   onSend,
   onStop,
   busy,
+  voiceActive,
+  onRecordingChange,
   placeholder,
   draft,
   onCancelDraft,
@@ -93,6 +97,9 @@ export default function InputBox({
     }
   }, [draft]);
   const [recorderState, setRecorderState] = useState<RecorderState>("idle");
+  useEffect(() => {
+    onRecordingChange?.(recorderState !== "idle");
+  }, [recorderState, onRecordingChange]);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -306,7 +313,7 @@ export default function InputBox({
 
   const isRecording = recorderState === "recording";
   const isTranscribing = recorderState === "transcribing";
-  const micDisabled = busy || isTranscribing;
+  const micDisabled = busy || isTranscribing || voiceActive;
 
   return (
     <form onSubmit={handleSubmit} className="relative">

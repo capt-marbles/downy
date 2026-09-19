@@ -40,6 +40,8 @@
     "src/worker/campaign-room/artifacts.ts": ["types"],
   },
   "ignoreDependencies": [
+    // Runtime-provided cloudflare:workers module (not an npm dependency).
+    "cloudflare",
     // Tailwindcss used via @tailwindcss/vite plugin
     "tailwindcss",
     // Typography plugin loaded in CSS via @plugin directive

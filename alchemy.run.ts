@@ -12,6 +12,7 @@ import {
 
 import type { ChildAgent as ChildAgentClass } from "./src/worker/agent/ChildAgent.ts";
 import type { DownyAgent as DownyAgentClass } from "./src/worker/agent/DownyAgent.ts";
+import type { VoiceCall as VoiceCallClass } from "./src/worker/voice/VoiceCall.ts";
 
 const app = await alchemy("downy", {
   password: process.env.ALCHEMY_PASSWORD,
@@ -39,6 +40,11 @@ const downyAgent = DurableObjectNamespace<DownyAgentClass>("DownyAgent", {
 
 const childAgent = DurableObjectNamespace<ChildAgentClass>("ChildAgent", {
   className: "ChildAgent",
+  sqlite: true,
+});
+
+const voiceCall = DurableObjectNamespace<VoiceCallClass>("VoiceCall", {
+  className: "VoiceCall",
   sqlite: true,
 });
 
@@ -72,6 +78,12 @@ export const worker = await TanStackStart("downy", {
   compatibilityFlags: ["nodejs_compat"],
   crons: ["*/5 * * * *"],
   bindings: {
+    DOWNY_VOICE_ENABLED: process.env.DOWNY_VOICE_ENABLED ?? "false",
+    // Provision this secret out of band; never accept an API key in chat.
+    ...(process.env.DOWNY_VOICE_ENABLED === "true"
+      ? { OPENAI_API_KEY: await SecretRef({ name: "DOWNY_OPENAI_API_KEY" }) }
+      : {}),
+    VoiceCall: voiceCall,
     MCP_TRIAGE_CONFIDENCE_FLOOR:
       process.env.MCP_TRIAGE_CONFIDENCE_FLOOR ?? "0.6",
     JEV_GATING_ENABLED: process.env.JEV_GATING_ENABLED ?? "true",

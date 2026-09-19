@@ -1,4 +1,5 @@
 import { advanceCampaignWorkflow } from "../campaign-room/advance";
+import { voiceReadTools, voiceToolSet } from "../voice/policy";
 import type { AdvanceWorkflowInput } from "../buildroom/workflows";
 import { syncCorpus } from "../corpus/sync";
 import { corpusRepos, type CorpusCursor } from "../corpus/types";
@@ -405,6 +406,19 @@ export class DownyAgent extends Think {
       peers,
       latestPlan,
     );
+    const latestUser = this.messages.reduce<UIMessage | undefined>(
+      (latest, message) => (message.role === "user" ? message : latest),
+      undefined,
+    );
+    if (latestUser?.id.startsWith("voice-request:")) {
+      return {
+        system: `${system}\n\nThis turn is a read-only voice lookup. Answer the caller's latest question, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. Do not claim to send, publish, approve, schedule, change, or connect anything. Direct those requests to the chat controls. Never ask for or repeat credentials. Keep your answer short enough to speak, and include source paths in the chat.`,
+        model: getModelFor(this.env, aiProvider),
+        activeTools: voiceReadTools(Object.keys(ctx.tools)),
+        tools: voiceToolSet(ctx.tools),
+        maxSteps: 8,
+      };
+    }
     const mcpTools = toolRegistry.buildMcpProxyTools({
       descriptors: listMcpToolDescriptors(this.mcp),
       callTool: (serverId, name, args) =>
@@ -603,6 +617,116 @@ export class DownyAgent extends Think {
       },
     ]);
     return { started: result.status === "completed" };
+  }
+
+  async getVoiceContext(): Promise<string> {
+    // Plain conversation text only: never forward tool inputs, credentials,
+    // reasoning, or hidden context to the speech provider. <= 8KB UTF-8.
+    return this.messages
+      .slice(-12)
+      .map(
+        (message) =>
+          `${message.role}: ${message.parts
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n")}`,
+      )
+      .join("\n")
+      .slice(-2000);
+  }
+
+  #voicePending = new Set<string>();
+
+  async runVoiceTurn(
+    callId: string,
+    delegationId: string,
+    transcript: string,
+  ): Promise<string> {
+    const id = `voice-request:${callId}:${delegationId}`;
+    if (this.#voicePending.has(id))
+      return "This lookup is already running; check the chat for its result.";
+    this.#voicePending.add(id);
+    try {
+      return await this.#runVoiceTurnOnce(callId, delegationId, transcript, id);
+    } finally {
+      this.#voicePending.delete(id);
+    }
+  }
+
+  async #runVoiceTurnOnce(
+    callId: string,
+    delegationId: string,
+    transcript: string,
+    id: string,
+  ): Promise<string> {
+    const key = `voice-result:${callId}:${delegationId}`;
+    const previous = await this.ctx.storage.get<string>(key);
+    if (previous) return previous;
+    // Mark BEFORE inference; a restarted or duplicated delegation never reruns
+    // tools. Pending/unknown work can be inspected in the shared transcript.
+    await this.ctx.storage.put(
+      key,
+      "This lookup was already received. Check the chat for its result; it has not been run again.",
+    );
+    const submitted = await this.saveMessages([
+      {
+        id,
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: `Voice lookup — answer the latest question in this approximate call transcript:\n${transcript.slice(-8000)}`,
+          },
+        ],
+      },
+    ]);
+    const index = this.messages.findIndex((message) => message.id === id);
+    if (submitted.status === "skipped" || index < 0) {
+      const cancelled =
+        "That lookup was cancelled or its conversation was cleared. Please ask again.";
+      await this.ctx.storage.put(key, cancelled);
+      return cancelled;
+    }
+    const after = this.messages.slice(index + 1);
+    const nextUser = after.findIndex((message) => message.role === "user");
+    const turn = nextUser < 0 ? after : after.slice(0, nextUser);
+    const answer =
+      turn
+        .filter(
+          (message) =>
+            message.role === "assistant" &&
+            !message.id.startsWith("voice-transcript:"),
+        )
+        .flatMap((message) =>
+          message.parts
+            .filter((part) => part.type === "text")
+            .map((part) => part.text),
+        )
+        .join("\n") || "Please check the chat for the lookup status.";
+    await this.ctx.storage.put(key, answer);
+    return answer;
+  }
+
+  async saveVoiceTranscript(callId: string, transcript: string): Promise<void> {
+    const message = {
+      id: `voice-transcript:${callId}`,
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: `**Voice call · approximate captions**\n\n${transcript.slice(-24_000)}\n\n*Long calls retain the most recent captions. Audio is not saved by Downy.*`,
+        },
+      ],
+    };
+    if (this.session.getMessage(message.id))
+      this.session.updateMessage(message);
+    else await this.session.appendMessage(message);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
   }
 
   // Dev-only reset. Wipes the conversation, resets the bootstrap sentinel, and
