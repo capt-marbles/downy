@@ -1,7 +1,7 @@
 import { WriteRequestBodySchema } from "../../lib/api-schemas";
 import { isAgentManagedPath } from "../agent/core-files";
 import { getActiveAgentStub } from "../lib/active-agent";
-import { AgentSlugError } from "../lib/get-agent";
+import { AgentSlugError, isValidSlug } from "../lib/get-agent";
 
 class WorkspacePathError extends Error {
   constructor(message: string) {
@@ -10,7 +10,11 @@ class WorkspacePathError extends Error {
   }
 }
 
-const JSON_HEADERS = { "content-type": "application/json" };
+const JSON_HEADERS = {
+  "content-type": "application/json",
+  "cache-control": "private, no-store",
+  vary: "X-Agent-Slug",
+};
 
 function json(body: unknown, status = 200): Response {
   let serialized: string;
@@ -148,6 +152,30 @@ export async function handleFilesRequest(
   const kind = parts[2];
 
   try {
+    // A file belongs to a specific agent. Never silently fall back to default
+    // when a browser or intermediary loses the custom header. Older clients
+    // can still supply the header; new clients also put the scope in the URL.
+    const querySlugs = url.searchParams.getAll("agentSlug");
+    const headerSlug = request.headers.get("X-Agent-Slug");
+    const slug = querySlugs[0] ?? headerSlug;
+    if (!slug || !isValidSlug(slug) || querySlugs.length > 1) {
+      return json(
+        {
+          error: "An explicit valid agent slug is required",
+          code: "invalid_slug",
+        },
+        400,
+      );
+    }
+    if (headerSlug && headerSlug !== slug) {
+      return json(
+        { error: "File URL and agent header disagree", code: "invalid_slug" },
+        400,
+      );
+    }
+    const headers = new Headers(request.headers);
+    headers.set("X-Agent-Slug", slug);
+    request = new Request(request, { headers });
     const rawPath = parts.slice(3).map(decodeURIComponent).join("/");
     const path =
       kind === "workspace" ? normalizeWorkspacePath(rawPath) : rawPath;

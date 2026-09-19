@@ -58,6 +58,17 @@ function withSlugHeader(slug: string, init?: RequestInit): RequestInit {
   return { ...init, headers: merged };
 }
 
+// File URLs must identify their workspace even when a browser intermediary
+// drops custom headers. This also gives each agent a distinct resource URL.
+function fileUrl(
+  slug: string,
+  kind: "core" | "workspace",
+  path?: string,
+): string {
+  const suffix = path ? `/${encodePath(path)}` : "";
+  return `/api/files/${kind}${suffix}?agentSlug=${encodeURIComponent(slug)}`;
+}
+
 /**
  * Issue an API request that is expected to succeed. Throws on any non-2xx
  * response. Use this for endpoints that are guaranteed to resolve — lists,
@@ -112,7 +123,7 @@ export async function writeUserFile(content: string): Promise<void> {
 
 export async function listCoreFiles(slug: string): Promise<CoreFileRecord[]> {
   const data = await request(
-    "/api/files/core",
+    fileUrl(slug, "core"),
     ListCoreFilesResponseSchema,
     withSlugHeader(slug),
   );
@@ -124,7 +135,7 @@ export async function readCoreFile(
   path: string,
 ): Promise<CoreFileRecord> {
   const data = await request(
-    `/api/files/core/${encodePath(path)}`,
+    fileUrl(slug, "core", path),
     ReadCoreFileResponseSchema,
     withSlugHeader(slug),
   );
@@ -137,7 +148,7 @@ export async function writeCoreFile(
   content: string,
 ): Promise<void> {
   await request(
-    `/api/files/core/${encodePath(path)}`,
+    fileUrl(slug, "core", path),
     OkResponseSchema,
     withSlugHeader(slug, {
       method: "PUT",
@@ -188,7 +199,7 @@ export async function listWorkspaceFiles(
   slug: string,
 ): Promise<z.infer<typeof ListWorkspaceFilesResponseSchema>["files"]> {
   const data = await request(
-    "/api/files/workspace",
+    fileUrl(slug, "workspace"),
     ListWorkspaceFilesResponseSchema,
     withSlugHeader(slug),
   );
@@ -200,7 +211,7 @@ export async function readWorkspaceFile(
   path: string,
 ): Promise<WorkspaceFile | null> {
   const data = await requestMaybe(
-    `/api/files/workspace/${encodePath(path)}`,
+    fileUrl(slug, "workspace", path),
     ReadWorkspaceFileResponseSchema,
     withSlugHeader(slug),
   );
@@ -213,7 +224,7 @@ export async function writeWorkspaceFile(
   content: string,
 ): Promise<void> {
   await request(
-    `/api/files/workspace/${encodePath(path)}`,
+    fileUrl(slug, "workspace", path),
     OkResponseSchema,
     withSlugHeader(slug, {
       method: "PUT",
@@ -228,7 +239,7 @@ export async function deleteWorkspaceFile(
   path: string,
 ): Promise<void> {
   await request(
-    `/api/files/workspace/${encodePath(path)}`,
+    fileUrl(slug, "workspace", path),
     OkResponseSchema,
     withSlugHeader(slug, { method: "DELETE" }),
   );
