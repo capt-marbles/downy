@@ -11,6 +11,9 @@ export const ComputerStatusSchema = z.object({
     "error",
   ]),
   authenticated: z.boolean(),
+  credentialCheckpoint: z
+    .enum(["present", "missing", "unavailable"])
+    .default("unavailable"),
   updatedAt: z.number(),
   error: z.string().nullable(),
   model: z.string(),

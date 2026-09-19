@@ -47,3 +47,27 @@ it("rejects corrupted persisted credentials without silently discarding the logi
     ).restore(),
   ).rejects.toThrow();
 });
+
+it("recovers from a DO envelope when the entire container filesystem is replaced", async () => {
+  const root = await mkdtemp(join(tmpdir(), "downy-vault-do-"));
+  dirs.push(root);
+  const home = join(root, "container");
+  const checkpoint = join(home, "auth.enc.json");
+  const key = Buffer.alloc(32, 9).toString("base64");
+  const original = new AuthVault(home, checkpoint, key);
+  await original.restore();
+  await writeFile(
+    join(home, "auth.json"),
+    JSON.stringify({ tokens: { refresh_token: "rotated-login" } }),
+  );
+  const saved = await original.snapshot();
+  expect(saved).not.toBeNull();
+  expect(JSON.stringify(saved)).not.toContain("rotated-login");
+  await rm(home, { recursive: true });
+  const replacement = new AuthVault(home, checkpoint, key);
+  await replacement.restore(saved!);
+  expect(JSON.parse(await readFile(join(home, "auth.json"), "utf8"))).toEqual({
+    tokens: { refresh_token: "rotated-login" },
+  });
+  expect(await replacement.snapshot()).toEqual(saved);
+});

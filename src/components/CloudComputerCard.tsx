@@ -93,7 +93,9 @@ export default function CloudComputerCard({
         <>
           <p className="my-3 text-sm">
             {data.authenticated
-              ? "ChatGPT connected. Your login is preserved across computer restarts."
+              ? data.credentialCheckpoint === "present"
+                ? "ChatGPT connected. Encrypted login saved for restart recovery."
+                : "ChatGPT connected, but the login is not yet saved. Keep the computer awake."
               : "Connect your ChatGPT account to use its Codex allowance. No API fallback."}
           </p>
           <div className="flex flex-wrap gap-2">

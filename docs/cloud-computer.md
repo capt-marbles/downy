@@ -41,19 +41,27 @@ connector for Aside and its authenticated X browser. No new agent tool is added.
    need enabling in the ChatGPT account's security settings.
 3. After Downy reports connected, choose the cloud-computer model option.
 
-Codex owns OAuth and refresh. Its plaintext auth file is in the disposable
-private runtime directory, outside the Computer workspace. A watcher saves
-updates as AES-GCM ciphertext in the Computer's durable SQLite-backed filesystem.
-The existing `CREDENTIAL_KEY` Secrets Store binding supplies the encryption key
-through a private bootstrap call. It is not in the image, model environment,
-transcript, tool results, or browser responses. The private Computer filesystem
-is separate from the R2 workspace Downy's agent tools can read.
+Codex owns OAuth and refresh. File-based credential storage is explicitly set
+when its app-server starts, before login. Its plaintext auth file is in the
+disposable private runtime directory, outside the Computer workspace.
 
-Every model result waits for an auth checkpoint. On startup, the checkpoint is
-decrypted before Codex starts. A single service owns token refresh. Status
-polling does not keep waking a sleeping computer. Pending device login is polled
-while awake. Invalid/revoked auth produces a reconnect state, preserving work.
-Corrupt ciphertext fails closed rather than silently deleting the login.
+The bridge encrypts credentials with AES-GCM. Downy commits that encrypted
+envelope directly to Durable Object storage and waits for acknowledgement
+before reporting a successful connection or returning a model result. The
+`CREDENTIAL_KEY` Secrets Store binding supplies the key through a private
+bootstrap call; neither the key nor the envelope enters browser responses,
+model context, transcripts, or agent workspace tools.
+
+On startup, Downy passes the saved encrypted envelope privately to the bridge,
+which decrypts it before Codex starts. Pending device login is checked by a DO
+alarm even after Settings is closed. Explicit sleep and restart checkpoint the
+current credentials first; a save failure keeps the computer awake and shows
+an error. The status response exposes only checkpoint presence, never its
+contents. Status polling does not wake a sleeping computer.
+
+This replaces the initial Computer-filesystem checkpoint, which did not survive
+a production sleep despite passing the local container test. A file on the
+container is no longer considered evidence of a durable save.
 
 A process crash exactly during a credential rotation can still precede its
 checkpoint; provider revocation can also require sign-in. This design removes

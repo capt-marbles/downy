@@ -31,10 +31,10 @@ createServer(async (req, res) => {
         vault?.close();
         vault = new AuthVault(
           "/private-codex",
-          "/workspace/.private/auth.enc.json",
+          "/private-codex/auth.enc.json",
           input.key,
         );
-        await vault.restore();
+        await vault.restore(input.checkpoint);
         vault.start();
         codex = new CodexBridge("/private-codex");
         await codex.initialize();
@@ -43,8 +43,13 @@ createServer(async (req, res) => {
     }
     if (!codex) return send(res, 503, { error: "Not ready" });
     if (req.url === "/account" && req.method === "GET") {
-      await vault.flush();
-      return send(res, 200, await codex.account());
+      const account = await codex.account();
+      // Confirm the account first, then checkpoint its current credential file.
+      // The DO must commit this encrypted envelope before reporting connected.
+      const checkpoint = await vault.snapshot();
+      if (account.authenticated && !checkpoint)
+        throw new Error("Authenticated login has no checkpoint");
+      return send(res, 200, { ...account, checkpoint });
     }
     if (busy) return send(res, 409, { error: "Busy" });
     busy = true;

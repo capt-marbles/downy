@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
 import {
   getWorkspace,
@@ -12,6 +11,7 @@ import {
   type IWorkspaceContainerAPI,
 } from "@cloudflare/computer/backends/container";
 import { readSecret } from "../credentials/crypto";
+import { AUTH_CHECKPOINT_KEY, saveAccountCheckpoint } from "./auth-checkpoint";
 import {
   ComputerStatusSchema,
   LoginSchema,
@@ -58,8 +58,10 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
     | "error" = "sleeping";
   #authenticated = false;
   #loginPending = false;
+  #idleAt = Date.now() + 15 * 60_000;
   #tail: Promise<void> = Promise.resolve();
   #queued = 0;
+  #checkpointTail: Promise<void> = Promise.resolve();
   #error: string | null = null;
   #updatedAt = Date.now();
 
@@ -69,8 +71,12 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       const stored = await ctx.storage.get<{
         authenticated: boolean;
         active: boolean;
+        loginPending?: boolean;
+        idleAt?: number;
       }>("computer-status");
       this.#authenticated = stored?.authenticated ?? false;
+      this.#loginPending = stored?.loginPending ?? false;
+      this.#idleAt = stored?.idleAt ?? this.#idleAt;
       if (stored?.active)
         this.#setState(
           "interrupted",
@@ -83,6 +89,8 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       this.ctx.storage.put("computer-status", {
         authenticated: this.#authenticated,
         active: this.#state === "running",
+        loginPending: this.#loginPending,
+        idleAt: this.#idleAt,
       }),
     );
   }
@@ -152,15 +160,12 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       if (!bridgeReady) throw new Error("Codex bridge did not become ready");
       const response = await this.#port("/initialize", {
         key: await readSecret(this.env.CREDENTIAL_KEY),
+        checkpoint: await this.ctx.storage.get(AUTH_CHECKPOINT_KEY),
       });
       if (!response.ok)
         throw new Error("Cloud computer initialization failed.");
-      await this.getWorkspaceContainer().setInactivityTimeout(15 * 60_000);
-      const accountResponse = await this.#port("/account");
-      const account = z
-        .object({ authenticated: z.boolean() })
-        .parse(await accountResponse.json());
-      this.#authenticated = accountResponse.ok && account.authenticated;
+      await this.getWorkspaceContainer().setInactivityTimeout(30 * 60_000);
+      await this.#syncAccount();
       this.#setState("ready");
     })().catch((error: unknown) => {
       console.error("[cloud-computer] startup failed", {
@@ -175,6 +180,21 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
     });
     await this.#ready;
   }
+  #syncAccount(): Promise<void> {
+    const operation = this.#checkpointTail.then(async () => {
+      const response = await this.#port("/account");
+      if (!response.ok)
+        throw new Error("Could not checkpoint cloud computer login");
+      const authenticated = await saveAccountCheckpoint(
+        this.ctx.storage,
+        await response.json(),
+      );
+      this.#authenticated = authenticated;
+      if (authenticated) this.#loginPending = false;
+    });
+    this.#checkpointTail = operation.catch(() => {});
+    return operation;
+  }
   async #status() {
     const running = (await this.getWorkspaceContainer().status()).running;
     if (
@@ -187,21 +207,19 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       this.#ready = undefined;
       this.#setState(this.#busy ? "interrupted" : "sleeping");
     }
-    if (running && this.#ready && !this.#busy && this.#loginPending) {
+    if (running && !this.#busy && this.#loginPending) {
       try {
-        const response = await this.#port("/account");
-        const data = z
-          .object({ authenticated: z.boolean() })
-          .parse(await response.json());
-        this.#authenticated = response.ok && data.authenticated;
-        if (this.#authenticated) {
-          this.#loginPending = false;
-          this.#persistStatus();
-        }
+        await this.#syncAccount();
+        this.#persistStatus();
       } catch {
         this.#setState("error", "Cloud computer is temporarily unreachable.");
       }
     }
+    const credentialCheckpoint = (await this.ctx.storage.get(
+      AUTH_CHECKPOINT_KEY,
+    ))
+      ? "present"
+      : "missing";
     return ComputerStatusSchema.parse({
       configured: true,
       state: this.#state,
@@ -209,6 +227,7 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       error: this.#error,
       updatedAt: this.#updatedAt,
       model: this.env.DOWNY_CODEX_MODEL,
+      credentialCheckpoint,
     });
   }
   override async alarm(): Promise<void> {
@@ -218,9 +237,40 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       await this.ctx.storage.setAlarm(Date.now() + 3 * 60_000);
       return;
     }
-    if (this.ctx.container?.running) await this.ctx.container.destroy();
-    this.#ready = undefined;
-    this.#setState("sleeping");
+    // Use the same queue as model work so a request cannot start while an
+    // awaited checkpoint is followed by container destruction.
+    let release!: () => void;
+    this.#tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.#busy = true;
+    try {
+      if (this.ctx.container?.running) {
+        try {
+          await this.#syncAccount();
+          this.#persistStatus();
+        } catch {
+          this.#setState(
+            "error",
+            "Could not save ChatGPT login. Keeping the computer awake; retrying shortly.",
+          );
+          await this.ctx.storage.setAlarm(Date.now() + 60_000);
+          return;
+        }
+        if (Date.now() < this.#idleAt) {
+          await this.ctx.storage.setAlarm(
+            this.#loginPending ? Date.now() + 10_000 : this.#idleAt,
+          );
+          return;
+        }
+        await this.ctx.container.destroy();
+      }
+      this.#ready = undefined;
+      this.#setState("sleeping");
+    } finally {
+      this.#busy = false;
+      release();
+    }
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -255,7 +305,11 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       if (path === "/restart") {
         // A stop proves auth survives an actual fresh container disk. Auth is
         // encrypted in the computer VFS, not in its disposable root filesystem.
-        if (this.ctx.container?.running) await this.ctx.container.destroy();
+        if (this.ctx.container?.running) {
+          await this.#ensureReady();
+          await this.#syncAccount();
+          await this.ctx.container.destroy();
+        }
         this.#ready = undefined;
       }
       await this.#ensureReady();
@@ -289,7 +343,7 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
       }
       if (!response.ok) throw new Error("Step failed");
       const result = StepResultSchema.parse(await response.json());
-      this.#authenticated = true;
+      await this.#syncAccount();
       this.#setState("ready");
       return Response.json(result);
     } catch (error) {
@@ -305,7 +359,11 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
     } finally {
       this.#busy = false;
       release();
-      await this.ctx.storage.setAlarm(Date.now() + 15 * 60_000);
+      this.#idleAt = Date.now() + 15 * 60_000;
+      this.#persistStatus();
+      await this.ctx.storage.setAlarm(
+        this.#loginPending ? Date.now() + 10_000 : this.#idleAt,
+      );
     }
   }
 }

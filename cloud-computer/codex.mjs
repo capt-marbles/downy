@@ -58,16 +58,26 @@ export class CodexBridge {
     this.pending = new Map();
     this.sequence = 0;
     this.active = null;
-    this.child = spawn(binary, ["app-server"], {
-      cwd: "/tmp",
-      env: {
-        PATH: process.env.PATH,
-        HOME: home,
-        CODEX_HOME: home,
-        LANG: "C.UTF-8",
+    this.child = spawn(
+      binary,
+      [
+        "app-server",
+        "-c",
+        'cli_auth_credentials_store="file"',
+        "-c",
+        'forced_login_method="chatgpt"',
+      ],
+      {
+        cwd: "/tmp",
+        env: {
+          PATH: process.env.PATH,
+          HOME: home,
+          CODEX_HOME: home,
+          LANG: "C.UTF-8",
+        },
+        stdio: ["pipe", "pipe", "ignore"],
       },
-      stdio: ["pipe", "pipe", "ignore"],
-    });
+    );
     this.lines = createInterface({ input: this.child.stdout });
     this.lines.on("line", (line) => {
       try {

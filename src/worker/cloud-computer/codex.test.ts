@@ -20,6 +20,7 @@ async function fixture(unsafe = false, unauthorized = false) {
     binary,
     `#!/usr/bin/env node
 const fs = require('node:fs');
+fs.writeFileSync(process.env.CODEX_HOME+'/startup-args.json',JSON.stringify(process.argv.slice(2)));
 const rl = require('node:readline').createInterface({input:process.stdin});
 const send = x => process.stdout.write(JSON.stringify(x)+'\\n');
 rl.on('line', line => { const m=JSON.parse(line); if(m.id===undefined)return;
@@ -41,6 +42,15 @@ send({id:m.id,result:{}});
 }
 it("returns tool intent without acknowledging execution and disables native capabilities", async () => {
   const { bridge, home } = await fixture();
+  expect(
+    JSON.parse(await readFile(join(home, "startup-args.json"), "utf8")),
+  ).toEqual([
+    "app-server",
+    "-c",
+    'cli_auth_credentials_store="file"',
+    "-c",
+    'forced_login_method="chatgpt"',
+  ]);
   const result = await bridge.step({
     model: "gpt-5.5",
     system: "Downy",

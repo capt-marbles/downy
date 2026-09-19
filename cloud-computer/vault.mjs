@@ -15,12 +15,12 @@ export class AuthVault {
     this.last = null;
     this.failed = false;
   }
-  async restore() {
+  async restore(saved) {
     await mkdir(this.home, { recursive: true, mode: 0o700 });
     await mkdir(dirname(this.checkpoint), { recursive: true });
     let envelope;
     try {
-      envelope = JSON.parse(await readFile(this.checkpoint, "utf8"));
+      envelope = saved ?? JSON.parse(await readFile(this.checkpoint, "utf8"));
     } catch (error) {
       if (error.code === "ENOENT") return;
       throw new Error("Credential recovery failed", { cause: error });
@@ -38,6 +38,8 @@ export class AuthVault {
     ]);
     JSON.parse(plain.toString());
     await writeFile(join(this.home, "auth.json"), plain, { mode: 0o600 });
+    if (saved)
+      await writeFile(this.checkpoint, JSON.stringify(saved), { mode: 0o600 });
     this.last = plain.toString();
   }
   start() {
@@ -84,6 +86,15 @@ export class AuthVault {
         this.failed = false;
       });
     return this.pending;
+  }
+  async snapshot() {
+    await this.flush();
+    try {
+      return JSON.parse(await readFile(this.checkpoint, "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
   }
   close() {
     this.watcher?.close();
