@@ -687,6 +687,12 @@ export class DownyAgent extends Think {
       key,
       "This lookup was already received. Check the chat for its result; it has not been run again.",
     );
+    if (isPilotOptionsRequest(transcript)) {
+      const choice = await this.createPilotChoices();
+      const answer = `I've put three CUA pilot options in chat: read one public page, compare three sources, or test recovery from a broken link. Tap one to record your preference. Nothing starts until you ask. ${choice.composition.state === "fallback" ? "The layout service was unavailable, so I used a standard list." : ""}`;
+      await this.ctx.storage.put(key, answer);
+      return answer;
+    }
     const submitted = await this.saveMessages([
       {
         id,
@@ -972,6 +978,155 @@ export class DownyAgent extends Think {
   }
 
   #researchViewPending: Promise<ResearchSnapshot> | null = null;
+
+  #pilotChoicePending: Promise<PilotChoice> | null = null;
+  #pilotReceiptPending = new Map<string, Promise<void>>();
+
+  async createPilotChoices(): Promise<PilotChoice> {
+    if (this.#pilotChoicePending) return this.#pilotChoicePending;
+    this.#pilotChoicePending = this.#createPilotChoices();
+    try {
+      return await this.#pilotChoicePending;
+    } finally {
+      this.#pilotChoicePending = null;
+    }
+  }
+
+  async #createPilotChoices(): Promise<PilotChoice> {
+    const latest = await this.ctx.storage.get<string>("pilot-choice:latest");
+    const existing = latest ? await this.getPilotChoice(latest) : null;
+    if (existing && !existing.selectedId && existing.expiresAt > Date.now())
+      return existing;
+    const models: string[] = [];
+    const choice = await composePilotChoices(
+      crypto.randomUUID(),
+      createCloudflareEvaluator(this.env.AI, (entry) => {
+        if (!models.includes(entry.model)) models.push(entry.model);
+      }),
+      models,
+    );
+    await this.ctx.storage.put({
+      [`pilot-choice:${choice.id}`]: choice,
+      "pilot-choice:latest": choice.id,
+    });
+    const message: UIMessage = {
+      id: `pilot-choice:${choice.id}`,
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: `Choose a CUA research pilot. Estimated run times exclude setup. These are proposals, not started tasks. Selecting an option records a preference only.\n\n${PILOT_OPTIONS.map((option) => `${option.title}: ${option.summary} Run estimate: ${option.effort}. Needs: ${option.needs} Success: ${option.success}`).join("\n\n")}`,
+        },
+        { type: "data-pilot-choice", data: { ticketId: choice.id } },
+      ],
+    };
+    await this.session.appendMessage(message);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+    return choice;
+  }
+
+  async getPilotChoice(id: string): Promise<PilotChoice | null> {
+    if (!this.session.getMessage(`pilot-choice:${id}`)) return null;
+    const parsed = PilotChoiceSchema.safeParse(
+      await this.ctx.storage.get(`pilot-choice:${id}`),
+    );
+    if (!parsed.success) return null;
+    if (parsed.data.selectedId) await this.#syncPilotSelection(parsed.data);
+    return parsed.data;
+  }
+
+  async selectPilotChoice(
+    id: string,
+    optionId: PilotOptionId,
+  ): Promise<{ choice: PilotChoice | null; error: string | null }> {
+    PilotOptionIdSchema.parse(optionId);
+    if (!this.session.getMessage(`pilot-choice:${id}`))
+      return {
+        choice: null,
+        error: "These options are no longer in this conversation.",
+      };
+    const result = await this.ctx.storage.transaction(async (txn) => {
+      const parsed = PilotChoiceSchema.safeParse(
+        await txn.get(`pilot-choice:${id}`),
+      );
+      if (!parsed.success) return { choice: null, error: "Choice not found." };
+      try {
+        const choice = selectedPilot(parsed.data, optionId, Date.now());
+        await txn.put(`pilot-choice:${id}`, choice);
+        return { choice, error: null };
+      } catch {
+        return {
+          choice: parsed.data,
+          error: parsed.data.selectedId
+            ? "A pilot has already been selected."
+            : "These options have expired. Request fresh options.",
+        };
+      }
+    });
+    if (result.choice?.selectedId)
+      await this.#syncPilotSelection(result.choice);
+    return result;
+  }
+
+  async #syncPilotSelection(choice: PilotChoice): Promise<void> {
+    const pending = this.#pilotReceiptPending.get(choice.id);
+    if (pending) return pending;
+    const delivery = this.#deliverPilotSelection(choice);
+    this.#pilotReceiptPending.set(choice.id, delivery);
+    try {
+      await delivery;
+    } finally {
+      this.#pilotReceiptPending.delete(choice.id);
+    }
+  }
+
+  async #deliverPilotSelection(choice: PilotChoice): Promise<void> {
+    const option = PILOT_OPTIONS.find((item) => item.id === choice.selectedId);
+    if (!option) return;
+    // Direct session appends make the user's choice visible on the next agent
+    // turn without starting inference, tools, or a background task. Deterministic
+    // IDs repair delivery after a retry/restart without duplicating the choice.
+    const messages: UIMessage[] = [
+      {
+        id: `pilot-selected:${choice.id}`,
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: `I selected “${option.title}” in the pilot chooser. This records my preference only; do not start work yet.\n\n${option.summary}\nPrerequisites: ${option.needs}\nSuccess criteria: ${option.success}`,
+          },
+        ],
+      },
+      {
+        id: `pilot-selection-receipt:${choice.id}`,
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: `Selected **${option.title}**. Your preference is saved. No task has started. Ask me to prepare the pilot when you're ready.`,
+          },
+        ],
+      },
+    ];
+    let appended = false;
+    for (const message of messages)
+      if (!this.session.getMessage(message.id)) {
+        await this.session.appendMessage(message);
+        appended = true;
+      }
+    if (appended)
+      this.broadcast(
+        JSON.stringify({
+          type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+          messages: this.messages,
+        }),
+      );
+  }
 
   async getResearchView(): Promise<ResearchSnapshot | null> {
     const parsed = ResearchSnapshotSchema.safeParse(
@@ -1700,3 +1855,13 @@ import {
   researchPath,
   researchRecord,
 } from "../research-view/compose";
+import {
+  PilotChoiceSchema,
+  PilotOptionIdSchema,
+  PILOT_OPTIONS,
+  isPilotOptionsRequest,
+  selectedPilot,
+  type PilotChoice,
+  type PilotOptionId,
+} from "../../lib/pilot-choices";
+import { composePilotChoices } from "../pilot-choices/compose";

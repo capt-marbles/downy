@@ -27,6 +27,8 @@ import {
 import MarkdownPreview from "../markdown/MarkdownPreview";
 import { ToolPartSchema } from "./tool-part-types";
 import ToolPart from "./ToolParts";
+import PilotChoices from "./PilotChoices";
+import { PilotChoicePartSchema } from "../../lib/pilot-choices";
 
 const CORE_FILE_PATHS = new Set<string>([
   SOUL_PATH,
@@ -433,6 +435,24 @@ function MessageViewImpl({
           <BackgroundTaskHeader source={backgroundTaskSource} />
         ) : null}
         {message.parts.map((part, idx) => {
+          const pilot = !isUser ? PilotChoicePartSchema.safeParse(part) : null;
+          if (pilot?.success)
+            return (
+              <PilotChoices
+                key={pilot.data.data.ticketId}
+                ticketId={pilot.data.data.ticketId}
+              />
+            );
+          // The plain-text option descriptions remain in model/voice context;
+          // the persisted interactive card is their presentation in chat.
+          if (
+            !isUser &&
+            part.type === "text" &&
+            message.parts.some(
+              (item) => PilotChoicePartSchema.safeParse(item).success,
+            )
+          )
+            return null;
           // The "live" part is the last part of an assistant message whose
           // turn hasn't ended — it's the one currently being streamed.
           const isLivePart =
