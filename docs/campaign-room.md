@@ -2,6 +2,9 @@
 
 For operator setup and day-to-day usage, start with [`docs/campaign-room-user-manual.md`](./campaign-room-user-manual.md).
 
+Proposed improvements to evaluation, repeatable work, and outcome feedback are
+tracked in the [Downy backlog](./backlog.md).
+
 Campaign Room is the GTM workflow pack layered on top of the Buildroom workflow engine. It keeps the Buildroom investment useful while avoiding the heavy engineering workflow for content, lead sourcing, and outbound drafting.
 
 ## Phase 1 templates
