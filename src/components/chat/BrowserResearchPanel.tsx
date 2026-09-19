@@ -1,3 +1,4 @@
+import { agentFetch } from "../../lib/agent-request";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -22,9 +23,10 @@ export default function BrowserResearchPanel({ slug }: { slug: string }) {
     queryKey,
     refetchInterval: 5_000,
     queryFn: async () => {
-      const response = await fetch("/api/local-hands?includeCompleted=true", {
-        headers: { "x-agent-slug": slug },
-      });
+      const response = await agentFetch(
+        slug,
+        "/api/local-hands?includeCompleted=true",
+      );
       if (!response.ok)
         throw new Error("Could not check Studio. Refresh after signing in.");
       return SnapshotSchema.parse(await response.json());
@@ -43,9 +45,9 @@ export default function BrowserResearchPanel({ slug }: { slug: string }) {
       .slice(0, 5) ?? [];
   const submit = useMutation({
     mutationFn: async () => {
-      const response = await fetch("/api/local-hands", {
+      const response = await agentFetch(slug, "/api/local-hands", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-agent-slug": slug },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           kind: mode,
           riskLevel: "read_only",

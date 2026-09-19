@@ -1,3 +1,4 @@
+import { agentFetch } from "./agent-request";
 import type { z } from "zod";
 
 import {
@@ -58,17 +59,6 @@ function withSlugHeader(slug: string, init?: RequestInit): RequestInit {
   return { ...init, headers: merged };
 }
 
-// File URLs must identify their workspace even when a browser intermediary
-// drops custom headers. This also gives each agent a distinct resource URL.
-function fileUrl(
-  slug: string,
-  kind: "core" | "workspace",
-  path?: string,
-): string {
-  const suffix = path ? `/${encodePath(path)}` : "";
-  return `/api/files/${kind}${suffix}?agentSlug=${encodeURIComponent(slug)}`;
-}
-
 /**
  * Issue an API request that is expected to succeed. Throws on any non-2xx
  * response. Use this for endpoints that are guaranteed to resolve — lists,
@@ -80,7 +70,8 @@ async function request<S extends z.ZodType>(
   schema: S,
   init?: RequestInit,
 ): Promise<z.infer<S>> {
-  const res = await fetch(url, init);
+  const slug = new Headers(init?.headers).get("X-Agent-Slug");
+  const res = await (slug ? agentFetch(slug, url, init) : fetch(url, init));
   if (!res.ok) throw await failedRequest(res);
   return schema.parse(await res.json());
 }
@@ -95,7 +86,8 @@ async function requestMaybe<S extends z.ZodType>(
   schema: S,
   init?: RequestInit,
 ): Promise<z.infer<S> | null> {
-  const res = await fetch(url, init);
+  const slug = new Headers(init?.headers).get("X-Agent-Slug");
+  const res = await (slug ? agentFetch(slug, url, init) : fetch(url, init));
   if (res.status === 404) return null;
   if (!res.ok) throw await failedRequest(res);
   return schema.parse(await res.json());
@@ -123,7 +115,7 @@ export async function writeUserFile(content: string): Promise<void> {
 
 export async function listCoreFiles(slug: string): Promise<CoreFileRecord[]> {
   const data = await request(
-    fileUrl(slug, "core"),
+    "/api/files/core",
     ListCoreFilesResponseSchema,
     withSlugHeader(slug),
   );
@@ -135,7 +127,7 @@ export async function readCoreFile(
   path: string,
 ): Promise<CoreFileRecord> {
   const data = await request(
-    fileUrl(slug, "core", path),
+    `/api/files/core/${encodePath(path)}`,
     ReadCoreFileResponseSchema,
     withSlugHeader(slug),
   );
@@ -148,7 +140,7 @@ export async function writeCoreFile(
   content: string,
 ): Promise<void> {
   await request(
-    fileUrl(slug, "core", path),
+    `/api/files/core/${encodePath(path)}`,
     OkResponseSchema,
     withSlugHeader(slug, {
       method: "PUT",
@@ -199,7 +191,7 @@ export async function listWorkspaceFiles(
   slug: string,
 ): Promise<z.infer<typeof ListWorkspaceFilesResponseSchema>["files"]> {
   const data = await request(
-    fileUrl(slug, "workspace"),
+    "/api/files/workspace",
     ListWorkspaceFilesResponseSchema,
     withSlugHeader(slug),
   );
@@ -211,7 +203,7 @@ export async function readWorkspaceFile(
   path: string,
 ): Promise<WorkspaceFile | null> {
   const data = await requestMaybe(
-    fileUrl(slug, "workspace", path),
+    `/api/files/workspace/${encodePath(path)}`,
     ReadWorkspaceFileResponseSchema,
     withSlugHeader(slug),
   );
@@ -224,7 +216,7 @@ export async function writeWorkspaceFile(
   content: string,
 ): Promise<void> {
   await request(
-    fileUrl(slug, "workspace", path),
+    `/api/files/workspace/${encodePath(path)}`,
     OkResponseSchema,
     withSlugHeader(slug, {
       method: "PUT",
@@ -239,7 +231,7 @@ export async function deleteWorkspaceFile(
   path: string,
 ): Promise<void> {
   await request(
-    fileUrl(slug, "workspace", path),
+    `/api/files/workspace/${encodePath(path)}`,
     OkResponseSchema,
     withSlugHeader(slug, { method: "DELETE" }),
   );

@@ -1,3 +1,4 @@
+import { agentFetch } from "../../lib/agent-request";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 const Config = z.object({
@@ -10,9 +11,10 @@ export default function CriteriaSettings({ slug }: { slug: string }) {
   const { data, error } = useQuery({
     queryKey: ["criteria-config", slug],
     queryFn: async () => {
-      const response = await fetch("/api/campaign-room/criteria-config", {
-        headers: { "x-agent-slug": slug },
-      });
+      const response = await agentFetch(
+        slug,
+        "/api/campaign-room/criteria-config",
+      );
       return Config.parse(await response.json());
     },
   });

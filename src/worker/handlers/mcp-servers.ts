@@ -1,7 +1,11 @@
 import { getActiveAgentStub } from "../lib/active-agent";
 import { AgentSlugError } from "../lib/get-agent";
 
-const JSON_HEADERS = { "content-type": "application/json" };
+const JSON_HEADERS = {
+  "content-type": "application/json",
+  "cache-control": "private, no-store",
+  vary: "X-Agent-Slug",
+};
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });

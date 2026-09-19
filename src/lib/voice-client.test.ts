@@ -106,12 +106,20 @@ it("connects WebRTC, supports mute, and releases every resource on hangup", asyn
   expect(track.stop).toHaveBeenCalledTimes(1);
   expect(Peer.instances[0].close).toHaveBeenCalledTimes(1);
   expect(audio.srcObject).toBeNull();
+  expect(
+    fetcher.mock.calls.every(
+      ([url]) =>
+        typeof url === "string" &&
+        new URL(url, "https://downy.test").searchParams.get("agentSlug") ===
+          "research",
+    ),
+  ).toBe(true);
   const calls = fetcher.mock.calls.length;
   await vi.advanceTimersByTimeAsync(60_000);
   expect(fetcher).toHaveBeenCalledTimes(calls);
   expect(fetcher.mock.calls.at(-1)?.[1]).toMatchObject({
     keepalive: true,
-    headers: { "X-Agent-Slug": "research" },
+    headers: { "x-agent-slug": "research" },
   });
 });
 

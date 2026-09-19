@@ -2,7 +2,6 @@ import { getAgentByName } from "agents";
 
 import type { DownyAgent } from "../agent/DownyAgent";
 
-const DEFAULT_AGENT_SLUG = "default";
 const SLUG_REGEX = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED_SLUGS = new Set(["profile", ""]);
 
@@ -13,20 +12,29 @@ export function isValidSlug(slug: string): boolean {
   return true;
 }
 
-/**
- * Read the target agent slug from the `X-Agent-Slug` request header. Falls
- * back to the default agent. Invalid slugs are rejected to defense-in-depth
- * against bad client state — slugs become R2 path components downstream, so a
- * stray `..` or `/` would corrupt the workspace namespace.
+/** Resolve one explicit agent scope, shared by all per-agent HTTP APIs.
+ * URL scope survives dropped custom headers and separates browser resource URLs.
+ * Header-only callers (including local hands) remain supported.
  */
 export function slugFromRequest(request: Request): string {
-  const raw = request.headers.get("X-Agent-Slug");
-  if (!raw) return DEFAULT_AGENT_SLUG;
-  if (raw === DEFAULT_AGENT_SLUG) return raw;
-  if (!isValidSlug(raw)) {
-    throw new Error(`Invalid agent slug: ${raw}`);
+  const slugs = new URL(request.url).searchParams.getAll("agentSlug");
+  const header = request.headers.get("X-Agent-Slug");
+  const slug = slugs[0] ?? header;
+  if (!slug || !isValidSlug(slug) || slugs.length > 1) {
+    throw new AgentSlugError(
+      "An explicit valid agent slug is required",
+      "invalid_slug",
+      400,
+    );
   }
-  return raw;
+  if (header && header !== slug) {
+    throw new AgentSlugError(
+      "URL and agent header disagree",
+      "invalid_slug",
+      400,
+    );
+  }
+  return slug;
 }
 
 type AgentSlugErrorCode = "invalid_slug" | "unknown_agent" | "archived_agent";

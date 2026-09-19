@@ -1,3 +1,4 @@
+import { agentFetch } from "../../lib/agent-request";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
@@ -39,9 +40,9 @@ export default function ToolSetupCard({ part }: { part: ToolPart }) {
     queryKey: ["composio-tools", toolkit, slug],
     enabled: !!toolkit,
     queryFn: async () => {
-      const response = await fetch(
+      const response = await agentFetch(
+        slug,
         `/api/composio?toolkit=${encodeURIComponent(toolkit)}`,
-        { headers: { "x-agent-slug": slug } },
       );
       return z
         .object({
@@ -60,9 +61,9 @@ export default function ToolSetupCard({ part }: { part: ToolPart }) {
         ? false
         : 3000,
     queryFn: async () => {
-      const response = await fetch(
+      const response = await agentFetch(
+        slug,
         `/api/composio?setupId=${encodeURIComponent(setup!.setupId)}`,
-        { headers: { "x-agent-slug": slug } },
       );
       return z
         .object({
@@ -143,11 +144,10 @@ export default function ToolSetupCard({ part }: { part: ToolPart }) {
               setBusy(true);
               setError(null);
               try {
-                const response = await fetch("/api/composio", {
+                const response = await agentFetch(slug, "/api/composio", {
                   method: "POST",
                   headers: {
                     "content-type": "application/json",
-                    "x-agent-slug": slug,
                   },
                   body: JSON.stringify({ toolkit, allowedTools }),
                 });

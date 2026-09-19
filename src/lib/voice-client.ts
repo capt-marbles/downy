@@ -1,3 +1,4 @@
+import { agentFetch } from "./agent-request";
 import {
   appendCaption,
   LiveEventSchema,
@@ -64,12 +65,11 @@ export class VoiceClient {
   }
 
   private async request(body: object, keepalive = false) {
-    const response = await fetch("/api/voice", {
+    const response = await agentFetch(this.slug, "/api/voice", {
       method: "POST",
       credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
-        "X-Agent-Slug": this.slug,
       },
       body: JSON.stringify(body),
       keepalive,
@@ -108,8 +108,7 @@ export class VoiceClient {
         throw new Error(
           "Voice needs a microphone-enabled browser over HTTPS. Text and dictation remain available.",
         );
-      const config = await fetch("/api/voice", {
-        headers: { "X-Agent-Slug": this.slug },
+      const config = await agentFetch(this.slug, "/api/voice", {
         signal: this.abort.signal,
       });
       const body: unknown = await config.json();

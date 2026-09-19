@@ -1,7 +1,11 @@
 import { getActiveAgentStub } from "../lib/active-agent";
 import { AgentSlugError } from "../lib/get-agent";
 
-const JSON_HEADERS = { "content-type": "application/json" };
+const JSON_HEADERS = {
+  "content-type": "application/json",
+  "cache-control": "private, no-store",
+  vary: "X-Agent-Slug",
+};
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
@@ -10,7 +14,7 @@ function json(body: unknown, status = 200): Response {
 /**
  * GET /api/skills — list the calling agent's skills (one entry per
  * `skills/<name>/SKILL.md` whose frontmatter parses cleanly). The slug
- * comes from the `X-Agent-Slug` header (same as every other per-agent API).
+ * comes from the shared URL/header resolver used by every per-agent API.
  *
  * Read-only for v1: the model creates / updates / deletes skills via tool
  * calls. The UI editor can land later; this endpoint is just what the

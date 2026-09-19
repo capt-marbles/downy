@@ -1,3 +1,4 @@
+import { agentFetch } from "../../lib/agent-request";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 const StatusSchema = z.object({
@@ -18,18 +19,16 @@ export default function CorpusPanel({ slug }: { slug: string }) {
     queryKey,
     refetchInterval: 15_000,
     queryFn: async () => {
-      const response = await fetch("/api/corpus", {
-        headers: { "x-agent-slug": slug },
-      });
+      const response = await agentFetch(slug, "/api/corpus");
       if (!response.ok) throw new Error("Could not load corpus status");
       return StatusSchema.parse(await response.json());
     },
   });
   const sync = useMutation({
     mutationFn: async (key: string) => {
-      const response = await fetch("/api/corpus/sync", {
+      const response = await agentFetch(slug, "/api/corpus/sync", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-agent-slug": slug },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ key }),
       });
       if (!response.ok) throw new Error("Corpus sync failed");

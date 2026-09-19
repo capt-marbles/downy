@@ -1,3 +1,4 @@
+import { agentFetch } from "../../lib/agent-request";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import {
@@ -21,18 +22,16 @@ export default function LocalHandsPanel({ slug }: { slug: string }) {
     queryKey,
     refetchInterval: 15_000,
     queryFn: async () => {
-      const response = await fetch("/api/local-hands", {
-        headers: { "x-agent-slug": slug },
-      });
+      const response = await agentFetch(slug, "/api/local-hands");
       if (!response.ok) throw new Error("Could not load local hands");
       return SnapshotSchema.parse(await response.json());
     },
   });
   const confirmation = useMutation({
     mutationFn: async ({ id, approved }: { id: string; approved: boolean }) => {
-      const response = await fetch("/api/local-hands/confirm", {
+      const response = await agentFetch(slug, "/api/local-hands/confirm", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-agent-slug": slug },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ id, approved }),
       });
       if (!response.ok) throw new Error("Confirmation failed");

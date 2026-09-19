@@ -1,3 +1,4 @@
+import { agentFetch } from "../../lib/agent-request";
 import { useState } from "react";
 import { z } from "zod";
 import { CredentialTicketSchema } from "../../worker/credentials/types";
@@ -42,13 +43,13 @@ export default function CredentialCard({ part }: { part: ToolPart }) {
           // never React state, chat messages, analytics, or console logging.
           const values = Object.fromEntries(new FormData(form).entries());
           form.reset();
-          const response = await fetch(
+          const response = await agentFetch(
+            slug,
             `/api/credentials/${encodeURIComponent(ticket.data.ticketId)}`,
             {
               method: "POST",
               headers: {
                 "content-type": "application/json",
-                "x-agent-slug": slug,
               },
               body: JSON.stringify(values),
             },

@@ -2,15 +2,24 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   deleteWorkspaceFile,
+  listSkills,
+  listMcpServers,
+  getModelStatus,
   listWorkspaceFiles,
   readCoreFile,
   readWorkspaceFile,
   writeWorkspaceFile,
 } from "../../lib/api-client";
 import { handleFilesRequest } from "./files";
+import { handleSkillsRequest } from "./skills";
+import { handleModelStatusRequest } from "./model-status";
+import { handleMcpServersRequest } from "./mcp-servers";
 
 const mocks = vi.hoisted(() => ({
   getAgent: vi.fn(),
+  listAgentSkills: vi.fn(),
+  listMcpServers: vi.fn(),
+  getModelStatus: vi.fn(),
   stub: vi.fn(),
   listWorkspaceFiles: vi.fn(),
   readWorkspaceFile: vi.fn(),
@@ -129,3 +138,45 @@ it.each([
     expect(mocks.stub).not.toHaveBeenCalled();
   },
 );
+
+it("loads skills, model status and servers for the active agent when headers are stripped", async () => {
+  mocks.listAgentSkills.mockResolvedValue([]);
+  mocks.listMcpServers.mockResolvedValue([]);
+  mocks.getModelStatus.mockResolvedValue({
+    provider: "kimi",
+    providerLabel: "Kimi",
+    model: "test",
+    contextWindowTokens: null,
+    compactionThresholdTokens: 1000,
+    lastTurn: null,
+    session: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      turnCount: 0,
+      estimatedCostUsd: null,
+      costNote: "",
+    },
+  });
+  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    headers.delete("X-Agent-Slug");
+    const request = new Request(new URL(url, base), { ...init, headers });
+    switch (new URL(request.url).pathname) {
+      case "/api/skills":
+        return handleSkillsRequest(request, env);
+      case "/api/model-status":
+        return handleModelStatusRequest(request, env);
+      case "/api/mcp-servers":
+        return handleMcpServersRequest(request, env);
+      default:
+        throw new Error("Unexpected API request");
+    }
+  });
+  expect(await listSkills("buildroom")).toEqual([]);
+  expect(await listMcpServers("buildroom")).toEqual([]);
+  expect((await getModelStatus("buildroom")).provider).toBe("kimi");
+  expect(mocks.getAgent).toHaveBeenCalledTimes(3);
+  for (const call of mocks.getAgent.mock.calls)
+    expect(call[1]).toBe("buildroom");
+});
