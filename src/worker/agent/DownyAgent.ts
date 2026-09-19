@@ -5,7 +5,7 @@ import {
   browserResearchMarkdown,
 } from "../../lib/browser-research";
 import { voiceReadTools, voiceToolSet } from "../voice/policy";
-import { voiceTurnOutcome } from "../voice/outcome";
+import { voiceTurnOutcome, voiceOutcomeChatText } from "../voice/outcome";
 import type { AdvanceWorkflowInput } from "../buildroom/workflows";
 import { syncCorpus } from "../corpus/sync";
 import { corpusRepos, type CorpusCursor } from "../corpus/types";
@@ -421,7 +421,7 @@ export class DownyAgent extends Think {
     );
     if (latestUser?.id.startsWith("voice-request:")) {
       return {
-        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short and link any saved report in chat.`,
+        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
         model: getModelFor(this.env, aiProvider),
         activeTools: voiceReadTools(Object.keys(ctx.tools), true),
         tools: voiceToolSet(ctx.tools, (path, content) =>
@@ -711,20 +711,14 @@ export class DownyAgent extends Think {
     const turn = nextUser < 0 ? after : after.slice(0, nextUser);
     const outcome = voiceTurnOutcome(turn);
     const answer = outcome.text;
-    if (outcome.corrected) {
+    if (outcome.corrected || outcome.filePaths.length) {
       const receipt = {
         id: `voice-outcome:${callId}:${delegationId}`,
         role: "assistant",
         parts: [
           {
             type: "text",
-            text: [
-              answer,
-              ...outcome.savedPaths.map(
-                (path) =>
-                  `[Open report](/agent/${encodeURIComponent(this.name)}/workspace/${path})`,
-              ),
-            ].join("\n\n"),
+            text: voiceOutcomeChatText(outcome, this.name),
           },
         ],
       };

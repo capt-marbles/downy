@@ -66,6 +66,9 @@ Disabling voice on a subsequent deploy should follow ending any open calls.
   socket alone is not evidence of successful provider finalization. If session
   creation itself times out before returning an ID, Downy cannot confirm that
   provider-side creation was rolled back and does not retry it automatically.
+- Voice refers to reports by title rather than spelling out paths or URLs.
+  Successful workspace reads and verified report saves add clickable Files links
+  to chat; failed reads and paths invented in model prose do not produce links.
 - Read-only lookups already submitted can finish after hangup; results remain
   in chat. Hangup does not cancel or roll back accepted work.
 - Downy saves **no audio recordings**. Session creation sets `store: false`.

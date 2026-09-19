@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { voiceTurnOutcome } from "./outcome";
+import { voiceTurnOutcome, voiceOutcomeChatText } from "./outcome";
 
 it("does not speak promises after the reported task validation failure", () => {
   const result = voiceTurnOutcome([
@@ -109,4 +109,98 @@ it("does not accept an unverified writer response as success", () => {
   expect(result.corrected).toBe(true);
   expect(result.savedPaths).toEqual([]);
   expect(result.text).toContain("No report was saved");
+});
+
+it("puts an existing report link in chat and keeps its path out of speech", () => {
+  const path = "workspace/research/boat-pilot-2026-09-19.md";
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-read",
+          toolCallId: "read",
+          state: "output-available",
+          input: { path },
+          output: { path, content: "1\t# Boat pilot", totalLines: 1 },
+        },
+        {
+          type: "text",
+          text: `CUA provides computer-use tools. Open [the report](/agent/buildroom/workspace/${path}) at \`${path}\`.`,
+        },
+      ],
+    },
+  ]);
+  expect(result.filePaths).toEqual([path]);
+  expect(result.savedPaths).toEqual([]);
+  expect(result.text).toContain("CUA provides computer-use tools");
+  expect(result.text).toContain("links in chat");
+  expect(result.text).not.toContain("workspace/");
+  expect(result.text).not.toContain(".md");
+  const chat = voiceOutcomeChatText(result, "buildroom");
+  expect(chat).toContain(
+    `[Open boat pilot 2026 09 19](/agent/buildroom/workspace/${path})`,
+  );
+});
+
+it("does not make links from failed reads or invented or traversing paths", () => {
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-read",
+          toolCallId: "missing",
+          state: "output-available",
+          input: { path: "workspace/missing.md" },
+          output: { error: "File not found" },
+        },
+        {
+          type: "tool-read",
+          toolCallId: "unsafe",
+          state: "output-available",
+          input: {},
+          output: { path: "workspace/../private.md", content: "invalid" },
+        },
+        { type: "text", text: "Try workspace/invented.md" },
+      ],
+    },
+  ]);
+  expect(result.filePaths).toEqual([]);
+  expect(voiceOutcomeChatText(result, "buildroom")).not.toContain("](");
+  expect(result.text).not.toContain("workspace/");
+});
+
+it("deduplicates read files and escapes link destinations", () => {
+  const path = "/workspace/research/Boat #1.md";
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-read",
+          toolCallId: "read1",
+          state: "output-available",
+          input: { path },
+          output: { path, content: "1\tReport" },
+        },
+        {
+          type: "tool-read",
+          toolCallId: "read2",
+          state: "output-available",
+          input: { path },
+          output: { path, content: "2\tReport" },
+        },
+        { type: "text", text: `Here is the summary at ${path}.` },
+      ],
+    },
+  ]);
+  expect(result.filePaths).toEqual(["workspace/research/Boat #1.md"]);
+  expect(result.text).not.toContain("#1.md");
+  expect(voiceOutcomeChatText(result, "my agent")).toContain(
+    "/agent/my%20agent/workspace/workspace/research/Boat%20%231.md",
+  );
 });
