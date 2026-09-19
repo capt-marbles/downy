@@ -94,7 +94,7 @@ private desktop URLs, login codes, raw provider payloads or authorization header
 | Full OS reboot        | Changed boot id; service and model/tool step recover     | Passed: systemd active and browser queue tool succeeded without login                      |
 | Research report       | Fresh public capture, report write and Files read        | Passed: report saved and read back; desktop Files rendered                                 |
 | Confirmation boundary | Required action remains pending, no execution            | Passed: caller false could not bypass filesystem.fetch confirmation; test request rejected |
-| iPhone experience     | Status visible, report readable, voice warm-up works     | Pending operator phone test                                                                |
+| iPhone experience     | Status visible, report readable, voice warm-up works     | Voice passed (operator reported); phone Files/status checks unconfirmed                    |
 
 The deliberate OS reboot changed the boot id from
 `e47bc773-a565-4366-a4a1-f2c63181a875` to
@@ -118,10 +118,21 @@ back by the model in 124.6s, then independently retrieved through the Files API
 and rendered in the desktop Files UI. No archive error occurred. This timing
 includes multiple model/tool steps and is not a single inference latency.
 
-For the remaining phone test, select **Boat pilot (ChatGPT subscription)** in
-Settings, start a call, and ask: “Summarize the Boat pilot CUA report.” Confirm
-the wake/working status, listen for the answer, and open its Files link. A phone
-voice round trip has not yet been observed; desktop checks do not establish it.
+On 2026-09-19 the operator confirmed a successful call from iPhone and supplied
+Downy's approximate captions. The request was “Summarize the Boat Pilot CUA
+report.” Downy returned a summary consistent with the saved report, identified
+the single captured GitHub page and unverified benchmarks, suggested the same
+follow-ups, and gave the report path. The operator confirmed the answer was
+helpful and the conversation continued normally. This establishes the phone
+voice round trip from operator-reported evidence; it is not an audio recording
+or a measured latency test.
+
+The supplied transcript does not establish whether the wake/working status was
+visible or the report was opened in Files on the phone. Those visual checks
+remain unconfirmed. It also shows Downy speaking the full workspace filename;
+a useful follow-up is to use a short spoken report title and provide a tappable
+Files link in chat. No provider default or voice behavior changed when recording
+this result.
 
 The reboot test is separate from provider stop/resume. Read the Linux boot id
 before and after a deliberate reboot while no work is running. A successful
