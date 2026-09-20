@@ -1,7 +1,19 @@
+import { seedBuiltinSkills } from "./skills/builtin";
+import {
+  runServiceSetup,
+  type SetupCheckpoint,
+  type SetupVerification,
+} from "../runbooks/service-setup";
+import { findToolSetup } from "../composio/discovery";
+import {
+  runPipelineReport,
+  type PipelineCheckpoint,
+} from "../runbooks/pipeline-report";
 import {
   AirtableActionSchema,
   isAirtableConnectRequest,
-  type AirtableAction,
+  type AirtableReadAction,
+  type PipelineReportInput,
   type AirtableConnectStatus,
 } from "../../lib/airtable-connect";
 import {
@@ -367,7 +379,7 @@ export class DownyAgent extends Think {
       connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
         agent: this,
       }),
-      find_tool_setup: createFindToolSetupTool(this.env, this),
+      find_tool_setup: createFindToolSetupTool(this),
       request_credential: createRequestCredentialTool({
         db: this.env.DB,
         agentSlug: this.name,
@@ -535,13 +547,16 @@ export class DownyAgent extends Think {
     if (airtableGrant)
       mcpTools.airtable_records = tool({
         description:
-          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. Use returned offset for pagination. No create, update or delete operations are available.",
+          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. Use returned offset for pagination. For complete stage counts use pipeline_report after inspecting the schema; resume partial results with reportId. No create, update or delete operations are available.",
         inputSchema: AirtableActionSchema,
         execute: async (input) => {
           try {
-            const result = await (
-              await getAgentStub(this.env, airtableGrant)
-            ).executeComposioAirtable(input);
+            const result =
+              input.action === "pipeline_report"
+                ? JSON.stringify(await this.runPipelineReport(input))
+                : await (
+                    await getAgentStub(this.env, airtableGrant)
+                  ).executeComposioAirtable(input);
             return z
               .object({ account: z.string(), data: z.unknown() })
               .parse(JSON.parse(result));
@@ -578,7 +593,7 @@ export class DownyAgent extends Think {
     const availableTools = { ...ctx.tools, ...mcpTools };
     if (latestUser?.id.startsWith("voice-request:")) {
       return {
-        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. For Airtable questions, use airtable_records directly when available; it needs no skill file or Boat filesystem access. Inspect the authorized base and actual table/field schema first. For pipeline counts, request only the stage field with limit 100 and follow each returned offset until none remains. Include records with a missing stage. If you cannot read all pages in this turn, label counts partial and state that the total is unknown. Never present a page count as a complete pipeline count. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
+        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. For Airtable questions, use airtable_records directly when available; it needs no skill file or Boat filesystem access. Inspect the authorized base and actual table/field schema first. For pipeline counts, load reporting-crm-pipeline with read_skill and use airtable_records action pipeline_report with the selected base, table and stage field ID. Resume partial results using reportId. Counts are calculated in code, including records with a missing stage. If you cannot read all pages in this turn, label counts partial and state that the total is unknown. Never present a page count as a complete pipeline count. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
         model: getModelFor(this.env, aiProvider),
         ...voiceTurnTools(availableTools, (path, content) =>
           this.ctx.blockConcurrencyWhile(async () => {
@@ -773,6 +788,7 @@ export class DownyAgent extends Think {
   }
 
   async #seedBootstrapOnce(): Promise<void> {
+    await seedBuiltinSkills(this.workspace);
     const seeded = await this.ctx.storage.get<boolean>(BOOTSTRAP_SEEDED_KEY);
     if (seeded === true) return;
     await this.workspace.writeFile(BOOTSTRAP_PATH, BOOTSTRAP_SEED);
@@ -1723,6 +1739,7 @@ export class DownyAgent extends Think {
 
   /** Skill catalog — surfaced to the UI sidebar and the /agent/:slug/skills page. */
   async listAgentSkills(): Promise<SkillEntry[]> {
+    await this.#ensureBootstrapSeeded();
     return listSkills(this.workspace);
   }
 
@@ -2101,12 +2118,196 @@ export class DownyAgent extends Think {
   async selectComposioAirtable(accountId: string) {
     return this.withComposioOAuth((oauth) => oauth.selectAirtable(accountId));
   }
-  async executeComposioAirtable(input: AirtableAction): Promise<string> {
+  async executeComposioAirtable(input: AirtableReadAction): Promise<string> {
     // Airtable field values are recursive JSON. A JSON wire value avoids
     // recursively expanding them through Workers RPC's remote-object types.
     return JSON.stringify(
       await this.withComposioOAuth((oauth) => oauth.airtableAction(input)),
     );
+  }
+  #pipelineQueue: Promise<unknown> = Promise.resolve();
+  async runPipelineReport(input: PipelineReportInput) {
+    // Serialize report progress within this DO; concurrent resumes cannot lose pages.
+    const run = this.#pipelineQueue.then(async () => {
+      const owner = await this.ctx.storage.get<string>("airtable-owner");
+      if (!owner) throw new Error("Connect Airtable for this bot first");
+      const account = await getAgentStub(this.env, owner);
+      if (!input.reportId) {
+        const expired = await this.ctx.storage.list<
+          PipelineCheckpoint & { seenChunks: number; cursorChunks: number }
+        >({ prefix: "pipeline:meta:", limit: 50 });
+        for (const [key, report] of expired) {
+          if (Date.now() - report.startedAt <= 15 * 60_000) continue;
+          const keys = [key];
+          for (let i = 0; i < report.seenChunks; i++)
+            keys.push(`pipeline:${report.reportId}:seen:${i}`);
+          for (let i = 0; i < report.cursorChunks; i++)
+            keys.push(`pipeline:${report.reportId}:cursors:${i}`);
+          await this.ctx.storage.delete(keys);
+        }
+      }
+      const result = await runPipelineReport(input, {
+        read: async (action) =>
+          z
+            .object({ account: z.string(), data: z.unknown() })
+            .parse(JSON.parse(await account.executeComposioAirtable(action))),
+        load: async (id) => {
+          const saved = await this.ctx.storage.get<
+            Omit<PipelineCheckpoint, "seen" | "cursors"> & {
+              seenChunks: number;
+              cursorChunks: number;
+            }
+          >(`pipeline:meta:${id}`);
+          if (!saved) return undefined;
+          const seen: string[] = [],
+            cursors: string[] = [];
+          for (let i = 0; i < saved.seenChunks; i++)
+            seen.push(
+              ...((await this.ctx.storage.get<string[]>(
+                `pipeline:${id}:seen:${i}`,
+              )) ?? []),
+            );
+          for (let i = 0; i < saved.cursorChunks; i++)
+            cursors.push(
+              ...((await this.ctx.storage.get<string[]>(
+                `pipeline:${id}:cursors:${i}`,
+              )) ?? []),
+            );
+          return { ...saved, seen, cursors };
+        },
+        save: async (state) => {
+          const { seen, cursors, ...rest } = state;
+          await this.ctx.storage.transaction(async (txn) => {
+            for (let i = 0; i < seen.length; i += 500)
+              await txn.put(
+                `pipeline:${state.reportId}:seen:${i / 500}`,
+                seen.slice(i, i + 500),
+              );
+            for (let i = 0; i < cursors.length; i += 10)
+              await txn.put(
+                `pipeline:${state.reportId}:cursors:${i / 10}`,
+                cursors.slice(i, i + 10),
+              );
+            await txn.put(`pipeline:meta:${state.reportId}`, {
+              ...rest,
+              seenChunks: Math.ceil(seen.length / 500),
+              cursorChunks: Math.ceil(cursors.length / 10),
+            });
+          });
+        },
+      });
+      return { account: result.account, data: result };
+    });
+    this.#pipelineQueue = run.catch(() => undefined);
+    return run;
+  }
+  #setupQueue: Promise<unknown> = Promise.resolve();
+  async runServiceSetup(query: string, retry = false) {
+    const run = this.#setupQueue.then(() =>
+      runServiceSetup(query, retry, {
+        load: (service) =>
+          this.ctx.storage.get<SetupCheckpoint>(`setup:${service}`),
+        save: (checkpoint) =>
+          this.ctx.storage.put(`setup:${checkpoint.service}`, checkpoint),
+        discover: (name) =>
+          findToolSetup(this.env, name, (q) => this.findManagedToolSetup(q)),
+        verify: (service) => this.verifyServiceSetup(service),
+        showCard: (service) =>
+          service === "airtable"
+            ? this.showAirtableConnectCard()
+            : service === "gmail"
+              ? this.showGmailConnectCard()
+              : this.showComposioConnectCard(),
+      }),
+    );
+    this.#setupQueue = run.catch(() => undefined);
+    return run;
+  }
+  async serviceSetupStatus() {
+    const entries = await this.ctx.storage.list<SetupCheckpoint>({
+      prefix: "setup:",
+      limit: 20,
+    });
+    const results: SetupCheckpoint[] = [];
+    for (const entry of entries.values()) {
+      if (
+        ["awaiting_authorization", "verification_failed"].includes(
+          entry.step,
+        ) &&
+        ["gmail", "airtable"].includes(entry.service)
+      )
+        results.push((await this.runServiceSetup(entry.query)).runbook);
+      else results.push(entry);
+    }
+    return results;
+  }
+  private async verifyServiceSetup(
+    service: string,
+  ): Promise<SetupVerification | null> {
+    if (!["gmail", "airtable"].includes(service)) {
+      const current = this.getMcpServers();
+      const matching = Object.entries(current.servers).find(
+        ([, server]) => server.name.toLowerCase() === service,
+      );
+      if (!matching) return null;
+      return {
+        state: "attached",
+        authorized: false,
+        readVerified: false,
+        operations: current.tools
+          .filter((t) => t.serverId === matching[0])
+          .map((t) => t.name),
+        channels: ["chat"],
+        checkedAt: Date.now(),
+      };
+    }
+    const owner = await this.ctx.storage.get<string>(`${service}-owner`);
+    if (!owner) return null;
+    const account = await getAgentStub(this.env, owner);
+    const status =
+      service === "airtable"
+        ? await account.getComposioAirtableStatus(true)
+        : await account.getComposioGmailStatus(true);
+    const result: SetupVerification = {
+      state: status.state,
+      authorized: true,
+      identity: "identity" in status ? status.identity : status.email,
+      readVerified: false,
+      operations:
+        service === "airtable"
+          ? ["list_bases", "get_schema", "list_records", "pipeline_report"]
+          : ["search", "read", "create_draft"],
+      channels: service === "airtable" ? ["chat", "voice"] : ["chat"],
+      checkedAt: Date.now(),
+    };
+    if (status.state !== "ready") return result;
+    try {
+      if (service === "airtable") {
+        const read = z
+          .object({
+            account: z.string(),
+            data: z.object({
+              bases: z.array(z.object({ id: z.string(), name: z.string() })),
+            }),
+          })
+          .parse(
+            JSON.parse(
+              await account.executeComposioAirtable({ action: "list_bases" }),
+            ),
+          );
+        if (read.account !== result.identity)
+          throw new Error("Account mismatch");
+      } else
+        await account.executeComposioGmail({
+          action: "search",
+          query: "in:inbox",
+          limit: 1,
+        });
+      result.readVerified = true;
+    } catch {
+      result.state = "verification_failed";
+    }
+    return result;
   }
   async discoverComposioSetup(query: string) {
     return this.withComposioOAuth((oauth) => oauth.discoverSetup(query));

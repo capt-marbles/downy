@@ -10,6 +10,22 @@ import CredentialCard from "./CredentialCard";
 import type { ToolPart } from "./tool-part-types";
 import { CredentialTicketSchema } from "../../worker/credentials/types";
 const Candidates = z.object({
+  warnings: z.array(z.string()).optional(),
+  runbook: z
+    .object({
+      step: z.string(),
+      updatedAt: z.number(),
+      nextAction: z.string(),
+      verification: z
+        .object({
+          identity: z.string().nullable().optional(),
+          readVerified: z.boolean(),
+          operations: z.array(z.string()),
+          channels: z.array(z.string()),
+        })
+        .optional(),
+    })
+    .optional(),
   candidates: z.array(
     z.object({
       name: z.string(),
@@ -78,25 +94,73 @@ export default function ToolSetupCard({ part }: { part: ToolPart }) {
     },
   });
   if (!parsed.success) return <p className="text-xs">Finding setup options…</p>;
+  const checkpoint = parsed.data.runbook;
+  const progress = checkpoint && (
+    <div
+      className="my-2 rounded-lg border border-base-300 p-3 text-sm"
+      role="status"
+    >
+      <p className="font-medium">
+        Setup: {checkpoint.step.replaceAll("_", " ")}
+      </p>
+      {checkpoint.verification?.readVerified && (
+        <>
+          <p>{checkpoint.verification.identity}</p>
+          <p>
+            Available in {checkpoint.verification.channels.join(" and ")}:{" "}
+            {checkpoint.verification.operations.join(", ")}
+          </p>
+        </>
+      )}
+      <p className="mt-1 text-xs opacity-70">
+        Checked {new Date(checkpoint.updatedAt).toLocaleString()}. This is a
+        saved checkpoint; the connection card shows current authorization.
+      </p>
+    </div>
+  );
   if (
     parsed.data.candidates.some(
       (candidate) => candidate.path === "composio-connect",
     )
   )
-    return <ComposioConnectCard />;
+    return (
+      <>
+        {progress}
+        <ComposioConnectCard />
+      </>
+    );
   if (
     parsed.data.candidates.length === 1 &&
     parsed.data.candidates[0]?.toolkit === "airtable"
   )
-    return <AirtableConnectCard />;
+    return (
+      <>
+        {progress}
+        <AirtableConnectCard />
+      </>
+    );
   if (
     parsed.data.candidates.length === 1 &&
     parsed.data.candidates[0]?.toolkit === "gmail"
   )
-    return <GmailConnectCard />;
+    return (
+      <>
+        {progress}
+        <GmailConnectCard />
+      </>
+    );
   return (
     <section className="my-3 rounded-lg border border-base-300 bg-base-100 p-4">
       <h3 className="font-semibold">Connect a service</h3>
+      {progress}
+      {!parsed.data.candidates.length && checkpoint?.step !== "verified" && (
+        <p className="my-2 text-sm">
+          {parsed.data.warnings?.length
+            ? "Setup lookup is unavailable. This does not mean the service is unsupported."
+            : "More setup information is needed."}{" "}
+          An official setup documentation link will help.
+        </p>
+      )}
       {parsed.data.candidates.map((candidate) => (
         <div key={candidate.name} className="my-2 text-sm">
           <strong>{candidate.name}</strong> · {candidate.confidence}

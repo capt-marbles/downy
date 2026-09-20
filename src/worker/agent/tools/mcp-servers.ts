@@ -231,7 +231,7 @@ export function createConnectCloudflareMcpServerTool(args: {
 export function createListMcpServersTool(args: { agent: DownyAgent }) {
   return tool({
     description:
-      "List attached MCP servers and managed Composio/Gmail connection status. Managed OAuth connections are separate from MCP server rows; an empty servers list does not mean managed connections are disconnected.",
+      "List attached MCP servers, managed Composio/Gmail/Airtable status, and resume pending setup verification. Managed OAuth connections are separate from MCP server rows; an empty servers list does not mean managed connections are disconnected.",
     inputSchema: z.object({}),
     execute: async () => {
       const state = args.agent.getMcpServers();
@@ -248,6 +248,7 @@ export function createListMcpServersTool(args: { agent: DownyAgent }) {
       return {
         servers,
         managedConnections: await args.agent.managedConnectionStatus(),
+        setupRunbooks: await args.agent.serviceSetupStatus(),
       };
     },
   });

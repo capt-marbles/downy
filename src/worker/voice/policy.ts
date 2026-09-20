@@ -11,6 +11,9 @@ const VOICE_READ_TOOLS = new Set([
   "create_bot",
   "airtable_records",
   "read",
+  "read_skill",
+  "list_skills",
+  "list_mcp_servers",
   "list",
   "find",
   "grep",
@@ -76,7 +79,12 @@ export function voiceToolSet(
         // Keep this operation allowlist even if chat later gains Airtable writes.
         // Hidden/malformed calls must fail before the original executor runs.
         if (
-          !["list_bases", "get_schema", "list_records"].includes(input.action)
+          ![
+            "list_bases",
+            "get_schema",
+            "list_records",
+            "pipeline_report",
+          ].includes(input.action)
         )
           throw new Error("Voice only permits Airtable reads.");
         const result: unknown = await execute(

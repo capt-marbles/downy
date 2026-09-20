@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
-  AirtableActionSchema,
-  type AirtableAction,
+  AirtableReadActionSchema,
+  type AirtableReadAction,
   type AirtableConnectStatus,
 } from "../../lib/airtable-connect";
 import {
@@ -245,8 +245,8 @@ export class AirtableConnection {
       throw new Error("Airtable account unavailable");
     await this.ready(found.sessionId, accountId);
   }
-  async action(input: AirtableAction) {
-    const action = AirtableActionSchema.parse(input);
+  async action(input: AirtableReadAction) {
+    const action = AirtableReadActionSchema.parse(input);
     const state = await this.load();
     if (state?.state !== "ready" || !state.accountId || !state.identity)
       throw new Error("Connect Airtable first");

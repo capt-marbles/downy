@@ -10,7 +10,7 @@ const baseId = z
   .regex(/^app[a-zA-Z0-9]+$/)
   .max(100);
 const cursor = z.string().max(2000).optional();
-export const AirtableActionSchema = z.discriminatedUnion("action", [
+export const AirtableReadActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("list_bases"), offset: cursor }).strict(),
   z.object({ action: z.literal("get_schema"), baseId }).strict(),
   z
@@ -36,7 +36,27 @@ export const AirtableActionSchema = z.discriminatedUnion("action", [
     })
     .strict(),
 ]);
-export type AirtableAction = z.infer<typeof AirtableActionSchema>;
+export const PipelineReportInputSchema = z
+  .object({
+    action: z.literal("pipeline_report"),
+    baseId,
+    tableId: z
+      .string()
+      .regex(/^tbl[a-zA-Z0-9]+$/)
+      .max(100),
+    stageFieldId: z
+      .string()
+      .regex(/^fld[a-zA-Z0-9]+$/)
+      .max(100),
+    reportId: z.string().uuid().optional(),
+  })
+  .strict();
+export const AirtableActionSchema = z.union([
+  AirtableReadActionSchema,
+  PipelineReportInputSchema,
+]);
+export type AirtableReadAction = z.infer<typeof AirtableReadActionSchema>;
+export type PipelineReportInput = z.infer<typeof PipelineReportInputSchema>;
 
 export function isAirtableConnectRequest(text: string) {
   return /^(?:(?:please|can you|could you|would you)\s+)*(?:connect|reconnect|link|set up|authorize)\s+(?:(?:to|my|the|a)\s+)?airtable\b/i.test(

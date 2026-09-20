@@ -1,5 +1,5 @@
 import { AirtableConnection, AirtableStateSchema } from "./airtable";
-import type { AirtableAction } from "../../lib/airtable-connect";
+import type { AirtableReadAction } from "../../lib/airtable-connect";
 import {
   metaData,
   ConnectionSearchSchema,
@@ -559,7 +559,7 @@ export class ComposioOAuth {
   async selectAirtable(accountId: string) {
     return this.airtable().select(accountId);
   }
-  async airtableAction(input: AirtableAction) {
+  async airtableAction(input: AirtableReadAction) {
     return this.airtable().action(input);
   }
   private gmail() {

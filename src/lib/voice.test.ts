@@ -227,6 +227,12 @@ it("advertises and executes authorized Airtable reads from the resolved turn inv
     { action: "list_bases" },
     { action: "get_schema", baseId: "appCRM" },
     {
+      action: "pipeline_report",
+      baseId: "appCRM",
+      tableId: "tblLeads",
+      stageFieldId: "fldStage",
+    },
+    {
       action: "list_records",
       baseId: "appCRM",
       tableId: "tblLeads",
@@ -243,7 +249,7 @@ it("advertises and executes authorized Airtable reads from the resolved turn inv
     );
     expect(execute).toHaveBeenLastCalledWith(input, options);
   }
-  expect(execute).toHaveBeenCalledTimes(3);
+  expect(execute).toHaveBeenCalledTimes(4);
   for (const name of [
     "gmail_email",
     "tool_airtable_update",
@@ -253,7 +259,7 @@ it("advertises and executes authorized Airtable reads from the resolved turn inv
     await expect(turn.tools[name].execute?.({}, options)).rejects.toThrow(
       "This action did not run",
     );
-  expect(execute).toHaveBeenCalledTimes(3);
+  expect(execute).toHaveBeenCalledTimes(4);
 });
 
 it("does not synthesize Airtable access when the bot has no authorized tool", () => {
@@ -286,4 +292,20 @@ it("rejects Airtable mutations and credential injection even if the underlying t
       }),
     ).rejects.toThrow();
   expect(execute).not.toHaveBeenCalled();
+});
+
+it("allows portable skill reads and connection status during voice without enabling setup", () => {
+  expect(
+    voiceTurnTools(
+      Object.fromEntries(
+        [
+          "read_skill",
+          "list_skills",
+          "list_mcp_servers",
+          "find_tool_setup",
+          "create_skill",
+        ].map((name) => [name, tool({ inputSchema: z.object({}) })]),
+      ),
+    ).activeTools,
+  ).toEqual(["read_skill", "list_skills", "list_mcp_servers"]);
 });
