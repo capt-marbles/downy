@@ -1,3 +1,5 @@
+import { pipelineFailure } from "../runbooks/pipeline-report";
+import { PipelineReportInputSchema } from "../../lib/airtable-connect";
 import { verifyAccessJwt } from "../auth/cloudflare-access";
 import { getActiveAgentStub } from "../lib/active-agent";
 import { getAgentStub, slugFromRequest } from "../lib/get-agent";
@@ -189,6 +191,30 @@ async function handleAirtableOAuth(
       await vault.checkComposioAirtableSchema(input.data.baseId),
       { headers },
     );
+  }
+  if (
+    path === "/api/composio/oauth/airtable/pipeline-report" &&
+    request.method === "POST"
+  ) {
+    const agent = await getActiveAgentStub(request, env);
+    if (!(await agent.isAirtableOwner(owner)))
+      return Response.json(
+        { error: "Connect Airtable for this bot first." },
+        { status: 403, headers },
+      );
+    const input = PipelineReportInputSchema.safeParse(await request.json());
+    if (!input.success)
+      return Response.json(
+        { error: "Select the base, table and stage field from the schema." },
+        { status: 400, headers },
+      );
+    try {
+      return Response.json(await agent.runPipelineReport(input.data), {
+        headers,
+      });
+    } catch (error) {
+      return Response.json(pipelineFailure(error), { status: 502, headers });
+    }
   }
   if (path === "/api/composio/oauth/airtable" && request.method === "GET") {
     const agent = await getActiveAgentStub(request, env);

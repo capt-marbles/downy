@@ -1,3 +1,4 @@
+import { airtableErrorCode } from "../composio/airtable-diagnostics";
 import { z } from "zod";
 import {
   PipelineReportInputSchema,
@@ -5,29 +6,41 @@ import {
   type PipelineReportInput,
 } from "../../lib/airtable-connect";
 
-const schema = z.object({
+// Only the selected stage is subject to aggregation limits. Other tables may
+// legitimately contain huge select vocabularies or long labels.
+const catalog = z.object({
   tables: z.array(
     z.object({
       id: z.string(),
-      name: z.string().max(200),
-      fields: z.array(
-        z.object({
-          id: z.string(),
-          name: z.string().max(200),
-          type: z.string(),
-          options: z
-            .object({
-              choices: z
-                .array(z.object({ name: z.string().max(200) }))
-                .max(128)
-                .optional(),
-            })
-            .optional(),
-        }),
-      ),
+      name: z.string(),
+      fields: z.array(z.object({ id: z.string() }).passthrough()),
     }),
   ),
 });
+const StageSchema = z.object({
+  id: z.string(),
+  name: z.string().max(200),
+  type: z.enum(["singleSelect", "singleLineText"]),
+  options: z
+    .object({
+      choices: z
+        .array(z.object({ name: z.string().max(200) }))
+        .max(128)
+        .optional(),
+    })
+    .optional(),
+});
+function selectedStage(data: unknown, tableId: string, fieldId: string) {
+  const table = catalog.parse(data).tables.find((t) => t.id === tableId);
+  const field = StageSchema.safeParse(
+    table?.fields.find((f) => f.id === fieldId),
+  );
+  if (!table || !field.success)
+    throw new Error(
+      "Choose a valid single-select or text stage field from the base schema.",
+    );
+  return { table: table.name, field: field.data };
+}
 const page = z.object({
   records: z
     .array(
@@ -123,12 +136,55 @@ function countStage(state: PipelineCheckpoint, value: unknown) {
   });
 }
 
+type ReportPhase =
+  | "schema_read"
+  | "schema_validation"
+  | "records_read"
+  | "checkpoint_load"
+  | "checkpoint_save";
+async function inPhase<T>(
+  phase: ReportPhase,
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    const code =
+      error instanceof z.ZodError ? "validation" : airtableErrorCode(error);
+    // eslint-disable-next-line preserve-caught-error -- Provider causes may contain credentials; only a fixed phase/code may cross RPC.
+    throw new Error(`Pipeline failure [${phase}:${code}]`);
+  }
+}
+export function pipelineFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  const match = message.match(
+    /Pipeline failure \[(schema_read|schema_validation|records_read|checkpoint_load|checkpoint_save):(validation|permission_denied|invalid_arguments|tool_unavailable|not_found|rate_limited|response_invalid|provider_failure)\]/,
+  );
+  return {
+    state: "failed" as const,
+    phase: match?.[1] ?? "report_execution",
+    code: match?.[2] ?? "provider_failure",
+  };
+}
+
 // Progress belongs to this bot's DO, never to model-supplied counters/cursors.
 // Save after every validated page; a retry resumes without counting it twice.
-export async function runPipelineReport(raw: PipelineReportInput, deps: Deps) {
+export async function runPipelineReport(
+  raw: PipelineReportInput,
+  dependencies: Deps,
+) {
   const input = PipelineReportInputSchema.parse(raw);
+  const deps: Deps = {
+    ...dependencies,
+    read: (action) =>
+      inPhase(
+        action.action === "get_schema" ? "schema_read" : "records_read",
+        () => dependencies.read(action),
+      ),
+    load: (id) => inPhase("checkpoint_load", () => dependencies.load(id)),
+    save: (state) => inPhase("checkpoint_save", () => dependencies.save(state)),
+  };
   const now = deps.now ?? Date.now;
-  const deadline = now() + 20_000;
   let state: PipelineCheckpoint;
   if (input.reportId) {
     const saved = await deps.load(input.reportId);
@@ -151,15 +207,12 @@ export async function runPipelineReport(raw: PipelineReportInput, deps: Deps) {
     });
     if (verified.account !== state.account)
       throw new Error("Report account changed. Start a new report.");
-    const table = schema
-      .parse(verified.data)
-      .tables.find((t) => t.id === state.tableId);
-    const field = table?.fields.find((f) => f.id === state.stageFieldId);
-    if (
-      !field ||
-      field.name !== state.stageField ||
-      !["singleSelect", "singleLineText"].includes(field.type)
-    )
+    const selected = selectedStage(
+      verified.data,
+      state.tableId,
+      state.stageFieldId,
+    );
+    if (selected.field.name !== state.stageField)
       throw new Error("Stage schema changed. Start a new report.");
     if (state.complete) return result(state);
   } else {
@@ -167,18 +220,11 @@ export async function runPipelineReport(raw: PipelineReportInput, deps: Deps) {
       action: "get_schema",
       baseId: input.baseId,
     });
-    const table = schema
-      .parse(verified.data)
-      .tables.find((t) => t.id === input.tableId);
-    const field = table?.fields.find((f) => f.id === input.stageFieldId);
-    if (
-      !table ||
-      !field ||
-      !["singleSelect", "singleLineText"].includes(field.type)
-    )
-      throw new Error(
-        "Choose a valid single-select or text stage field from the base schema.",
-      );
+    const { table, field } = selectedStage(
+      verified.data,
+      input.tableId,
+      input.stageFieldId,
+    );
     state = {
       version: 1,
       reportId: crypto.randomUUID(),
@@ -186,7 +232,7 @@ export async function runPipelineReport(raw: PipelineReportInput, deps: Deps) {
       tableId: input.tableId,
       stageFieldId: input.stageFieldId,
       account: verified.account,
-      table: table.name,
+      table,
       stageField: field.name,
       startedAt: now(),
       updatedAt: now(),
@@ -201,6 +247,9 @@ export async function runPipelineReport(raw: PipelineReportInput, deps: Deps) {
     };
     await deps.save(state);
   }
+  // Large-schema retrieval can itself exceed the page budget. Start the
+  // bounded page window after validation so every resume can make progress.
+  const deadline = now() + 20_000;
   for (let batch = 0; batch < 5 && now() < deadline; batch++) {
     if (state.seen.length >= 50_000 || state.pages >= 500)
       return result(state, "record_limit");

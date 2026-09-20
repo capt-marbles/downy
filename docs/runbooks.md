@@ -41,10 +41,10 @@ read/draft tool remains chat-only. Background agents are not granted new access.
 table; it does not apply an implicit active-lead filter. Single-select and text
 stage fields are supported. Ambiguous choices require clarification.
 
-Code validates the schema, fetches only the stage field at 100 records/page,
+Code validates the selected stage field, fetches only that field at 100 records/page,
 counts each record ID once, includes empty stages and zero-count select options,
 and saves progress after each validated page. Each call processes up to five
-pages, checking a 20-second budget between reads. Existing provider request
+pages, checking a 20-second budget between reads after schema validation. Unrelated fields and tables do not inherit the selected stage's aggregation limits. Existing provider request
 timeouts still apply to an in-flight read.
 
 Partial results return `reportId`, cumulative counts, `resumable`, and a bounded
@@ -75,3 +75,9 @@ schema through the same adapter. It requires Cloudflare Access, same-origin POST
 and the calling bot's existing Airtable grant. The result contains table/field
 counts or fixed diagnostic codes and response-shape flags, never record contents,
 credentials, provider error text, or remote file paths.
+
+The same pipeline runbook is available for authenticated acceptance checks at
+`POST /api/composio/oauth/airtable/pipeline-report`, with the `pipeline_report`
+action body above. It requires the existing per-bot Airtable grant and the same
+Access/origin checks. Resume with `reportId` until `complete:true`; no raw lead
+records are returned. Failures expose a fixed phase and code, not provider text.

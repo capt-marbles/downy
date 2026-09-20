@@ -1,5 +1,9 @@
 import { expect, it, vi } from "vitest";
-import { runPipelineReport, type PipelineCheckpoint } from "./pipeline-report";
+import {
+  pipelineFailure,
+  runPipelineReport,
+  type PipelineCheckpoint,
+} from "./pipeline-report";
 import type { AirtableReadAction } from "../../lib/airtable-connect";
 const input = {
   action: "pipeline_report" as const,
@@ -7,7 +11,7 @@ const input = {
   tableId: "tblLeads",
   stageFieldId: "fldStage",
 };
-function fixture(pages: unknown[]) {
+function fixture(pages: unknown[], extraFields: unknown[] = []) {
   const stored = new Map<string, PipelineCheckpoint>();
   let account = "andrew@example.com";
   let now = 1000;
@@ -21,6 +25,7 @@ function fixture(pages: unknown[]) {
                 id: "tblLeads",
                 name: "Leads",
                 fields: [
+                  ...extraFields,
                   {
                     id: "fldStage",
                     name: "Stage",
@@ -162,4 +167,78 @@ it("rejects unknown schema fields before records and bounds cursor loops and exp
   expect(
     await runPipelineReport({ ...input, reportId: result.reportId }, f.deps),
   ).toMatchObject({ complete: false, resumable: false, reason: "expired" });
+});
+
+it("ignores unrelated large select fields while counting and resuming the chosen stage", async () => {
+  const f = fixture(
+    Array.from({ length: 6 }, (_, i) => ({
+      records: [record(String(i), "New")],
+      ...(i < 5 ? { offset: `page${i + 1}` } : {}),
+    })),
+    [
+      {
+        id: "fldUnrelated",
+        name: "Unrelated",
+        type: "singleSelect",
+        options: {
+          choices: Array.from({ length: 553 }, (_, i) => ({
+            name: `${i}${"x".repeat(255)}`,
+          })),
+        },
+      },
+    ],
+  );
+  const first = await runPipelineReport(input, f.deps);
+  expect(first).toMatchObject({ complete: false, recordsCounted: 5 });
+  const completed = await runPipelineReport(
+    { ...input, reportId: first.reportId },
+    f.deps,
+  );
+  expect(completed).toMatchObject({ complete: true, totalRecords: 6 });
+  expect(completed.counts).toContainEqual({ stage: "New", count: 6 });
+  await expect(
+    runPipelineReport({ ...input, stageFieldId: "fldUnrelated" }, f.deps),
+  ).rejects.toThrow("valid single-select");
+});
+
+it("makes record progress even when schema retrieval exceeds the page budget", async () => {
+  const f = fixture([{ records: [record("1", "New")] }]);
+  let now = 0;
+  const read = f.deps.read;
+  const result = await runPipelineReport(input, {
+    ...f.deps,
+    now: () => now,
+    read: async (action) => {
+      if (action.action === "get_schema") now += 30_000;
+      return read(action);
+    },
+  });
+  expect(result).toMatchObject({ complete: true, totalRecords: 1 });
+});
+
+it("reports the failing phase without forwarding provider credentials", async () => {
+  const f = fixture([]);
+  const failure = await runPipelineReport(input, {
+    ...f.deps,
+    read: async () => {
+      throw new Error("secret-sentinel");
+    },
+  }).catch((error: unknown) => error);
+  expect(pipelineFailure(failure)).toEqual({
+    state: "failed",
+    phase: "schema_read",
+    code: "provider_failure",
+  });
+  expect(String(failure)).not.toContain("secret-sentinel");
+  const storeFailure = await runPipelineReport(input, {
+    ...f.deps,
+    save: async () => {
+      throw new Error("secret-sentinel");
+    },
+  }).catch((error: unknown) => error);
+  expect(pipelineFailure(storeFailure)).toEqual({
+    state: "failed",
+    phase: "checkpoint_save",
+    code: "provider_failure",
+  });
 });

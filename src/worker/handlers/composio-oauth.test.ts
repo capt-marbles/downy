@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   gmailSelect: vi.fn(),
   airtableStatus: vi.fn(),
   airtableCheck: vi.fn(),
+  pipelineReport: vi.fn(),
   airtableStart: vi.fn(),
   airtableSelect: vi.fn(),
   airtableOwner: vi.fn(),
@@ -72,6 +73,7 @@ beforeEach(() => {
     authorizeGmailOwner: mocks.grant,
     notifyGmailReady: mocks.notify,
     isAirtableOwner: mocks.airtableOwner,
+    runPipelineReport: mocks.pipelineReport,
     authorizeAirtableOwner: mocks.airtableGrant,
     notifyAirtableReady: mocks.airtableNotify,
     bindComposioOwner: mocks.bind,
@@ -330,4 +332,57 @@ it("schema diagnostics require the bot grant and return no records or provider e
     { state: "failed", operation: "get_schema", code: "permission_denied" },
   );
   expect(mocks.airtableCheck).toHaveBeenCalledWith("appCRM");
+});
+
+const reportRequest = (
+  body: unknown = {
+    action: "pipeline_report",
+    baseId: "appCRM",
+    tableId: "tblLeads",
+    stageFieldId: "fldStatus",
+  },
+) =>
+  new Request(
+    "https://downy.example/api/composio/oauth/airtable/pipeline-report?agentSlug=gtm",
+    {
+      method: "POST",
+      headers: {
+        origin: "https://downy.example",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+it("pipeline report HTTP acceptance uses the same bot runbook and existing account grant", async () => {
+  mocks.airtableOwner.mockResolvedValue(false);
+  expect((await handleComposioOAuthRequest(reportRequest(), env)).status).toBe(
+    403,
+  );
+  expect(mocks.pipelineReport).not.toHaveBeenCalled();
+  mocks.airtableOwner.mockResolvedValue(true);
+  expect(
+    (
+      await handleComposioOAuthRequest(
+        reportRequest({ action: "list_records", baseId: "appCRM" }),
+        env,
+      )
+    ).status,
+  ).toBe(400);
+  mocks.pipelineReport.mockResolvedValue({
+    account: "verified-account",
+    data: {
+      complete: true,
+      totalRecords: 2,
+      counts: [{ stage: "New", count: 2 }],
+    },
+  });
+  expect(
+    await (await handleComposioOAuthRequest(reportRequest(), env)).json(),
+  ).toMatchObject({ data: { complete: true, totalRecords: 2 } });
+  expect(mocks.pipelineReport).toHaveBeenCalledWith({
+    action: "pipeline_report",
+    baseId: "appCRM",
+    tableId: "tblLeads",
+    stageFieldId: "fldStatus",
+  });
 });
