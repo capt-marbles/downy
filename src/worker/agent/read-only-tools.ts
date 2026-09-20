@@ -9,6 +9,7 @@ import type { ToolSet } from "ai";
 const READ_ONLY_TOOL_NAMES = new Set([
   "web_search",
   "web_scrape",
+  "qualify_leads",
   "read_peer_agent",
   "list_skills",
   "read_skill",

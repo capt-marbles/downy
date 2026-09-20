@@ -91,3 +91,27 @@ response failures are not automatically retried. This policy does not apply to
 Gmail drafts or any write. Safe phase and error codes survive the Durable Object
 RPC boundary; raw provider messages and credentials do not. A temporary read
 failure does not establish a need to reconnect the account.
+
+## Lead sourcing (Gameye)
+
+The bundled `gameye-lead-sourcing` skill ports the Hyperagent Exa daily routine:
+four `web_search` queries with a seven-day `startPublishedDate` window, typed
+qualification with `qualify_leads`, exact-match dedupe with `airtable_records`
+`list_records` formulas, and new Leads proposed as one `airtable_create_records`
+card that the operator taps. Batch IDs use the `downy-exa-` prefix so runs never
+collide with Hyperagent's `exa-` batches during the transition.
+
+`qualify_leads` (`src/worker/runbooks/lead-qualify.ts`) asks Jev seven fixed
+questions per candidate: multiplayer architecture (choice), launch proximity
+(score), server pain, funding, studio-signal and exclusion (nouls), and named
+hosting vendor (choice). Code composes tier, priority, ICP Fit and Fit Score
+with the weights from the original `qualify.py`, so verdicts are reproducible
+and the rubric changes in one file, not in a prompt. Below the 0.6 confidence
+floor, or when the type is `unclear`, the lead is `needs_review` rather than
+kept or dropped. Evaluator failures are returned per candidate as
+`unavailable`; the tool writes nothing.
+
+Not yet available from Downy: the Slack digest (no Slack connection type
+exists; the chat summary is the record), unattended scheduled runs (background
+workers hold no Composio grants), and paid Apollo enrichment. Free Apollo people
+search works when an Apollo MCP server is connected to the bot.

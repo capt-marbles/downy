@@ -7,7 +7,10 @@ import {
 } from "./airtable-diagnostics";
 import { z } from "zod";
 import {
+  AirtableCreateRecordsSchema,
   AirtableReadActionSchema,
+  type AirtableCreateRecords,
+  type AirtableCreateRecordsResult,
   type AirtableReadAction,
   type AirtableConnectStatus,
 } from "../../lib/airtable-connect";
@@ -315,6 +318,58 @@ export class AirtableConnection {
       await new Promise((resolve) => setTimeout(resolve, 250));
       return this.readAction(action);
     }
+  }
+  /**
+   * Create up to ten records. Never retried: after a timeout the rows may
+   * exist, and the caller reports an unknown outcome instead of writing twice.
+   */
+  async write(
+    input: AirtableCreateRecords,
+  ): Promise<AirtableCreateRecordsResult> {
+    const action = AirtableCreateRecordsSchema.parse(input);
+    const { state, sessionId } = await this.verifiedIdentity();
+    const raw = await this.execute(
+      sessionId,
+      state.accountId,
+      "AIRTABLE_CREATE_RECORDS",
+      {
+        baseId: action.baseId,
+        tableIdOrName: action.tableId,
+        records: action.records,
+        typecast: action.typecast,
+      },
+    ).catch((error: unknown) => {
+      throw airtableFailure(error, "provider_failure", "records_write");
+    });
+    const created = z
+      .object({ records: z.array(z.object({ id: z.string().min(1) })) })
+      .parse(raw);
+    return {
+      state: "records_created",
+      account: state.identity,
+      recordIds: created.records.map((record) => record.id),
+    };
+  }
+  private async verifiedIdentity() {
+    const state = await this.load();
+    if (state?.state !== "ready" || !state.accountId || !state.identity)
+      throw new Error("Connect Airtable first");
+    const found = await this.search(state).catch((error: unknown) => {
+      throw airtableFailure(error, "provider_failure", "discovery");
+    });
+    if (
+      !found.accounts.some((account) => account.id === state.accountId) ||
+      (await this.profile(found.sessionId, state.accountId).catch(
+        (error: unknown) => {
+          throw airtableFailure(error, "provider_failure", "identity_read");
+        },
+      )) !== state.identity
+    )
+      throw new Error("Airtable account changed; verify the connection card");
+    return {
+      state: { ...state, accountId: state.accountId, identity: state.identity },
+      sessionId: found.sessionId,
+    };
   }
   private async readAction(action: AirtableReadAction) {
     const state = await this.load();

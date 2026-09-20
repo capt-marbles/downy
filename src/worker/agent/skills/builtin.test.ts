@@ -14,12 +14,13 @@ it("seeds valid portable skills and preserves operator-authored copies", async (
   };
   await seedBuiltinSkills(workspace);
   await seedBuiltinSkills(workspace);
-  expect(writeFile).toHaveBeenCalledTimes(1);
+  expect(writeFile).toHaveBeenCalledTimes(2);
   expect(files.get("skills/connecting-services/SKILL.md")).toBe(
     "operator copy",
   );
-  const parsed = parseSkillFile(
-    files.get("skills/reporting-crm-pipeline/SKILL.md")!,
-  );
-  expect(parsed.ok).toBe(true);
+  for (const name of ["reporting-crm-pipeline", "gameye-lead-sourcing"]) {
+    const parsed = parseSkillFile(files.get(`skills/${name}/SKILL.md`)!);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.parsed.frontmatter.name).toBe(name);
+  }
 });

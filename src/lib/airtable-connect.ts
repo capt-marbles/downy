@@ -51,6 +51,44 @@ export const PipelineReportInputSchema = z
     reportId: z.string().uuid().optional(),
   })
   .strict();
+// Writes never travel through the chat tool. They are proposed as a staged
+// action card and executed only after the operator taps Confirm.
+const fieldValue = z.union([
+  z.string().max(30_000),
+  z.number(),
+  z.boolean(),
+  z.array(z.string().max(2_000)).max(100),
+]);
+export const AirtableCreateRecordsSchema = z
+  .object({
+    action: z.literal("create_records"),
+    baseId,
+    tableId: z
+      .string()
+      .regex(/^tbl[a-zA-Z0-9]+$/)
+      .max(100),
+    records: z
+      .array(
+        z
+          .object({
+            fields: z.record(z.string().min(1).max(200), fieldValue),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10),
+    typecast: z.boolean().default(true),
+  })
+  .strict();
+export type AirtableCreateRecords = z.infer<typeof AirtableCreateRecordsSchema>;
+export const AirtableCreateRecordsResultSchema = z.object({
+  state: z.literal("records_created"),
+  account: z.string(),
+  recordIds: z.array(z.string()),
+});
+export type AirtableCreateRecordsResult = z.infer<
+  typeof AirtableCreateRecordsResultSchema
+>;
 export const AirtableActionSchema = z.union([
   AirtableReadActionSchema,
   PipelineReportInputSchema,

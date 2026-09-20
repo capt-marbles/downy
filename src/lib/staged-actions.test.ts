@@ -133,3 +133,64 @@ it("validates payloads strictly so a smuggled field cannot widen the action", ()
     "daily at 08:00 Europe/Amsterdam",
   );
 });
+
+it("describes an Airtable create proposal by table and record labels, never raw field ids", () => {
+  const payload = StagedActionPayloadSchema.parse({
+    kind: "airtable_create_records",
+    airtableCreateRecords: {
+      baseId: "appZgInlaiE12FCu7",
+      tableId: "tblqqYLjWgLj87m25",
+      tableLabel: "Leads",
+      typecast: true,
+      records: [
+        {
+          fields: {
+            fldfuqPygBrGEU9MZ: "Ironhaven Games",
+            fldUT9pZN6gBORLJu: "A",
+          },
+        },
+        {
+          fields: {
+            fldfuqPygBrGEU9MZ: "Driftline Studio",
+            fldUT9pZN6gBORLJu: "B",
+          },
+        },
+      ],
+      recordLabels: [
+        "Ironhaven Games — Tier A — ironhaven.gg",
+        "Driftline Studio — Tier B",
+      ],
+    },
+  });
+  const action = newStagedAction(ID, REV, "chat", payload, 1_000);
+  const text = stagedActionChatText(action);
+  expect(text).toContain("Create 2 records in Airtable table Leads");
+  expect(text).toContain("- Ironhaven Games — Tier A — ironhaven.gg");
+  expect(text).toContain("Fields per record: 2, 2");
+  expect(text).toContain("not yet run");
+});
+
+it("rejects Airtable proposals whose labels do not match the records, or that exceed ten rows", () => {
+  const base = {
+    baseId: "appZgInlaiE12FCu7",
+    tableId: "tblqqYLjWgLj87m25",
+    tableLabel: "Leads",
+    records: [{ fields: { fldfuqPygBrGEU9MZ: "A" } }],
+  };
+  expect(
+    StagedActionPayloadSchema.safeParse({
+      kind: "airtable_create_records",
+      airtableCreateRecords: { ...base, recordLabels: ["one", "two"] },
+    }).success,
+  ).toBe(false);
+  expect(
+    StagedActionPayloadSchema.safeParse({
+      kind: "airtable_create_records",
+      airtableCreateRecords: {
+        ...base,
+        records: Array.from({ length: 11 }, () => ({ fields: { f: "x" } })),
+        recordLabels: Array.from({ length: 11 }, () => "x"),
+      },
+    }).success,
+  ).toBe(false);
+});

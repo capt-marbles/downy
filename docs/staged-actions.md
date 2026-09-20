@@ -14,6 +14,12 @@ the card afterwards on the same device.
   draft is never sent.
 - `schedule_task`: title, kind, brief and cadence. Creates a recurring
   scheduled task through the existing scheduler store.
+- `airtable_create_records`: base, table, up to ten records keyed by field ID
+  or name, `typecast`, plus a `tableLabel` and one plain `recordLabel` per
+  record so the card is readable without knowing field IDs. Runs
+  `AIRTABLE_CREATE_RECORDS` once through the bot's Airtable grant; never
+  retried. A timeout is recorded as `unknown` because the rows may exist. The
+  chat tool `airtable_records` stays read-only; this card is the only write.
 
 Payloads are strict; unknown fields are rejected so a proposal cannot smuggle a
 wider action than the card shows.

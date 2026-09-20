@@ -28,6 +28,8 @@ import type { ActivePlan } from "./tools/todo-write";
 import { createTodoWriteTool } from "./tools/todo-write";
 import { createWebScrapeTool } from "./tools/web-scrape";
 import { createWebSearchTool } from "./tools/web-search";
+import { createQualifyLeadsTool } from "./tools/qualify-leads";
+import { runJev } from "../jev/client";
 import { isProfileCorePath } from "./core-files";
 
 function assertNotProfileCorePath(path: string): void {
@@ -215,6 +217,9 @@ export function buildSharedToolSet(deps: SharedToolDeps): ToolSet {
   return {
     web_search: createWebSearchTool(env.EXA_API_KEY),
     web_scrape: createWebScrapeTool(env.EXA_API_KEY),
+    qualify_leads: createQualifyLeadsTool({
+      run: (request) => runJev(env.AI, request),
+    }),
     read_peer_agent: createReadPeerAgentTool({
       env,
       parentSlug,

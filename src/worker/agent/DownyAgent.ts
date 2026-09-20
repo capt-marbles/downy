@@ -16,7 +16,9 @@ import {
 } from "../runbooks/pipeline-report";
 import {
   AirtableActionSchema,
+  AirtableCreateRecordsResultSchema,
   isAirtableConnectRequest,
+  type AirtableCreateRecords,
   type AirtableReadAction,
   type PipelineReportInput,
   type AirtableConnectStatus,
@@ -1529,6 +1531,47 @@ export class DownyAgent extends Think {
         };
       }
     }
+    if (payload.kind === "airtable_create_records") {
+      const airtableGrant =
+        await this.ctx.storage.get<string>("airtable-owner");
+      if (!airtableGrant)
+        return {
+          state: "failed",
+          error:
+            "Airtable is not connected for this bot. Nothing was written. Connect Airtable, then propose again.",
+        };
+      const write = payload.airtableCreateRecords;
+      try {
+        const result = AirtableCreateRecordsResultSchema.parse(
+          await (
+            await getAgentStub(this.env, airtableGrant)
+          ).executeComposioAirtableWrite({
+            action: "create_records",
+            baseId: write.baseId,
+            tableId: write.tableId,
+            records: write.records,
+            typecast: write.typecast,
+          }),
+        );
+        const n = result.recordIds.length;
+        return {
+          state: "succeeded",
+          result: {
+            receipt: `Created ${n} record${n === 1 ? "" : "s"} in ${write.tableLabel} for ${result.account}.`,
+            url: `https://airtable.com/${write.baseId}/${write.tableId}`,
+            reference: result.recordIds.join(",").slice(0, 200),
+          },
+        };
+      } catch {
+        // A timeout after submission may have written the rows. Never retry;
+        // the operator checks the table (Batch ID) before proposing again.
+        return {
+          state: "unknown",
+          error:
+            "Airtable did not return a verified result. The records may or may not exist: check the table for this batch before proposing again.",
+        };
+      }
+    }
     try {
       const task = await createScheduledTask(this.env.DB, {
         ...payload.scheduleTask,
@@ -2525,6 +2568,10 @@ export class DownyAgent extends Think {
   }
   async checkComposioAirtableSchema(baseId: string) {
     return this.withComposioOAuth((oauth) => oauth.checkAirtableSchema(baseId));
+  }
+  /** Confirmed staged-action writes only; never exposed as a model tool. */
+  async executeComposioAirtableWrite(input: AirtableCreateRecords) {
+    return this.withComposioOAuth((oauth) => oauth.airtableWrite(input));
   }
   async executeComposioAirtable(input: AirtableReadAction): Promise<string> {
     // Airtable field values are recursive JSON. A JSON wire value avoids

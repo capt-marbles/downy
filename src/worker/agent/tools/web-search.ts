@@ -26,6 +26,18 @@ const querySchema = z.object({
     ])
     .optional()
     .describe("Restrict results to a category when useful."),
+  startPublishedDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}(T[0-9:.]+Z?)?$/)
+    .optional()
+    .describe(
+      "Only return pages published on or after this ISO date (e.g. 2026-09-13). Use for recency windows such as 'the last 7 days'.",
+    ),
+  endPublishedDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}(T[0-9:.]+Z?)?$/)
+    .optional()
+    .describe("Only return pages published on or before this ISO date."),
 });
 
 const inputSchema = z.object({
@@ -79,6 +91,8 @@ async function runOneQuery(
     },
   };
   if (q.category) body.category = q.category;
+  if (q.startPublishedDate) body.startPublishedDate = q.startPublishedDate;
+  if (q.endPublishedDate) body.endPublishedDate = q.endPublishedDate;
 
   let res: Response;
   try {

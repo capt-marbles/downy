@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CreateScheduledTaskInputSchema } from "../worker/scheduled-tasks/types";
+import { AirtableCreateRecordsSchema } from "./airtable-connect";
 
 // A staged action is a proposal the agent (chat or voice) puts in chat as a
 // card. Nothing runs until the operator taps Confirm on that card. Approval is
@@ -23,6 +24,21 @@ const ScheduleTaskPayloadSchema = CreateScheduledTaskInputSchema.omit({
   enabled: true,
 }).strict();
 
+// Airtable rows carry field IDs, which no operator can read on a card, so the
+// proposal also names the table and gives one plain line per record. The
+// executor writes exactly `records`; the labels are for the human only.
+const AirtableCreateRecordsPayloadSchema = AirtableCreateRecordsSchema.omit({
+  action: true,
+})
+  .extend({
+    tableLabel: z.string().min(1).max(120),
+    recordLabels: z.array(z.string().min(1).max(300)).min(1).max(10),
+  })
+  .strict()
+  .refine((value) => value.recordLabels.length === value.records.length, {
+    message: "recordLabels must describe every record, one line each",
+  });
+
 export const StagedActionPayloadSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -34,6 +50,12 @@ export const StagedActionPayloadSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("schedule_task"),
       scheduleTask: ScheduleTaskPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("airtable_create_records"),
+      airtableCreateRecords: AirtableCreateRecordsPayloadSchema,
     })
     .strict(),
 ]);
@@ -86,6 +108,7 @@ export const StagedActionPartSchema = z.object({
 export const STAGED_ACTION_LABELS: Record<StagedActionKind, string> = {
   gmail_draft: "Gmail draft",
   schedule_task: "Scheduled task",
+  airtable_create_records: "Airtable records",
 };
 
 export function newStagedAction(
@@ -214,6 +237,19 @@ export function describeStagedAction(payload: StagedActionPayload): {
         `Subject: ${draft.subject}`,
         ...(draft.threadId ? [`Reply in thread ${draft.threadId}`] : []),
         `Body:\n${draft.body}`,
+      ],
+    };
+  }
+  if (payload.kind === "airtable_create_records") {
+    const write = payload.airtableCreateRecords;
+    const n = write.records.length;
+    return {
+      title: `Create ${n} record${n === 1 ? "" : "s"} in Airtable table ${write.tableLabel}`,
+      lines: [
+        `Base: ${write.baseId}`,
+        `Table: ${write.tableId}`,
+        `Records:\n${write.recordLabels.map((label) => `- ${label}`).join("\n")}`,
+        `Fields per record: ${write.records.map((r) => Object.keys(r.fields).length).join(", ")}`,
       ],
     };
   }

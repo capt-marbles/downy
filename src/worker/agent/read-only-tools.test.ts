@@ -20,6 +20,7 @@ it("keeps only research and read tools executable for a read-only worker", async
     fixture([
       "web_search",
       "web_scrape",
+      "qualify_leads",
       "read_peer_agent",
       "read",
       "list",
@@ -44,6 +45,7 @@ it("keeps only research and read tools executable for a read-only worker", async
   expect(readOnlyActiveTools(tools)).toEqual([
     "web_search",
     "web_scrape",
+    "qualify_leads",
     "read_peer_agent",
     "read",
     "list",

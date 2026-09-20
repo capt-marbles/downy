@@ -16,6 +16,7 @@ const phases = [
   "identity_read",
   "schema_read",
   "records_read",
+  "records_write",
   "bases_read",
   "execution_envelope",
   "tool_response",
