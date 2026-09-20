@@ -196,7 +196,19 @@ export function createConnectMcpServerTool(args: { agent: DownyAgent }) {
     description:
       "Connect a hosted MCP endpoint. Returns state, discovered tool names, diagnostics, and failure guidance when needed. Credentials come only from the secure credential card, never from the model or chat. Flag unverified endpoint URLs as guesses.",
     inputSchema: connectInputSchema,
-    execute: (input) => args.agent.connectMcpEndpoint(input),
+    execute: async (input) => {
+      const host = new URL(input.url).hostname;
+      if (host === "composio.dev" || host.endsWith(".composio.dev")) {
+        await args.agent.showComposioConnectCard();
+        return {
+          state: "managed",
+          managedConnections: await args.agent.managedConnectionStatus(),
+          nextAction:
+            "Composio uses the managed connection card. Do not probe alternative URLs or request credentials. To connect Gmail, use find_tool_setup with query Gmail and wait for the card.",
+        };
+      }
+      return args.agent.connectMcpEndpoint(input);
+    },
   });
 }
 
@@ -218,7 +230,8 @@ export function createConnectCloudflareMcpServerTool(args: {
 
 export function createListMcpServersTool(args: { agent: DownyAgent }) {
   return tool({
-    description: "List attached MCP servers with state and discovered tools.",
+    description:
+      "List attached MCP servers and managed Composio/Gmail connection status. Managed OAuth connections are separate from MCP server rows; an empty servers list does not mean managed connections are disconnected.",
     inputSchema: z.object({}),
     execute: async () => {
       const state = args.agent.getMcpServers();
@@ -232,7 +245,10 @@ export function createListMcpServersTool(args: { agent: DownyAgent }) {
           .filter((t) => t.serverId === id)
           .map((t) => t.name),
       }));
-      return { servers };
+      return {
+        servers,
+        managedConnections: await args.agent.managedConnectionStatus(),
+      };
     },
   });
 }

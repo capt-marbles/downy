@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   status: vi.fn(),
   card: vi.fn(),
   disconnect: vi.fn(),
+  gmailStatus: vi.fn(),
+  gmailStart: vi.fn(),
+  record: vi.fn(),
+  owner: vi.fn(),
+  grant: vi.fn(),
+  notify: vi.fn(),
 }));
 vi.mock("../auth/cloudflare-access", () => ({
   verifyAccessJwt: mocks.identity,
@@ -41,8 +47,32 @@ beforeEach(() => {
     getComposioOAuthStatus: mocks.status,
     disconnectComposioOAuth: mocks.disconnect,
     showComposioConnectCard: mocks.card,
+    getComposioGmailStatus: mocks.gmailStatus,
+    startComposioGmail: mocks.gmailStart,
   });
-  mocks.active.mockResolvedValue({ showComposioConnectCard: mocks.card });
+  mocks.active.mockResolvedValue({
+    showComposioConnectCard: mocks.card,
+    recordManagedStatus: mocks.record,
+    managedConnectionStatus: async () => null,
+    isGmailOwner: mocks.owner,
+    authorizeGmailOwner: mocks.grant,
+    notifyGmailReady: mocks.notify,
+  });
+  mocks.status.mockResolvedValue({
+    state: "connected",
+    connectedAt: 1,
+    checkedAt: 1,
+    expiresAt: null,
+    error: null,
+  });
+  mocks.gmailStatus.mockResolvedValue({
+    state: "not_connected",
+    email: null,
+    checkedAt: null,
+    error: null,
+    authorized: false,
+  });
+  mocks.owner.mockResolvedValue(false);
   mocks.getAgent.mockResolvedValue({ archivedAt: null });
 });
 it("requires same-origin POST and verified Access identity before reaching the vault", async () => {
@@ -100,4 +130,56 @@ it("does not echo provider errors or expired callback details", async () => {
   expect(result.headers.get("location")).toBe("/settings");
   expect(await result.text()).not.toContain("secret");
   expect(mocks.card).not.toHaveBeenCalled();
+});
+
+it("a Gmail card GET reports managed status but cannot grant access or initiate OAuth", async () => {
+  const result = await handleComposioOAuthRequest(
+    request("/gmail?agentSlug=gtm"),
+    env,
+  );
+  expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({
+    state: "not_connected",
+    authorized: false,
+  });
+  expect(mocks.record.mock.calls[0]?.[0]).toMatchObject({
+    composio: { state: "connected" },
+  });
+  expect(mocks.gmailStart).not.toHaveBeenCalled();
+  expect(mocks.grant).not.toHaveBeenCalled();
+});
+it("only an authenticated same-origin button POST enables this bot and initiates Gmail OAuth", async () => {
+  mocks.gmailStart.mockResolvedValue({
+    redirectUrl: "https://connect.composio.dev/link/test",
+  });
+  const result = await handleComposioOAuthRequest(
+    request("/gmail/start?agentSlug=gtm", "POST"),
+    env,
+  );
+  expect(result.status).toBe(303);
+  expect(mocks.grant).toHaveBeenCalledOnce();
+  expect(mocks.gmailStart).toHaveBeenCalledOnce();
+  expect(result.headers.get("location")).toBe(
+    "https://connect.composio.dev/link/test",
+  );
+});
+it("notifies Downy of a verified Gmail connection without passing OAuth values", async () => {
+  mocks.gmailStatus.mockResolvedValue({
+    state: "ready",
+    email: "owner@example.com",
+    checkedAt: 10,
+    error: null,
+    authorized: false,
+  });
+  mocks.owner.mockResolvedValue(true);
+  const result = await handleComposioOAuthRequest(
+    request("/gmail?agentSlug=gtm"),
+    env,
+  );
+  expect(result.status).toBe(200);
+  expect(mocks.notify).toHaveBeenCalledWith("owner@example.com");
+  expect(await result.json()).toMatchObject({
+    state: "ready",
+    authorized: true,
+  });
 });

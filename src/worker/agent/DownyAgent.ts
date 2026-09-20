@@ -1,3 +1,11 @@
+import {
+  GmailActionSchema,
+  isGmailConnectRequest,
+  type GmailAction,
+  type GmailConnectStatus,
+} from "../../lib/gmail-connect";
+import type { ComposioOAuthStatus } from "../../lib/composio-oauth";
+import { tool } from "ai";
 import { ComposioOAuth } from "../composio/oauth";
 import {
   createBot,
@@ -352,7 +360,7 @@ export class DownyAgent extends Think {
       connect_cloudflare_mcp_server: createConnectCloudflareMcpServerTool({
         agent: this,
       }),
-      find_tool_setup: createFindToolSetupTool(this.env),
+      find_tool_setup: createFindToolSetupTool(this.env, this),
       request_credential: createRequestCredentialTool({
         db: this.env.DB,
         agentSlug: this.name,
@@ -500,6 +508,14 @@ export class DownyAgent extends Think {
           .map((part) => part.text)
           .join(" ") ?? "",
       );
+    const forceGmailSetup =
+      !ctx.continuation &&
+      isGmailConnectRequest(
+        latestUser?.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join(" ") ?? "",
+      );
     if (latestUser?.id.startsWith("voice-request:")) {
       return {
         system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
@@ -527,10 +543,36 @@ export class DownyAgent extends Think {
       callTool: (serverId, name, args) =>
         this.callMcpToolWithRecovery(serverId, name, args),
     });
+    const gmailGrant = await this.ctx.storage.get<string>("gmail-owner");
+    if (gmailGrant)
+      mcpTools.gmail_email = tool({
+        description:
+          "Search/read the Gmail account authorized for this bot, or create a Gmail draft when requested. Drafts are saved for the user to send. Sending, forwarding, deleting and mailbox changes are unavailable. A draft timeout has unknown outcome: search Drafts before retrying.",
+        inputSchema: GmailActionSchema,
+        execute: async (input) => {
+          try {
+            return await (
+              await getAgentStub(this.env, gmailGrant)
+            ).executeComposioGmail(input);
+          } catch {
+            return {
+              state: "failed",
+              error:
+                "Gmail action did not return a verified result. Check the connection card. If creating a draft, check Drafts before retrying; it may already exist.",
+            };
+          }
+        },
+      });
     return {
       system,
       model: getModelFor(this.env, aiProvider),
       tools: mcpTools,
+      ...(forceGmailSetup
+        ? {
+            toolChoice: { type: "tool" as const, toolName: "find_tool_setup" },
+            maxSteps: 1,
+          }
+        : {}),
       ...(forceBotCreation
         ? {
             toolChoice: { type: "tool" as const, toolName: "create_bot" },
@@ -2013,6 +2055,59 @@ export class DownyAgent extends Think {
     );
   }
 
+  async getComposioGmailStatus(refresh = false) {
+    return this.withComposioOAuth((oauth) => oauth.gmailStatus(refresh));
+  }
+  async startComposioGmail() {
+    return this.withComposioOAuth((oauth) => oauth.startGmail());
+  }
+  async executeComposioGmail(input: GmailAction) {
+    return this.withComposioOAuth((oauth) => oauth.gmailAction(input));
+  }
+  async recordManagedStatus(status: {
+    composio: ComposioOAuthStatus;
+    gmail?: GmailConnectStatus;
+  }) {
+    await this.ctx.storage.put("managed-connections", status);
+  }
+  async managedConnectionStatus() {
+    return (
+      (await this.ctx.storage.get<{
+        composio: ComposioOAuthStatus;
+        gmail?: GmailConnectStatus;
+      }>("managed-connections")) ?? null
+    );
+  }
+  async authorizeGmailOwner(owner: string) {
+    const previous = await this.ctx.storage.get<string>("gmail-owner");
+    if (previous && previous !== owner)
+      throw new Error("This bot already has a different Gmail owner");
+    await this.ctx.storage.put("gmail-owner", owner);
+  }
+  async isGmailOwner(owner: string) {
+    return (await this.ctx.storage.get<string>("gmail-owner")) === owner;
+  }
+  async notifyGmailReady(email: string) {
+    const id = `gmail-ready:${email}`;
+    if (!this.session.getMessage(id))
+      await this.session.appendMessage({
+        id,
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: `Gmail connected: ${email}. Reading and creating drafts are available. You send drafts yourself; Downy has no sending tool.`,
+          },
+        ],
+      });
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+  }
+
   async showGmailConnectCard(): Promise<void> {
     const id = "composio-setup:gmail";
     const message: UIMessage = {
@@ -2021,7 +2116,7 @@ export class DownyAgent extends Think {
       parts: [
         {
           type: "text",
-          text: "Connect Gmail securely using the card below. This first test enables reading only. Google authorization stays outside chat.",
+          text: "Use Connect Gmail in the card below to authorize reading and draft creation for this bot. You will send drafts yourself. Authorization happens outside chat; I will wait for the card to confirm the connection.",
         },
         { type: "data-composio-setup", data: { toolkit: "gmail" } },
       ],

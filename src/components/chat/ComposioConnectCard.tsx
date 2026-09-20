@@ -13,7 +13,7 @@ export default function ComposioConnectCard() {
   const slug = currentSlug ?? fallback;
   const [error, setError] = useState<string | null>(null);
   const status = useQuery({
-    queryKey: ["composio-oauth"],
+    queryKey: ["composio-oauth", slug],
     queryFn: async () => {
       const response = await fetch("/api/composio/oauth", {
         cache: "no-store",
@@ -72,7 +72,7 @@ export default function ComposioConnectCard() {
       {connected ? (
         <>
           <p className="mt-3 text-sm">
-            Composio is connected. Gmail authorization is next.
+            Composio is connected. Ask Downy to connect an app in chat.
           </p>
           {connection.checkedAt && (
             <p className="mt-1 text-xs text-base-content/60">

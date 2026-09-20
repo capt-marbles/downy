@@ -37,8 +37,40 @@ export async function handleComposioOAuthRequest(
     const owner = `__composio-${Array.from(hash, (n) => n.toString(16).padStart(2, "0")).join("")}`;
     const vault = await getAgentStub(env, owner);
     const path = url.pathname;
-    if (request.method === "GET" && path === "/api/composio/oauth")
-      return Response.json(await vault.getComposioOAuthStatus(), { headers });
+    if (request.method === "GET" && path === "/api/composio/oauth") {
+      const status = await vault.getComposioOAuthStatus();
+      if (url.searchParams.has("agentSlug")) {
+        const agent = await getActiveAgentStub(request, env);
+        const existing = await agent.managedConnectionStatus();
+        await agent.recordManagedStatus({ ...existing, composio: status });
+      }
+      return Response.json(status, { headers });
+    }
+    if (request.method === "GET" && path === "/api/composio/oauth/gmail") {
+      const agent = await getActiveAgentStub(request, env);
+      const composio = await vault.getComposioOAuthStatus();
+      const gmail = await vault.getComposioGmailStatus(true);
+      const authorized = await agent.isGmailOwner(owner);
+      await agent.recordManagedStatus({
+        composio,
+        gmail: { ...gmail, authorized },
+      });
+      if (authorized && gmail.state === "ready" && gmail.email)
+        await agent.notifyGmailReady(gmail.email);
+      return Response.json({ ...gmail, authorized }, { headers });
+    }
+    if (
+      request.method === "POST" &&
+      path === "/api/composio/oauth/gmail/start"
+    ) {
+      const agent = await getActiveAgentStub(request, env);
+      await agent.authorizeGmailOwner(owner);
+      const result = await vault.startComposioGmail();
+      return redirect(
+        result.redirectUrl ??
+          `/agent/${encodeURIComponent(slugFromRequest(request))}`,
+      );
+    }
     if (request.method === "POST" && path === "/api/composio/oauth/start") {
       await getActiveAgentStub(request, env);
       return redirect(

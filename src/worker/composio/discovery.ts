@@ -28,7 +28,7 @@ export async function findToolSetup(env: Cloudflare.Env, query: string) {
       ],
       warnings: [],
     };
-  if (/^(gmail|google mail|connect gmail)$/i.test(query.trim()))
+  if (/\b(gmail|google mail)\b/i.test(query.trim()))
     return {
       candidates: [
         {

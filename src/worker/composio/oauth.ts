@@ -1,3 +1,5 @@
+import type { GmailAction } from "../../lib/gmail-connect";
+import { GmailConnection, GmailStateSchema, type GmailState } from "./gmail";
 import { z } from "zod";
 import {
   encryptHeaders,
@@ -33,6 +35,7 @@ const OAuthSchema = z.object({
       expiresAt: z.number(),
     })
     .optional(),
+  gmail: GmailStateSchema.optional(),
   status: z.enum([
     "disconnected",
     "authorizing",
@@ -438,7 +441,7 @@ export class ComposioOAuth {
       await reader.cancel().catch(() => undefined);
     }
   }
-  private async verify(token: string) {
+  private async openSession(token: string) {
     const init = await this.rpc(token, "initialize", {
       protocolVersion: "2025-03-26",
       capabilities: {},
@@ -469,15 +472,64 @@ export class ComposioOAuth {
     });
     await initialized.body?.cancel();
     if (!initialized.ok) throw new Error("Composio initialization failed");
+    return { sessionId: init.sessionId, protocolVersion };
+  }
+  private async verify(token: string) {
+    const session = await this.openSession(token);
     const tools = await this.rpc(
       token,
       "tools/list",
       {},
-      init.sessionId,
-      protocolVersion,
+      session.sessionId,
+      session.protocolVersion,
     );
     z.object({ tools: z.array(z.object({ name: z.string() })).min(1) }).parse(
       tools.result,
     );
+  }
+  private gmail() {
+    return new GmailConnection(
+      async (name, args) => {
+        if ((await this.status()).state !== "connected")
+          throw new Error("Connect Composio first");
+        const token = (await this.load())?.tokens?.accessToken;
+        if (!token) throw new Error("Connect Composio first");
+        const session = await this.openSession(token);
+        return (
+          await this.rpc(
+            token,
+            "tools/call",
+            { name, arguments: args },
+            session.sessionId,
+            session.protocolVersion,
+          )
+        ).result;
+      },
+      async () => (await this.load())?.gmail,
+      async (gmail: GmailState) => {
+        const stored = await this.load();
+        if (!stored) throw new Error("Connect Composio first");
+        stored.gmail = gmail;
+        await this.save(stored);
+      },
+      this.now,
+    );
+  }
+  async gmailStatus(refresh = false) {
+    if ((await this.status()).state !== "connected")
+      return {
+        state: "needs_composio" as const,
+        email: null,
+        checkedAt: null,
+        error: null,
+        authorized: false,
+      };
+    return this.gmail().status(refresh);
+  }
+  async startGmail() {
+    return this.gmail().start();
+  }
+  async gmailAction(input: GmailAction) {
+    return this.gmail().action(input);
   }
 }
