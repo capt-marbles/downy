@@ -559,6 +559,9 @@ export class ComposioOAuth {
   async selectAirtable(accountId: string) {
     return this.airtable().select(accountId);
   }
+  async checkAirtableSchema(baseId: string) {
+    return this.airtable().checkSchema(baseId);
+  }
   async airtableAction(input: AirtableReadAction) {
     return this.airtable().action(input);
   }

@@ -1,3 +1,10 @@
+import { readOffloadedAirtableSchema } from "./airtable-schema";
+import {
+  airtableFailure,
+  airtableDiagnostic,
+  airtableErrorCode,
+  schemaReadSummary,
+} from "./airtable-diagnostics";
 import { z } from "zod";
 import {
   AirtableReadActionSchema,
@@ -65,33 +72,64 @@ export class AirtableConnection {
     slug: string,
     args: Record<string, unknown>,
   ) {
-    const data = z
+    let raw: unknown;
+    try {
+      raw = await this.call("COMPOSIO_MULTI_EXECUTE_TOOL", {
+        tools: [{ tool_slug: slug, arguments: args, account: accountId }],
+        session_id: sessionId,
+        sync_response_to_workbench: false,
+        current_step: "READING_AIRTABLE",
+      });
+    } catch (error) {
+      throw airtableFailure(error);
+    }
+    let decoded: unknown;
+    try {
+      decoded = metaData(raw);
+    } catch {
+      throw airtableFailure(raw);
+    }
+    const parsed = z
       .object({
+        remote_file_info: z.unknown().optional(),
         results: z.array(
           z.object({
             tool_slug: z.string(),
-            error: z.string().nullish(),
+            error: z.unknown().optional(),
             response: z.unknown(),
           }),
         ),
       })
-      .parse(
-        metaData(
-          await this.call("COMPOSIO_MULTI_EXECUTE_TOOL", {
-            tools: [{ tool_slug: slug, arguments: args, account: accountId }],
-            session_id: sessionId,
-            sync_response_to_workbench: false,
-            current_step: "READING_AIRTABLE",
-          }),
-        ),
-      );
+      .safeParse(decoded);
+    if (!parsed.success)
+      throw airtableFailure(decoded, "response_invalid", "execution_envelope");
+    const data = parsed.data;
     const item = data.results[0];
     if (data.results.length !== 1 || item?.tool_slug !== slug || item.error)
-      throw new Error("Airtable action failed");
+      throw airtableFailure(item ?? data);
     const response = z
       .object({ successful: z.literal(true), data: z.json() })
       .safeParse(item.response);
-    if (!response.success) throw new Error("Airtable action failed");
+    if (!response.success) {
+      const success = z
+        .object({ successful: z.literal(true) })
+        .safeParse(item.response);
+      if (
+        slug === "AIRTABLE_GET_BASE_SCHEMA" &&
+        success.success &&
+        data.remote_file_info
+      )
+        return readOffloadedAirtableSchema(
+          this.call,
+          sessionId,
+          data.remote_file_info,
+        );
+      throw airtableFailure(
+        { ...data, response: item.response },
+        "response_invalid",
+        "tool_response",
+      );
+    }
     return response.data.data;
   }
   private async profile(sessionId: string, accountId: string) {
@@ -244,6 +282,19 @@ export class AirtableConnection {
     if (!found.accounts.some((account) => account.id === accountId))
       throw new Error("Airtable account unavailable");
     await this.ready(found.sessionId, accountId);
+  }
+  async checkSchema(baseId: string) {
+    try {
+      const result = await this.action({ action: "get_schema", baseId });
+      return schemaReadSummary(result.data);
+    } catch (error) {
+      return {
+        state: "failed" as const,
+        operation: "get_schema" as const,
+        code: airtableErrorCode(error),
+        diagnostic: airtableDiagnostic(error),
+      };
+    }
   }
   async action(input: AirtableReadAction) {
     const action = AirtableReadActionSchema.parse(input);

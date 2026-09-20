@@ -161,6 +161,35 @@ async function handleAirtableOAuth(
   owner: string,
 ): Promise<Response> {
   const path = new URL(request.url).pathname;
+  if (
+    path === "/api/composio/oauth/airtable/check" &&
+    request.method === "POST"
+  ) {
+    const agent = await getActiveAgentStub(request, env);
+    if (!(await agent.isAirtableOwner(owner)))
+      return Response.json(
+        { error: "Connect Airtable for this bot first." },
+        { status: 403, headers },
+      );
+    const input = z
+      .object({
+        baseId: z
+          .string()
+          .regex(/^app[a-zA-Z0-9]+$/)
+          .max(100),
+      })
+      .strict()
+      .safeParse(await request.json());
+    if (!input.success)
+      return Response.json(
+        { error: "A valid base ID is required." },
+        { status: 400, headers },
+      );
+    return Response.json(
+      await vault.checkComposioAirtableSchema(input.data.baseId),
+      { headers },
+    );
+  }
   if (path === "/api/composio/oauth/airtable" && request.method === "GET") {
     const agent = await getActiveAgentStub(request, env);
     const composio = await vault.getComposioOAuthStatus();

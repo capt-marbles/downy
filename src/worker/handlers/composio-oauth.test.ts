@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   gmailStart: vi.fn(),
   gmailSelect: vi.fn(),
   airtableStatus: vi.fn(),
+  airtableCheck: vi.fn(),
   airtableStart: vi.fn(),
   airtableSelect: vi.fn(),
   airtableOwner: vi.fn(),
@@ -59,6 +60,7 @@ beforeEach(() => {
     startComposioGmail: mocks.gmailStart,
     selectComposioGmail: mocks.gmailSelect,
     getComposioAirtableStatus: mocks.airtableStatus,
+    checkComposioAirtableSchema: mocks.airtableCheck,
     startComposioAirtable: mocks.airtableStart,
     selectComposioAirtable: mocks.airtableSelect,
   });
@@ -291,4 +293,41 @@ it("notifies Downy of a verified Gmail connection without passing OAuth values",
     state: "ready",
     authorized: true,
   });
+});
+
+const check = (body: unknown = { baseId: "appCRM" }) =>
+  new Request(
+    "https://downy.example/api/composio/oauth/airtable/check?agentSlug=gtm",
+    {
+      method: "POST",
+      headers: {
+        origin: "https://downy.example",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+it("schema diagnostics require the bot grant and return no records or provider errors", async () => {
+  mocks.airtableOwner.mockResolvedValue(false);
+  expect((await handleComposioOAuthRequest(check(), env)).status).toBe(403);
+  expect(mocks.airtableCheck).not.toHaveBeenCalled();
+  mocks.airtableOwner.mockResolvedValue(true);
+  expect(
+    (
+      await handleComposioOAuthRequest(
+        check({ baseId: "appCRM", headers: { authorization: "secret" } }),
+        env,
+      )
+    ).status,
+  ).toBe(400);
+  mocks.airtableCheck.mockResolvedValue({
+    state: "failed",
+    operation: "get_schema",
+    code: "permission_denied",
+  });
+  expect(await (await handleComposioOAuthRequest(check(), env)).json()).toEqual(
+    { state: "failed", operation: "get_schema", code: "permission_denied" },
+  );
+  expect(mocks.airtableCheck).toHaveBeenCalledWith("appCRM");
 });

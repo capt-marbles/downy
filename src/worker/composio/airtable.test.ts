@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import { z } from "zod";
 import { expect, it, vi } from "vitest";
 import { AirtableConnection, type AirtableStateSchema } from "./airtable";
@@ -15,6 +16,7 @@ function fixture() {
   let accounts: string[] = [];
   let now = 100000;
   let failProfile = false;
+  let offload = false;
   const call = vi.fn<ManagedCall>(async (name, args) => {
     if (name === "COMPOSIO_SEARCH_TOOLS")
       return envelope({
@@ -43,6 +45,25 @@ function fixture() {
           },
         },
       });
+    if (name === "COMPOSIO_REMOTE_WORKBENCH")
+      return envelope({
+        stdout: JSON.stringify({
+          schema_gzip_base64: gzipSync(
+            JSON.stringify({
+              tables: [
+                {
+                  id: "tblExample",
+                  name: "Leads",
+                  fields: [
+                    { id: "fldStage", name: "Stage", type: "singleSelect" },
+                  ],
+                },
+              ],
+            }),
+          ).toString("base64"),
+        }),
+        stderr: "",
+      });
     const item = z
       .array(
         z.object({
@@ -60,6 +81,13 @@ function fixture() {
             error: "secret-sentinel",
             response: null,
           },
+        ],
+      });
+    if (offload && item.tool_slug === "AIRTABLE_GET_BASE_SCHEMA")
+      return envelope({
+        remote_file_info: { file_path: "/mnt/files/response.json" },
+        results: [
+          { tool_slug: item.tool_slug, response: { successful: true } },
         ],
       });
     return envelope({
@@ -95,6 +123,9 @@ function fixture() {
   return {
     make,
     call,
+    offload: () => {
+      offload = true;
+    },
     connect: (ids = ["one"]) => {
       accounts = ids;
     },
@@ -205,4 +236,20 @@ it("expires pending links and rejects writes or injected account overrides", asy
     expect(AirtableActionSchema.safeParse(input).success).toBe(false);
   expect(isAirtableConnectRequest("Can you connect to Airtable?")).toBe(true);
   expect(isAirtableConnectRequest("Do not connect Airtable")).toBe(false);
+});
+
+it("schema checks recover successful responses offloaded by Composio", async () => {
+  const f = fixture();
+  f.connect();
+  await f.make().start();
+  f.offload();
+  expect(await f.make().checkSchema("appExample")).toEqual({
+    state: "verified",
+    operation: "get_schema",
+    tableCount: 1,
+    fieldCount: 1,
+  });
+  expect(
+    f.call.mock.calls.some(([name]) => name === "COMPOSIO_REMOTE_WORKBENCH"),
+  ).toBe(true);
 });

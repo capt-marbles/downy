@@ -58,3 +58,20 @@ they are not sent to the model. Concurrent report calls are serialized.
 A complete report is a paginated live observation, not a transactional snapshot.
 Concurrent Airtable edits can affect it. Report the observation time and that
 limitation. No CRM writes, enrichment, or outreach are performed.
+
+### Large Airtable schemas
+
+Composio can offload a successful schema response to a remote JSON file even
+when inline responses are requested. The adapter recognizes this case and uses
+a fixed, server-owned read-only projection through Composio's workbench. It reads
+only the returned file and retains table IDs/names, field IDs/names/types, and
+select-choice names. Compression keeps that metadata below inline output limits.
+The workbench is not exposed as an agent tool; model-supplied Python and external
+app actions are not accepted. Unsafe paths, oversized files, incomplete output,
+and malformed schemas fail without claiming verified access.
+
+`POST /api/composio/oauth/airtable/check` with `{ "baseId": "app..." } checks the
+schema through the same adapter. It requires Cloudflare Access, same-origin POST,
+and the calling bot's existing Airtable grant. The result contains table/field
+counts or fixed diagnostic codes and response-shape flags, never record contents,
+credentials, provider error text, or remote file paths.

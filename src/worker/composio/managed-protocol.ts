@@ -2,7 +2,8 @@ import { z } from "zod";
 export type MetaName =
   | "COMPOSIO_SEARCH_TOOLS"
   | "COMPOSIO_MANAGE_CONNECTIONS"
-  | "COMPOSIO_MULTI_EXECUTE_TOOL";
+  | "COMPOSIO_MULTI_EXECUTE_TOOL"
+  | "COMPOSIO_REMOTE_WORKBENCH";
 export type ManagedCall = (
   name: MetaName,
   args: Record<string, unknown>,

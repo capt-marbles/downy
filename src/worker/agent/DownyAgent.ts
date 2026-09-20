@@ -1,3 +1,4 @@
+import { airtableErrorCode } from "../composio/airtable-diagnostics";
 import { seedBuiltinSkills } from "./skills/builtin";
 import {
   runServiceSetup,
@@ -560,9 +561,10 @@ export class DownyAgent extends Think {
             return z
               .object({ account: z.string(), data: z.unknown() })
               .parse(JSON.parse(result));
-          } catch {
+          } catch (error) {
             return {
               state: "failed",
+              code: airtableErrorCode(error),
               error:
                 "Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.",
             };
@@ -2117,6 +2119,9 @@ export class DownyAgent extends Think {
   }
   async selectComposioAirtable(accountId: string) {
     return this.withComposioOAuth((oauth) => oauth.selectAirtable(accountId));
+  }
+  async checkComposioAirtableSchema(baseId: string) {
+    return this.withComposioOAuth((oauth) => oauth.checkAirtableSchema(baseId));
   }
   async executeComposioAirtable(input: AirtableReadAction): Promise<string> {
     // Airtable field values are recursive JSON. A JSON wire value avoids
