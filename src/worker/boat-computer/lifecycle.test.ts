@@ -6,6 +6,7 @@ const runtime = vi.hoisted(() => ({
   initializers: [] as Promise<unknown>[],
   calls: [] as string[],
   failSave: false,
+  resumeDelay: 0,
   checkpoint: {
     v: 1,
     iv: "a".repeat(16),
@@ -32,7 +33,12 @@ vi.mock("./client", () => ({
     }
     async resume() {
       runtime.calls.push("resume");
-      runtime.state = "ready";
+      if (runtime.resumeDelay) {
+        runtime.state = "provisioning";
+        setTimeout(() => {
+          runtime.state = "ready";
+        }, runtime.resumeDelay);
+      } else runtime.state = "ready";
     }
     async stop() {
       runtime.calls.push("stop");
@@ -123,6 +129,7 @@ beforeEach(() => {
   runtime.state = "ready";
   runtime.authenticated = false;
   runtime.failSave = false;
+  runtime.resumeDelay = 0;
 });
 afterEach(() => vi.useRealTimers());
 
@@ -202,4 +209,46 @@ it("rejects lifecycle mutation while a step is queued or running", async () => {
   const second = await computer.fetch(post("sleep"));
   expect(second.status).toBe(409);
   await first;
+});
+
+it("waits through a cold restore longer than 90 seconds before executing the model", async () => {
+  const h = harness();
+  h.storage.set(AUTH_CHECKPOINT_KEY, runtime.checkpoint);
+  runtime.state = "archived";
+  runtime.resumeDelay = 150_000;
+  const computer = await h.create();
+  const pending = computer.fetch(
+    post("step", {
+      id: "11111111-1111-4111-8111-111111111111",
+      model: "gpt-5.5",
+      system: "",
+      transcript: "[]",
+      tools: [],
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(100_000);
+  expect(runtime.calls).not.toContain("/step");
+  expect(await (await computer.fetch(status())).json()).toMatchObject({
+    state: "starting",
+  });
+  await vi.advanceTimersByTimeAsync(55_000);
+  expect((await pending).status).toBe(200);
+  expect(runtime.authenticated).toBe(true);
+  expect(runtime.calls.filter((call) => call === "resume")).toHaveLength(1);
+  expect(runtime.calls.filter((call) => call === "/step")).toHaveLength(1);
+});
+it("bounds a stuck cold start without discarding the saved login or running a model", async () => {
+  const h = harness();
+  h.storage.set(AUTH_CHECKPOINT_KEY, runtime.checkpoint);
+  runtime.state = "archived";
+  runtime.resumeDelay = 600_000;
+  const computer = await h.create();
+  const pending = computer.fetch(post("wake"));
+  await vi.advanceTimersByTimeAsync(301_000);
+  const response = await pending;
+  expect(response.status).toBe(504);
+  expect(await response.text()).toContain("still starting");
+  expect(h.storage.get(AUTH_CHECKPOINT_KEY)).toEqual(runtime.checkpoint);
+  expect(runtime.calls).not.toContain("/step");
+  vi.clearAllTimers();
 });

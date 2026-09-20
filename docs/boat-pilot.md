@@ -143,3 +143,17 @@ external writes are not part of acceptance.
 Rollback: select the previous provider in Downy, sleep the Boat sandbox, and
 revoke its scoped service key when retiring the pilot. Do not delete the
 sandbox or snapshots while acceptance evidence or recovery is still needed.
+
+## Cold-start regression, 2026-09-20
+
+A live stop/resume test reproduced a lookup ending before any tool call. Boat
+remained in `provisioning` beyond Downy's former 90-second startup deadline and
+later became ready; a subsequent wake succeeded with the saved login intact.
+The reasoning request now waits up to five minutes for provisioning, with status
+remaining `starting`. Audio starts independently. A startup timeout is reported
+explicitly and does not erase the credential checkpoint or switch billing.
+This accommodates slow restores; it does not reduce Boat's provisioning time.
+
+This is separate from an observed Airtable `get_schema` provider failure after
+successful tool execution. Do not attribute all integration failures to startup:
+inspect whether inference, tool selection, or the actual provider read failed.

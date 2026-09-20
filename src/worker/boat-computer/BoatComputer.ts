@@ -98,7 +98,10 @@ export class BoatComputer extends DurableObject {
     await this.ctx.storage.put("boat-status", this.saved);
   }
   private async waitFor(target: "awake" | "archived") {
-    const deadline = Date.now() + 90_000;
+    // Live snapshot restores can take several minutes. Audio starts separately;
+    // keep the reasoning request pending and the status visibly starting while
+    // Boat provisions, rather than failing before the machine is ready.
+    const deadline = Date.now() + (target === "awake" ? 5 * 60_000 : 90_000);
     while (Date.now() < deadline) {
       const info = await this.client.info();
       if (
@@ -110,7 +113,11 @@ export class BoatComputer extends DurableObject {
       if (info.state === "error") throw new Error("Boat runtime failed");
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
-    throw new Error("Boat lifecycle timed out");
+    throw new Error(
+      target === "awake"
+        ? "Boat startup timed out"
+        : "Boat lifecycle timed out",
+    );
   }
   private async ready() {
     await this.state("starting");
@@ -280,11 +287,18 @@ export class BoatComputer extends DurableObject {
       } catch (error) {
         diagnostic(error);
         this.endpoint = undefined;
+        const starting =
+          error instanceof Error && error.message === "Boat startup timed out";
         await this.state(
-          "error",
-          "Boat could not complete this operation. Your Downy transcript is preserved; no fallback used.",
+          starting ? "starting" : "error",
+          starting
+            ? "Boat is still starting after five minutes. The reasoning request did not run. Your saved login is preserved; try again when the computer is ready."
+            : "Boat could not complete this operation. Your Downy transcript is preserved; no fallback used.",
         );
-        return Response.json({ error: this.saved.error }, { status: 503 });
+        return Response.json(
+          { error: this.saved.error },
+          { status: starting ? 504 : 503 },
+        );
       } finally {
         this.saved.idleAt = Date.now() + IDLE_MS;
         await this.ctx.storage.put("boat-status", this.saved);
