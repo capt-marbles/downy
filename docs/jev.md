@@ -73,7 +73,9 @@ truncated description, redacted arguments) into `read_only`,
 
 Where it applies: read-only background workers gate every allowlisted tool;
 voice, chat and full-access workers gate the read-oriented tools (`web_search`, `web_scrape`, `read`, `list`, `find`,
-`grep`, skill reads, `read_peer_agent`) and every MCP proxy tool. Tools whose
+`grep`, skill reads, `read_peer_agent`), every MCP proxy tool, and the
+Composio-backed connected-service wrappers (`gmail_email`, `airtable_records`),
+which reach the user's accounts exactly as an MCP proxy does. Tools whose
 declared purpose is to act (`schedule_task`, `delete`, `stage_action`, MCP
 tools named destructively) keep their existing confirmation paths and are not
 gated. In voice that also covers `stage_action`, `create_bot`,

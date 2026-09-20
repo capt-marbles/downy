@@ -259,9 +259,18 @@ it("picks read-oriented and MCP proxy tools for chat, and reads config from env"
         "tool_airtable_list",
         "schedule_task",
         "grep",
+        "gmail_email",
+        "airtable_records",
+        "stage_action",
       ]),
     ),
-  ).toEqual(["web_scrape", "tool_airtable_list", "grep"]);
+  ).toEqual([
+    "web_scrape",
+    "tool_airtable_list",
+    "grep",
+    "gmail_email",
+    "airtable_records",
+  ]);
   expect(
     effectGateConfigFromEnv({
       EFFECT_GATE_ENABLED: "true",

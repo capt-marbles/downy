@@ -99,13 +99,27 @@ const READ_ORIENTED_TOOL_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * In chat and full-access workers, gate the read-oriented tools plus every
- * MCP proxy tool. MCP tools the name heuristic already marks destructive
- * carry an explicit confirmation field; a confirmed call skips the gate.
+ * Composio-backed wrappers registered by name in DownyAgent. They reach the
+ * user's accounts exactly as an MCP proxy does, so they are gated the same
+ * way: Jev judges the action and arguments, and the decision is recorded.
+ */
+const CONNECTED_SERVICE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "gmail_email",
+  "airtable_records",
+]);
+
+/**
+ * In chat and full-access workers, gate the read-oriented tools, every MCP
+ * proxy tool and the connected-service wrappers. MCP tools the name heuristic
+ * already marks destructive carry an explicit confirmation field; a confirmed
+ * call skips the gate.
  */
 export function chatGateNames(tools: ToolSet): string[] {
   return Object.keys(tools).filter(
-    (name) => READ_ORIENTED_TOOL_NAMES.has(name) || name.startsWith("tool_"),
+    (name) =>
+      READ_ORIENTED_TOOL_NAMES.has(name) ||
+      CONNECTED_SERVICE_TOOL_NAMES.has(name) ||
+      name.startsWith("tool_"),
   );
 }
 
