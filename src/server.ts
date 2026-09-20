@@ -1,3 +1,4 @@
+import { handleComposioOAuthRequest } from "./worker/handlers/composio-oauth";
 import { handleResearchComparisonRequest } from "./worker/handlers/research-comparison";
 import { handleCloudComputerRequest } from "./worker/handlers/cloud-computer";
 import { handleResearchViewRequest } from "./worker/handlers/research-view";
@@ -82,7 +83,8 @@ async function redirectInvalidAgentPage(
   return Response.redirect(new URL(pathname, request.url).toString(), 302);
 }
 
-const researchRoutes = new Map([
+const exactRoutes = new Map([
+  ["/api/composio", handleComposioRequest],
   ["/api/research-view", handleResearchViewRequest],
   ["/api/research-comparison", handleResearchComparisonRequest],
   ["/api/pilot-choices", handlePilotChoicesRequest],
@@ -135,8 +137,8 @@ export default {
       return handleCloudComputerRequest(request, env);
 
     if (url.pathname === "/api/voice") return handleVoiceRequest(request, env);
-    const researchHandler = researchRoutes.get(url.pathname);
-    if (researchHandler) return researchHandler(request, env);
+    const exactHandler = exactRoutes.get(url.pathname);
+    if (exactHandler) return exactHandler(request, env);
 
     if (
       url.pathname === "/api/admin/reset-state" ||
@@ -199,8 +201,9 @@ export default {
 
     if (url.pathname.startsWith("/api/corpus"))
       return handleCorpusRequest(request, env);
-    if (url.pathname === "/api/composio")
-      return handleComposioRequest(request, env);
+    if (/^\/api\/composio\/oauth(?:\/|$)/.test(url.pathname))
+      return handleComposioOAuthRequest(request, env);
+
     if (url.pathname.startsWith("/api/credentials/"))
       return handleCredentialsRequest(request, env);
 
@@ -230,6 +233,14 @@ export default {
       return handleModelStatusRequest(request, env);
     }
 
+    // Internal OAuth vaults have no browser/chat surface. Only the verified
+    // Access-user handler above can select one and call it through Worker RPC.
+    if (
+      decodeURIComponent(url.pathname).startsWith(
+        "/agents/downy-agent/__composio-",
+      )
+    )
+      return new Response("Not found", { status: 404 });
     const agentResponse = await routeAgentRequest(request, env);
     if (agentResponse) return agentResponse;
 

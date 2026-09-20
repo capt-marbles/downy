@@ -1,3 +1,4 @@
+import ComposioConnectCard from "./ComposioConnectCard";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { agentFetch } from "../../lib/agent-request";
@@ -70,12 +71,7 @@ export default function GmailConnectCard() {
       {!connection && !status.error && (
         <p className="mt-3 text-sm">Checking connection…</p>
       )}
-      {connection && !connection.configured && (
-        <p role="status" className="mt-3 text-sm">
-          One-time Composio administrator setup is needed before you can connect
-          Gmail. Never paste the project key into chat.
-        </p>
-      )}
+      {connection && !connection.configured && <ComposioConnectCard />}
       {connection?.configured && !ready && !pending && (
         <button
           className="btn btn-primary btn-sm mt-3"

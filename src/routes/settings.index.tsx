@@ -1,3 +1,4 @@
+import ComposioConnectCard from "../components/chat/ComposioConnectCard";
 import CloudComputerCard from "../components/CloudComputerCard";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -29,6 +30,7 @@ function SettingsPage() {
       <div className="grid gap-4">
         <AppearanceCard />
         <PreferencesCard />
+        <ComposioConnectCard />
         <CloudComputerCard />
         <CloudComputerCard backend="boat-computer" />
       </div>

@@ -1,3 +1,4 @@
+import ComposioConnectCard from "./ComposioConnectCard";
 import GmailConnectCard from "./GmailConnectCard";
 import { agentFetch } from "../../lib/agent-request";
 import { useState } from "react";
@@ -76,6 +77,12 @@ export default function ToolSetupCard({ part }: { part: ToolPart }) {
     },
   });
   if (!parsed.success) return <p className="text-xs">Finding setup options…</p>;
+  if (
+    parsed.data.candidates.some(
+      (candidate) => candidate.path === "composio-connect",
+    )
+  )
+    return <ComposioConnectCard />;
   if (
     parsed.data.candidates.length === 1 &&
     parsed.data.candidates[0]?.toolkit === "gmail"

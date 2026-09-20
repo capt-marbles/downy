@@ -1,3 +1,4 @@
+import { ComposioOAuth } from "../composio/oauth";
 import {
   createBot,
   createBotTool,
@@ -1941,6 +1942,75 @@ export class DownyAgent extends Think {
         `${this.name}:composio:${id}:${userId}`,
       )
     ).url;
+  }
+
+  #composioOperation: Promise<unknown> = Promise.resolve();
+
+  private withComposioOAuth<T>(
+    operation: (oauth: ComposioOAuth) => Promise<T>,
+  ): Promise<T> {
+    // Serialize refreshes and callbacks, including across await boundaries. A
+    // pending callback is consumed before exchange and cannot be redeemed twice.
+    const result = this.#composioOperation.then(() =>
+      operation(
+        new ComposioOAuth(this.ctx.storage, this.env.CREDENTIAL_KEY, this.name),
+      ),
+    );
+    this.#composioOperation = result.catch(() => undefined);
+    return result;
+  }
+
+  async startComposioOAuth(origin: string, agentSlug: string) {
+    return this.withComposioOAuth((oauth) => oauth.start(origin, agentSlug));
+  }
+
+  async completeComposioOAuth(
+    state: string,
+    code: string | null,
+    denied: boolean,
+  ) {
+    return this.withComposioOAuth((oauth) =>
+      oauth.complete(state, code, denied),
+    );
+  }
+
+  async getComposioOAuthStatus() {
+    return this.withComposioOAuth((oauth) => oauth.status());
+  }
+
+  async disconnectComposioOAuth() {
+    return this.withComposioOAuth((oauth) => oauth.disconnect());
+  }
+
+  async showComposioConnectCard(
+    outcome?: "connected" | "failed",
+  ): Promise<void> {
+    const id = outcome
+      ? `composio-oauth:${crypto.randomUUID()}`
+      : "composio-connect";
+    const message: UIMessage = {
+      id,
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text:
+            outcome === "connected"
+              ? "Composio connected securely. Gmail authorization is the next step; no Gmail tools have been enabled by this sign-in."
+              : outcome === "failed"
+                ? "Composio sign-in did not complete. You can retry using the card."
+                : "Connect Composio using the card below. Sign-in happens securely outside chat.",
+        },
+        { type: "data-composio-connect", data: { provider: "composio" } },
+      ],
+    };
+    if (!this.session.getMessage(id)) await this.session.appendMessage(message);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
   }
 
   async showGmailConnectCard(): Promise<void> {

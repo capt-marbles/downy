@@ -17,6 +17,17 @@ const DIRECT = [
   },
 ];
 export async function findToolSetup(env: Cloudflare.Env, query: string) {
+  if (/^(connect )?composio$/i.test(query.trim()))
+    return {
+      candidates: [
+        {
+          name: "Composio",
+          path: "composio-connect" as const,
+          confidence: "confirmed" as const,
+        },
+      ],
+      warnings: [],
+    };
   if (/^(gmail|google mail|connect gmail)$/i.test(query.trim()))
     return {
       candidates: [
