@@ -67,4 +67,6 @@ it("shows URL fields when a voice selection is restored and repopulates saved so
   expect(restored).toContain('value="https://two.test"');
   expect(restored).toContain("Update sources");
   expect(restored).toContain("Three URLs saved");
+  expect(restored).toContain("Comparison progress appears above.");
+  expect(restored).not.toContain("Preference saved. No task has started.");
 });

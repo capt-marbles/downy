@@ -1,3 +1,13 @@
+import {
+  ComparisonRunSchema,
+  ComparisonFeedbackSchema,
+  withComparisonFeedback,
+  type ComparisonRun,
+} from "../../lib/research-comparison";
+import { advanceComparison } from "../research-comparison/runner";
+import { comparisonCaptures } from "../research-comparison/captures";
+import { draftComparison } from "../research-comparison/draft";
+import { runJev } from "../jev/client";
 import { advanceCampaignWorkflow } from "../campaign-room/advance";
 import {
   BrowserResearchSchema,
@@ -336,6 +346,22 @@ export class DownyAgent extends Think {
   #abortsWrapped = false;
   override async onStart(): Promise<void> {
     await super.onStart();
+    const comparisons = await this.ctx.storage.list<ComparisonRun>({
+      prefix: "comparison:",
+    });
+    for (const [, value] of comparisons) {
+      const run = ComparisonRunSchema.safeParse(value);
+      if (
+        run.success &&
+        (!["complete", "failed"].includes(run.data.phase) ||
+          !this.session.getMessage(
+            `comparison-receipt:${run.data.id}:${run.data.phase}`,
+          ))
+      )
+        await this.schedule(5, "resumeComparison", run.data.id, {
+          idempotent: true,
+        });
+    }
     await this.mcp.waitForConnections({ timeout: 10_000 });
     await this.#restoreMcpServers();
     await this.mcp.waitForConnections({ timeout: 10_000 });
@@ -1223,6 +1249,166 @@ export class DownyAgent extends Think {
           messages: this.messages,
         }),
       );
+  }
+
+  #comparisonPending = new Map<string, Promise<void>>();
+
+  async getComparison(ticketId: string): Promise<ComparisonRun | null> {
+    if (!(await this.getPilotChoice(ticketId))) return null;
+    const latest = await this.ctx.storage.get<string>(
+      `comparison-latest:${ticketId}`,
+    );
+    if (!latest) return null;
+    const parsed = ComparisonRunSchema.safeParse(
+      await this.ctx.storage.get(`comparison:${latest}`),
+    );
+    return parsed.success ? parsed.data : null;
+  }
+
+  async startComparison(ticketId: string): Promise<ComparisonRun> {
+    const choice = await this.getPilotChoice(ticketId);
+    if (choice?.selectedId !== "source-comparison" || !choice.sources)
+      throw new Error("Save three sources in the selected comparison first.");
+    const run = await this.ctx.storage.transaction(async (txn) => {
+      const latest = await txn.get<string>(`comparison-latest:${ticketId}`);
+      const parsed = ComparisonRunSchema.safeParse(
+        latest ? await txn.get(`comparison:${latest}`) : null,
+      );
+      if (
+        parsed.success &&
+        parsed.data.phase !== "failed" &&
+        (parsed.data.sourceRevision === choice.sources!.revision ||
+          !["complete", "failed"].includes(parsed.data.phase))
+      )
+        return parsed.data;
+      const id = crypto.randomUUID(),
+        now = Date.now();
+      const created: ComparisonRun = {
+        id,
+        ticketId,
+        sourceRevision: choice.sources!.revision,
+        createdAt: now,
+        updatedAt: now,
+        urls: [...choice.sources!.urls],
+        actionIds: [0, 1, 2].map((i) => `hands-${now}-${id.slice(0, 8)}${i}`),
+        phase: "capturing",
+        error: null,
+        sources: [],
+        draft: null,
+        checks: [],
+        model: null,
+        generator: null,
+        reportPath: null,
+        auditPath: null,
+        sample: [],
+        feedback: [],
+      };
+      await txn.put(`comparison:${id}`, created);
+      await txn.put(`comparison-latest:${ticketId}`, id);
+      return created;
+    });
+    if (run.phase === "capturing") {
+      await this.schedule(5, "resumeComparison", run.id, { idempotent: true });
+      this.ctx.waitUntil(this.resumeComparison(run.id));
+    }
+    return run;
+  }
+
+  async resumeComparison(id: string): Promise<void> {
+    if (this.#comparisonPending.has(id)) return;
+    const operation = this.#advanceComparison(id);
+    this.#comparisonPending.set(id, operation);
+    try {
+      await operation;
+    } finally {
+      this.#comparisonPending.delete(id);
+    }
+  }
+
+  async #advanceComparison(id: string): Promise<void> {
+    const parsed = ComparisonRunSchema.safeParse(
+      await this.ctx.storage.get(`comparison:${id}`),
+    );
+    if (!parsed.success) return;
+    const run = parsed.data;
+    if (!this.session.getMessage(`pilot-choice:${run.ticketId}`)) return;
+    await advanceComparison(run, {
+      save: (value) =>
+        this.ctx.storage.put(
+          `comparison:${id}`,
+          ComparisonRunSchema.parse(value),
+        ),
+      write: (path, value) =>
+        this.workspace.writeFile(normalizeWorkspacePath(path), value),
+      captures: (value) => comparisonCaptures(this.env.DB, this.name, value),
+      draft: async (sources) =>
+        draftComparison(
+          getModelFor(this.env, await readAiProvider(this.env.DB)),
+          sources,
+        ),
+      evaluate: (request) => runJev(this.env.AI, request),
+      schedule: async (runId, seconds) => {
+        await this.schedule(seconds, "resumeComparison", runId);
+      },
+      notify: (value) => this.#notifyComparison(value),
+    });
+  }
+
+  async #notifyComparison(run: ComparisonRun): Promise<void> {
+    const id = `comparison-receipt:${run.id}:${run.phase}`;
+    if (this.session.getMessage(id)) return;
+    const text =
+      run.phase === "complete"
+        ? `**Three-source comparison ready for review**\n\n[Open the evidence report](/agent/${encodeURIComponent(this.name)}/workspace/${run.reportPath}). ${run.checks.filter((check) => check.status === "supported").length} of ${run.checks.length} findings passed the pilot's support checks. Inspect flagged findings and the review sample in the comparison card. ${run.error || "These are checks against captured source text, not independent verification."}`
+        : `**Three-source comparison stopped**\n\n${run.error} Your source selection is preserved.`;
+    await this.session.appendMessage({
+      id,
+      role: "assistant",
+      parts: [{ type: "text", text }],
+    });
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+  }
+
+  async recordComparisonFeedback(
+    ticketId: string,
+    runId: string,
+    value: unknown,
+  ): Promise<ComparisonRun> {
+    const feedback = ComparisonFeedbackSchema.parse(value);
+    const current = await this.getComparison(ticketId);
+    if (
+      !current ||
+      current.id !== runId ||
+      current.phase !== "complete" ||
+      feedback.findingIndex >= (current.draft?.findings.length ?? 0)
+    )
+      throw new Error("No completed finding to review.");
+    const updated = await this.ctx.storage.transaction(async (txn) => {
+      const run = ComparisonRunSchema.parse(
+        await txn.get(`comparison:${current.id}`),
+      );
+      const reviewed = withComparisonFeedback(run, feedback, Date.now());
+      await txn.put(`comparison:${run.id}`, reviewed);
+      return reviewed;
+    });
+    // Predictions and sources are immutable. Feedback has its own record and
+    // server timestamp; no automatic threshold or model changes follow a label.
+    await this.workspace.writeFile(
+      normalizeWorkspacePath(
+        `workspace/research/comparisons/${current.id}/feedback/${feedback.id}.json`,
+      ),
+      JSON.stringify(
+        updated.feedback.find((item) => item.id === feedback.id),
+        null,
+        2,
+      ),
+    );
+    return updated;
   }
 
   async getResearchView(): Promise<ResearchSnapshot | null> {

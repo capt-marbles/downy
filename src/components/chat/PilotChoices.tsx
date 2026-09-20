@@ -1,3 +1,4 @@
+import ComparisonPanel from "./ComparisonPanel";
 import { createContext, useContext } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { defineRegistry, JSONUIProvider, Renderer } from "@json-render/react";
@@ -175,6 +176,12 @@ export default function PilotChoices({ ticketId }: { ticketId: string }) {
           slug={slug}
         />
       )}
+      {choice.selectedId === "source-comparison" && choice.sources && (
+        <ComparisonPanel
+          ticketId={choice.id}
+          sourceRevision={choice.sources.revision}
+        />
+      )}
       <div
         aria-live="polite"
         className="mt-3 text-xs leading-relaxed text-base-content/60"
@@ -186,7 +193,11 @@ export default function PilotChoices({ ticketId }: { ticketId: string }) {
           </p>
         )}
         {choice.selectedId ? (
-          <p>Preference saved. No task has started.</p>
+          <p>
+            {choice.selectedId === "source-comparison" && choice.sources
+              ? "Preference saved. Comparison progress appears above."
+              : "Preference saved. No task has started."}
+          </p>
         ) : choice.expiresAt <= Date.now() ? (
           <p>These options expired. Request fresh options to choose.</p>
         ) : (

@@ -1,3 +1,4 @@
+import { handleResearchComparisonRequest } from "./worker/handlers/research-comparison";
 import { handleCloudComputerRequest } from "./worker/handlers/cloud-computer";
 import { handleResearchViewRequest } from "./worker/handlers/research-view";
 import { handlePilotChoicesRequest } from "./worker/handlers/pilot-choices";
@@ -81,6 +82,12 @@ async function redirectInvalidAgentPage(
   return Response.redirect(new URL(pathname, request.url).toString(), 302);
 }
 
+const researchRoutes = new Map([
+  ["/api/research-view", handleResearchViewRequest],
+  ["/api/research-comparison", handleResearchComparisonRequest],
+  ["/api/pilot-choices", handlePilotChoicesRequest],
+]);
+
 export default {
   async fetch(request: Request, env: Cloudflare.Env): Promise<Response> {
     const url = new URL(request.url);
@@ -128,10 +135,8 @@ export default {
       return handleCloudComputerRequest(request, env);
 
     if (url.pathname === "/api/voice") return handleVoiceRequest(request, env);
-    if (url.pathname === "/api/research-view")
-      return handleResearchViewRequest(request, env);
-    if (url.pathname === "/api/pilot-choices")
-      return handlePilotChoicesRequest(request, env);
+    const researchHandler = researchRoutes.get(url.pathname);
+    if (researchHandler) return researchHandler(request, env);
 
     if (
       url.pathname === "/api/admin/reset-state" ||
