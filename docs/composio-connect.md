@@ -57,3 +57,28 @@ status is synchronized by the authenticated cards and includes its last check.
 The existing encrypted per-user vault persists the Gmail session; the bot stores
 only a server-side reference after its Connect button is clicked. Other bots do
 not inherit Gmail access.
+
+## Airtable through conversation
+
+Ask Downy **Connect Airtable**. Its confirmed setup path works without a
+`COMPOSIO_API_KEY` or Exa. The card uses the same encrypted, user-scoped Composio
+OAuth vault as Gmail. Clicking Connect grants this bot access and opens the
+hosted Airtable authorization; choose the bases to share there. Merely viewing
+the card does not start authorization or attach an existing account.
+
+After authorization, Downy verifies `AIRTABLE_GET_USER_INFO` on the explicitly
+selected account. Multiple connections produce an account choice, never an
+implicit switch to the default. The bot is notified only of verified identity
+and readiness. Credentials never enter chat, tool arguments or results.
+
+The conditional `airtable_records` tool exposes three read operations: list
+bases, get base schema, and list records. Reads pin the account and verify its
+identity before execution. Record pages are limited to 100 (default 20); pass
+the returned offset unchanged for the next page. Discover the live base/table
+schema before constructing filters. Record creation, updates and deletion are
+not exposed. Enabling CRM writes is a separate capability change.
+
+Other service discovery first uses the signed-in Composio catalog when a bot
+has an associated OAuth owner. Project API-key and vendor-documentation lookup
+remain fallbacks. Discovery alone does not authorize an app or imply its setup
+card is implemented; Gmail and Airtable currently have the OAuth account cards.

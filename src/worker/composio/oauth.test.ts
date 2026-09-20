@@ -148,6 +148,76 @@ it.each([false, true])(
     expect((await f.make().status()).state).toBe("connected");
   },
 );
+it("the encrypted OAuth vault discovers toolkits and preserves both app states without exposing credentials", async () => {
+  const f = fixture();
+  const url = new URL(await f.make().start("https://downy.example", "gtm"));
+  await f.make().complete(url.searchParams.get("state")!, "secret-code", false);
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (input, init) => {
+    if (urlText(input) === RESOURCE) {
+      const body = z
+        .object({
+          method: z.string(),
+          params: z
+            .object({
+              name: z.string(),
+              arguments: z.object({
+                queries: z.array(z.object({ use_case: z.string() })),
+              }),
+            })
+            .optional(),
+        })
+        .safeParse(JSON.parse(bodyText(init?.body)));
+      if (
+        body.success &&
+        body.data.method === "tools/call" &&
+        body.data.params?.name === "COMPOSIO_SEARCH_TOOLS"
+      ) {
+        const toolkit = body.data.params.arguments.queries[0].use_case
+          .toLowerCase()
+          .includes("gmail")
+          ? "gmail"
+          : "airtable";
+        return Response.json({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            structuredContent: {
+              successful: true,
+              data: {
+                session: { id: `${toolkit}-session` },
+                toolkit_connection_statuses: [
+                  {
+                    toolkit,
+                    has_active_connection: false,
+                    connection_details: null,
+                  },
+                ],
+                private_token: "never-return-this",
+              },
+            },
+          },
+        });
+      }
+    }
+    return original(input, init);
+  });
+  expect(await f.make().discoverSetup("Airtable")).toEqual([
+    {
+      name: "airtable",
+      toolkit: "airtable",
+      path: "composio",
+      confidence: "confirmed",
+    },
+  ]);
+  expect((await f.make().airtableStatus(true)).state).toBe("not_connected");
+  expect((await f.make().gmailStatus(true)).state).toBe("not_connected");
+  expect((await f.make().airtableStatus()).checkedAt).not.toBeNull();
+  const persisted = JSON.stringify([...f.records.values()]);
+  expect(persisted).not.toMatch(
+    /secret-access|secret-refresh|airtable-session|gmail-session|never-return-this/,
+  );
+});
 
 it("rejects wrong state, expired callbacks and replay without exchanging a code", async () => {
   const f = fixture();

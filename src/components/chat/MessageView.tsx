@@ -1,6 +1,7 @@
 import ComposioConnectCard from "./ComposioConnectCard";
 import { ComposioOAuthPartSchema } from "../../lib/composio-oauth";
 import GmailConnectCard from "./GmailConnectCard";
+import AirtableConnectCard from "./AirtableConnectCard";
 import { ComposioCardPartSchema } from "../../lib/composio";
 import type { UIMessage } from "ai";
 import {
@@ -441,8 +442,15 @@ function MessageViewImpl({
         {message.parts.map((part, idx) => {
           if (!isUser && ComposioOAuthPartSchema.safeParse(part).success)
             return <ComposioConnectCard key={idx} />;
-          if (!isUser && ComposioCardPartSchema.safeParse(part).success)
-            return <GmailConnectCard key={idx} />;
+          const managedCard = !isUser
+            ? ComposioCardPartSchema.safeParse(part)
+            : null;
+          if (managedCard?.success)
+            return managedCard.data.data.toolkit === "airtable" ? (
+              <AirtableConnectCard key={idx} />
+            ) : (
+              <GmailConnectCard key={idx} />
+            );
           const pilot = !isUser ? PilotChoicePartSchema.safeParse(part) : null;
           if (pilot?.success)
             return (

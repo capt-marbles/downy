@@ -1,4 +1,10 @@
 import {
+  AirtableActionSchema,
+  isAirtableConnectRequest,
+  type AirtableAction,
+  type AirtableConnectStatus,
+} from "../../lib/airtable-connect";
+import {
   GmailActionSchema,
   isGmailConnectRequest,
   type GmailAction,
@@ -6,6 +12,7 @@ import {
 } from "../../lib/gmail-connect";
 import type { ComposioOAuthStatus } from "../../lib/composio-oauth";
 import { tool } from "ai";
+import { z } from "zod";
 import { ComposioOAuth } from "../composio/oauth";
 import {
   createBot,
@@ -508,13 +515,15 @@ export class DownyAgent extends Think {
           .map((part) => part.text)
           .join(" ") ?? "",
       );
-    const forceGmailSetup =
+    const forceManagedSetup =
       !ctx.continuation &&
-      isGmailConnectRequest(
-        latestUser?.parts
-          .filter((part) => part.type === "text")
-          .map((part) => part.text)
-          .join(" ") ?? "",
+      [isGmailConnectRequest, isAirtableConnectRequest].some((matches) =>
+        matches(
+          latestUser?.parts
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join(" ") ?? "",
+        ),
       );
     if (latestUser?.id.startsWith("voice-request:")) {
       return {
@@ -544,6 +553,29 @@ export class DownyAgent extends Think {
         this.callMcpToolWithRecovery(serverId, name, args),
     });
     const gmailGrant = await this.ctx.storage.get<string>("gmail-owner");
+    const airtableGrant = await this.ctx.storage.get<string>("airtable-owner");
+    if (airtableGrant)
+      mcpTools.airtable_records = tool({
+        description:
+          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. Use returned offset for pagination. No create, update or delete operations are available.",
+        inputSchema: AirtableActionSchema,
+        execute: async (input) => {
+          try {
+            const result = await (
+              await getAgentStub(this.env, airtableGrant)
+            ).executeComposioAirtable(input);
+            return z
+              .object({ account: z.string(), data: z.unknown() })
+              .parse(JSON.parse(result));
+          } catch {
+            return {
+              state: "failed",
+              error:
+                "Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.",
+            };
+          }
+        },
+      });
     if (gmailGrant)
       mcpTools.gmail_email = tool({
         description:
@@ -567,7 +599,7 @@ export class DownyAgent extends Think {
       system,
       model: getModelFor(this.env, aiProvider),
       tools: mcpTools,
-      ...(forceGmailSetup
+      ...(forceManagedSetup
         ? {
             toolChoice: { type: "tool" as const, toolName: "find_tool_setup" },
             maxSteps: 1,
@@ -2058,6 +2090,89 @@ export class DownyAgent extends Think {
   async getComposioGmailStatus(refresh = false) {
     return this.withComposioOAuth((oauth) => oauth.gmailStatus(refresh));
   }
+  async getComposioAirtableStatus(refresh = false) {
+    return this.withComposioOAuth((oauth) => oauth.airtableStatus(refresh));
+  }
+  async startComposioAirtable() {
+    return this.withComposioOAuth((oauth) => oauth.startAirtable());
+  }
+  async selectComposioAirtable(accountId: string) {
+    return this.withComposioOAuth((oauth) => oauth.selectAirtable(accountId));
+  }
+  async executeComposioAirtable(input: AirtableAction): Promise<string> {
+    // Airtable field values are recursive JSON. A JSON wire value avoids
+    // recursively expanding them through Workers RPC's remote-object types.
+    return JSON.stringify(
+      await this.withComposioOAuth((oauth) => oauth.airtableAction(input)),
+    );
+  }
+  async discoverComposioSetup(query: string) {
+    return this.withComposioOAuth((oauth) => oauth.discoverSetup(query));
+  }
+  async bindComposioOwner(owner: string) {
+    const previous = await this.ctx.storage.get<string>("composio-owner");
+    if (previous && previous !== owner)
+      throw new Error("This bot has a different Composio owner");
+    await this.ctx.storage.put("composio-owner", owner);
+  }
+  async findManagedToolSetup(query: string) {
+    const owner =
+      (await this.ctx.storage.get<string>("composio-owner")) ??
+      (await this.ctx.storage.get<string>("gmail-owner")) ??
+      (await this.ctx.storage.get<string>("airtable-owner"));
+    if (!owner) throw new Error("Connect Composio first");
+    return (await getAgentStub(this.env, owner)).discoverComposioSetup(query);
+  }
+  async authorizeAirtableOwner(owner: string) {
+    const previous = await this.ctx.storage.get<string>("airtable-owner");
+    if (previous && previous !== owner)
+      throw new Error("This bot has a different Airtable owner");
+    await this.ctx.storage.put("airtable-owner", owner);
+  }
+  async isAirtableOwner(owner: string) {
+    return (await this.ctx.storage.get<string>("airtable-owner")) === owner;
+  }
+  async showAirtableConnectCard() {
+    const id = "composio-setup:airtable";
+    const message: UIMessage = {
+      id,
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: "Use Connect Airtable below to authorize base, table schema and record reads for this bot. Choose which bases Airtable shares during authorization. Sign-in stays outside chat; I will wait for the card to confirm.",
+        },
+        { type: "data-composio-setup", data: { toolkit: "airtable" } },
+      ],
+    };
+    if (!this.session.getMessage(id)) await this.session.appendMessage(message);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+  }
+  async notifyAirtableReady(identity: string) {
+    const id = `airtable-ready:${identity}`;
+    if (!this.session.getMessage(id))
+      await this.session.appendMessage({
+        id,
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: `Airtable connected: ${identity}. Base, table schema and record reads are available for the bases you authorized. No record-writing tools are enabled.`,
+          },
+        ],
+      });
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+  }
   async startComposioGmail() {
     return this.withComposioOAuth((oauth) => oauth.startGmail());
   }
@@ -2070,14 +2185,19 @@ export class DownyAgent extends Think {
   async recordManagedStatus(status: {
     composio: ComposioOAuthStatus;
     gmail?: GmailConnectStatus;
+    airtable?: AirtableConnectStatus;
   }) {
-    await this.ctx.storage.put("managed-connections", status);
+    await this.ctx.storage.transaction(async (txn) => {
+      const existing = await txn.get<typeof status>("managed-connections");
+      await txn.put("managed-connections", { ...existing, ...status });
+    });
   }
   async managedConnectionStatus() {
     return (
       (await this.ctx.storage.get<{
         composio: ComposioOAuthStatus;
         gmail?: GmailConnectStatus;
+        airtable?: AirtableConnectStatus;
       }>("managed-connections")) ?? null
     );
   }

@@ -12,6 +12,8 @@ function fixture() {
   };
   const stub = {
     showGmailConnectCard: vi.fn(),
+    showAirtableConnectCard: vi.fn(),
+    findManagedToolSetup: vi.fn(),
     showComposioConnectCard: vi.fn(),
     managedConnectionStatus: vi.fn(async () => managed),
     getMcpServers: () => ({ servers: {}, tools: [] }),
@@ -22,6 +24,16 @@ function fixture() {
   return { agent, stub, managed };
 }
 const options = { toolCallId: "test", messages: [] };
+it("Airtable setup displays a persistent OAuth card without asking for credentials or probing an endpoint", async () => {
+  const f = fixture();
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion -- confirmed Airtable path needs no bindings.
+  const setup = createFindToolSetupTool({} as Cloudflare.Env, f.agent);
+  const result = await setup.execute!({ query: "Connect Airtable" }, options);
+  expect(f.stub.showAirtableConnectCard).toHaveBeenCalledOnce();
+  expect(f.stub.connectMcpEndpoint).not.toHaveBeenCalled();
+  expect(result).toMatchObject({ candidates: [{ toolkit: "airtable" }] });
+  expect(JSON.stringify(result)).toContain("Stop and wait");
+});
 it("the conversation's Gmail setup tool displays a card with an explicit wait instruction, without connecting", async () => {
   const f = fixture();
   // eslint-disable-next-line typescript/no-unsafe-type-assertion -- known Gmail discovery does not use bindings.

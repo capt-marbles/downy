@@ -1,3 +1,10 @@
+import { AirtableConnection, AirtableStateSchema } from "./airtable";
+import type { AirtableAction } from "../../lib/airtable-connect";
+import {
+  metaData,
+  ConnectionSearchSchema,
+  type MetaName,
+} from "./managed-protocol";
 import type { GmailAction } from "../../lib/gmail-connect";
 import { GmailConnection, GmailStateSchema, type GmailState } from "./gmail";
 import { z } from "zod";
@@ -36,6 +43,7 @@ const OAuthSchema = z.object({
     })
     .optional(),
   gmail: GmailStateSchema.optional(),
+  airtable: AirtableStateSchema.optional(),
   status: z.enum([
     "disconnected",
     "authorizing",
@@ -487,24 +495,76 @@ export class ComposioOAuth {
       tools.result,
     );
   }
+  private async callManaged(name: MetaName, args: Record<string, unknown>) {
+    if ((await this.status()).state !== "connected")
+      throw new Error("Connect Composio first");
+    const token = (await this.load())?.tokens?.accessToken;
+    if (!token) throw new Error("Connect Composio first");
+    const session = await this.openSession(token);
+    return (
+      await this.rpc(
+        token,
+        "tools/call",
+        { name, arguments: args },
+        session.sessionId,
+        session.protocolVersion,
+      )
+    ).result;
+  }
+  async discoverSetup(query: string) {
+    if (!query.trim() || query.length > 200)
+      throw new Error("Invalid setup query");
+    const data = ConnectionSearchSchema.parse(
+      metaData(
+        await this.callManaged("COMPOSIO_SEARCH_TOOLS", {
+          queries: [{ use_case: `Find tools for ${query}` }],
+          session: { generate_id: true },
+        }),
+      ),
+    );
+    return data.toolkit_connection_statuses.map(({ toolkit }) => ({
+      name: toolkit,
+      toolkit,
+      path: "composio" as const,
+      confidence: "confirmed" as const,
+    }));
+  }
+  private airtable() {
+    return new AirtableConnection(
+      (name, args) => this.callManaged(name, args),
+      async () => (await this.load())?.airtable,
+      async (airtable) => {
+        const stored = await this.load();
+        if (!stored) throw new Error("Connect Composio first");
+        stored.airtable = airtable;
+        await this.save(stored);
+      },
+      this.now,
+    );
+  }
+  async airtableStatus(refresh = false) {
+    if ((await this.status()).state !== "connected")
+      return {
+        state: "needs_composio" as const,
+        identity: null,
+        checkedAt: null,
+        error: null,
+        authorized: false,
+      };
+    return this.airtable().status(refresh);
+  }
+  async startAirtable() {
+    return this.airtable().start();
+  }
+  async selectAirtable(accountId: string) {
+    return this.airtable().select(accountId);
+  }
+  async airtableAction(input: AirtableAction) {
+    return this.airtable().action(input);
+  }
   private gmail() {
     return new GmailConnection(
-      async (name, args) => {
-        if ((await this.status()).state !== "connected")
-          throw new Error("Connect Composio first");
-        const token = (await this.load())?.tokens?.accessToken;
-        if (!token) throw new Error("Connect Composio first");
-        const session = await this.openSession(token);
-        return (
-          await this.rpc(
-            token,
-            "tools/call",
-            { name, arguments: args },
-            session.sessionId,
-            session.protocolVersion,
-          )
-        ).result;
-      },
+      (name, args) => this.callManaged(name, args),
       async () => (await this.load())?.gmail,
       async (gmail: GmailState) => {
         const stored = await this.load();

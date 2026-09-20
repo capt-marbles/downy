@@ -1,5 +1,6 @@
 import ComposioConnectCard from "./ComposioConnectCard";
 import GmailConnectCard from "./GmailConnectCard";
+import AirtableConnectCard from "./AirtableConnectCard";
 import { agentFetch } from "../../lib/agent-request";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -83,6 +84,11 @@ export default function ToolSetupCard({ part }: { part: ToolPart }) {
     )
   )
     return <ComposioConnectCard />;
+  if (
+    parsed.data.candidates.length === 1 &&
+    parsed.data.candidates[0]?.toolkit === "airtable"
+  )
+    return <AirtableConnectCard />;
   if (
     parsed.data.candidates.length === 1 &&
     parsed.data.candidates[0]?.toolkit === "gmail"

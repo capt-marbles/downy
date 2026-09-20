@@ -11,7 +11,23 @@ export function createFindToolSetupTool(
       "Find setup options for a service by name, searching Composio toolkits, known direct MCP endpoints, then vendor documentation. Results explicitly distinguish confirmed endpoints from guesses. Use the setup card to choose a small tool scope and authorize; never ask for keys in chat.",
     inputSchema: z.object({ query: z.string().min(1).max(200) }),
     execute: async ({ query }) => {
-      const result = await findToolSetup(env, query);
+      const result = await findToolSetup(env, query, (name) =>
+        agent.findManagedToolSetup(name),
+      );
+      if (
+        result.candidates.some(
+          (candidate) =>
+            "toolkit" in candidate && candidate.toolkit === "airtable",
+        )
+      ) {
+        await agent.showAirtableConnectCard();
+        return {
+          ...result,
+          managedConnections: await agent.managedConnectionStatus(),
+          nextAction:
+            "The Airtable connect card is displayed. Stop and wait for the user to click Connect Airtable. It uses the existing Composio account OAuth. Do not ask for an MCP URL, project API key or token, and do not retry setup in this turn. The card confirms account identity before enabling base, schema and record reads.",
+        };
+      }
       if (
         result.candidates.some(
           (candidate) =>

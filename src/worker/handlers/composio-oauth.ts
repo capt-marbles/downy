@@ -42,11 +42,13 @@ export async function handleComposioOAuthRequest(
       const status = await vault.getComposioOAuthStatus();
       if (url.searchParams.has("agentSlug")) {
         const agent = await getActiveAgentStub(request, env);
-        const existing = await agent.managedConnectionStatus();
-        await agent.recordManagedStatus({ ...existing, composio: status });
+        if (status.state === "connected") await agent.bindComposioOwner(owner);
+        await agent.recordManagedStatus({ composio: status });
       }
       return Response.json(status, { headers });
     }
+    if (path.startsWith("/api/composio/oauth/airtable"))
+      return await handleAirtableOAuth(request, env, vault, owner);
     if (request.method === "GET" && path === "/api/composio/oauth/gmail") {
       const agent = await getActiveAgentStub(request, env);
       const composio = await vault.getComposioOAuthStatus();
@@ -140,11 +142,79 @@ export async function handleComposioOAuthRequest(
     if (url.pathname.endsWith("/callback")) return redirect("/settings");
     return Response.json(
       {
-        error: url.pathname.includes("/gmail")
-          ? "Could not verify Gmail. Your authorization is preserved; retry the status check."
-          : "Could not complete Composio setup. Please retry from Preferences.",
+        error: url.pathname.includes("/airtable")
+          ? "Could not verify Airtable. Your Composio sign-in is preserved; retry the connection card."
+          : url.pathname.includes("/gmail")
+            ? "Could not verify Gmail. Your authorization is preserved; retry the status check."
+            : "Could not complete Composio setup. Please retry from Preferences.",
       },
       { status: 503, headers },
     );
   }
+}
+
+// Called only after Access identity and same-origin POST checks above.
+async function handleAirtableOAuth(
+  request: Request,
+  env: Cloudflare.Env,
+  vault: Awaited<ReturnType<typeof getAgentStub>>,
+  owner: string,
+): Promise<Response> {
+  const path = new URL(request.url).pathname;
+  if (path === "/api/composio/oauth/airtable" && request.method === "GET") {
+    const agent = await getActiveAgentStub(request, env);
+    const composio = await vault.getComposioOAuthStatus();
+    const airtable = await vault.getComposioAirtableStatus(true);
+    const authorized = await agent.isAirtableOwner(owner);
+    await agent.recordManagedStatus({
+      composio,
+      airtable: { ...airtable, authorized },
+    });
+    if (authorized && airtable.state === "ready" && airtable.identity)
+      await agent.notifyAirtableReady(airtable.identity);
+    return Response.json({ ...airtable, authorized }, { headers });
+  }
+  if (
+    path === "/api/composio/oauth/airtable/start" &&
+    request.method === "POST"
+  ) {
+    const agent = await getActiveAgentStub(request, env);
+    await agent.authorizeAirtableOwner(owner);
+    const result = await vault.startComposioAirtable();
+    return redirect(
+      result.redirectUrl ??
+        `/agent/${encodeURIComponent(slugFromRequest(request))}`,
+    );
+  }
+  if (
+    path === "/api/composio/oauth/airtable/select" &&
+    request.method === "POST"
+  ) {
+    const agent = await getActiveAgentStub(request, env);
+    if (!(await agent.isAirtableOwner(owner)))
+      return Response.json(
+        { error: "Connect Airtable for this bot first." },
+        { status: 403, headers },
+      );
+    const input = z
+      .object({ accountId: z.string().min(1).max(200) })
+      .strict()
+      .safeParse(await request.json());
+    if (!input.success)
+      return Response.json(
+        { error: "Choose an Airtable account." },
+        { status: 400, headers },
+      );
+    await vault.selectComposioAirtable(input.data.accountId);
+    const airtable = await vault.getComposioAirtableStatus();
+    const composio = await vault.getComposioOAuthStatus();
+    await agent.recordManagedStatus({
+      composio,
+      airtable: { ...airtable, authorized: true },
+    });
+    if (airtable.state === "ready" && airtable.identity)
+      await agent.notifyAirtableReady(airtable.identity);
+    return Response.json({ ...airtable, authorized: true }, { headers });
+  }
+  return Response.json({ error: "Not found" }, { status: 404, headers });
 }

@@ -8,5 +8,5 @@ export const GMAIL_PILOT_TOOLS = [
 ] as const;
 export const ComposioCardPartSchema = z.object({
   type: z.literal("data-composio-setup"),
-  data: z.object({ toolkit: z.literal("gmail") }),
+  data: z.object({ toolkit: z.enum(["gmail", "airtable"]) }),
 });

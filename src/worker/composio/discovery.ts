@@ -16,7 +16,32 @@ const DIRECT = [
     docsUrl: "https://github.com/github/github-mcp-server",
   },
 ];
-export async function findToolSetup(env: Cloudflare.Env, query: string) {
+export async function findToolSetup(
+  env: Cloudflare.Env,
+  query: string,
+  managedDiscovery?: (query: string) => Promise<
+    {
+      name: string;
+      toolkit: string;
+      path: "composio";
+      confidence: "confirmed";
+    }[]
+  >,
+) {
+  // Vendor-confirmed managed paths do not depend on a project API key or Exa.
+  if (/\bairtable\b/i.test(query))
+    return {
+      candidates: [
+        {
+          name: "Airtable",
+          toolkit: "airtable",
+          path: "composio" as const,
+          confidence: "confirmed" as const,
+          docsUrl: "https://docs.composio.dev/toolkits/airtable",
+        },
+      ],
+      warnings: [],
+    };
   if (/^(connect )?composio$/i.test(query.trim()))
     return {
       candidates: [
@@ -41,6 +66,14 @@ export async function findToolSetup(env: Cloudflare.Env, query: string) {
       warnings: [],
     };
   const warnings: string[] = [];
+  if (managedDiscovery) {
+    try {
+      const candidates = await managedDiscovery(query);
+      if (candidates.length) return { candidates, warnings };
+    } catch {
+      warnings.push("Connected Composio catalog lookup unavailable");
+    }
+  }
   try {
     const list = await composio(
       env.COMPOSIO_API_KEY,

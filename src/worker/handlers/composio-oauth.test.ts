@@ -13,6 +13,13 @@ const mocks = vi.hoisted(() => ({
   gmailStatus: vi.fn(),
   gmailStart: vi.fn(),
   gmailSelect: vi.fn(),
+  airtableStatus: vi.fn(),
+  airtableStart: vi.fn(),
+  airtableSelect: vi.fn(),
+  airtableOwner: vi.fn(),
+  airtableGrant: vi.fn(),
+  airtableNotify: vi.fn(),
+  bind: vi.fn(),
   record: vi.fn(),
   owner: vi.fn(),
   grant: vi.fn(),
@@ -51,6 +58,9 @@ beforeEach(() => {
     getComposioGmailStatus: mocks.gmailStatus,
     startComposioGmail: mocks.gmailStart,
     selectComposioGmail: mocks.gmailSelect,
+    getComposioAirtableStatus: mocks.airtableStatus,
+    startComposioAirtable: mocks.airtableStart,
+    selectComposioAirtable: mocks.airtableSelect,
   });
   mocks.active.mockResolvedValue({
     showComposioConnectCard: mocks.card,
@@ -59,6 +69,10 @@ beforeEach(() => {
     isGmailOwner: mocks.owner,
     authorizeGmailOwner: mocks.grant,
     notifyGmailReady: mocks.notify,
+    isAirtableOwner: mocks.airtableOwner,
+    authorizeAirtableOwner: mocks.airtableGrant,
+    notifyAirtableReady: mocks.airtableNotify,
+    bindComposioOwner: mocks.bind,
   });
   mocks.status.mockResolvedValue({
     state: "connected",
@@ -89,6 +103,69 @@ const choose = () =>
       body: JSON.stringify({ accountId: "account-one" }),
     },
   );
+it("Airtable viewing cannot authorize; only the scoped button can start consent", async () => {
+  mocks.airtableStatus.mockResolvedValue({
+    state: "not_connected",
+    identity: null,
+    checkedAt: null,
+    error: null,
+    authorized: false,
+  });
+  mocks.airtableOwner.mockResolvedValue(false);
+  const status = await handleComposioOAuthRequest(
+    request("/airtable?agentSlug=gtm"),
+    env,
+  );
+  expect(status.status).toBe(200);
+  expect(mocks.airtableStart).not.toHaveBeenCalled();
+  expect(mocks.airtableGrant).not.toHaveBeenCalled();
+  mocks.airtableStart.mockResolvedValue({
+    redirectUrl: "https://connect.composio.dev/link/airtable",
+  });
+  const start = await handleComposioOAuthRequest(
+    request("/airtable/start?agentSlug=gtm", "POST"),
+    env,
+  );
+  expect(start.status).toBe(303);
+  expect(mocks.airtableGrant).toHaveBeenCalledOnce();
+  expect(mocks.grant).not.toHaveBeenCalled();
+  expect(
+    (
+      await handleComposioOAuthRequest(
+        request(
+          "/airtable/start?agentSlug=gtm",
+          "POST",
+          "https://evil.example",
+        ),
+        env,
+      )
+    ).status,
+  ).toBe(403);
+});
+it("Airtable readiness notifies only a bot with an explicit grant, with no provider secrets", async () => {
+  mocks.airtableStatus.mockResolvedValue({
+    state: "ready",
+    identity: "owner@example.com (usr1)",
+    checkedAt: 1,
+    error: null,
+    authorized: false,
+  });
+  mocks.airtableOwner.mockResolvedValue(false);
+  await handleComposioOAuthRequest(request("/airtable?agentSlug=gtm"), env);
+  expect(mocks.airtableNotify).not.toHaveBeenCalled();
+  mocks.airtableOwner.mockResolvedValue(true);
+  await handleComposioOAuthRequest(request("/airtable?agentSlug=gtm"), env);
+  expect(mocks.airtableNotify).toHaveBeenCalledWith("owner@example.com (usr1)");
+  mocks.airtableStatus.mockRejectedValue(
+    new Error("sentinel-private-provider-error"),
+  );
+  const response = await handleComposioOAuthRequest(
+    request("/airtable?agentSlug=gtm"),
+    env,
+  );
+  expect(response.status).toBe(503);
+  expect(await response.text()).not.toContain("sentinel");
+});
 it("account choice requires an existing bot grant and never restarts OAuth", async () => {
   expect((await handleComposioOAuthRequest(choose(), env)).status).toBe(403);
   expect(mocks.gmailSelect).not.toHaveBeenCalled();
