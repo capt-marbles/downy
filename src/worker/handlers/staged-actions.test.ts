@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion -- Minimal bindings at an authenticated handler boundary. */
 import { beforeEach, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { handleStagedActionsRequest } from "./staged-actions";
 vi.mock("agents", () => ({ getAgentByName: vi.fn() }));
 const mocks = vi.hoisted(() => ({
@@ -92,10 +93,11 @@ it("returns a conflict with the current proposal when the decision is rejected",
     env,
   );
   expect(response.status).toBe(409);
-  expect(await response.json()).toMatchObject({
-    action: { state: "proposed" },
-    error: expect.stringContaining("changed"),
-  });
+  const body = z
+    .object({ action: z.object({ state: z.string() }), error: z.string() })
+    .parse(await response.json());
+  expect(body.action.state).toBe("proposed");
+  expect(body.error).toContain("changed");
 });
 
 it("reads and cancels through the same active-agent checks", async () => {

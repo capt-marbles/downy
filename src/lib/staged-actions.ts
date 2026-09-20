@@ -48,7 +48,6 @@ const StagedActionStateSchema = z.enum([
   "unknown",
   "cancelled",
 ]);
-type StagedActionState = z.infer<typeof StagedActionStateSchema>;
 
 export const StagedActionResultSchema = z
   .object({

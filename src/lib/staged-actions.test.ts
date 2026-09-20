@@ -6,6 +6,7 @@ import {
   isStagedActionOpen,
   newStagedAction,
   stagedActionChatText,
+  StagedActionPayloadSchema,
   StagedActionSchema,
 } from "./staged-actions";
 
@@ -93,20 +94,24 @@ it("rejects expired, cancelled and already-finished proposals", () => {
 });
 
 it("validates payloads strictly so a smuggled field cannot widen the action", () => {
-  expect(() =>
-    newStagedAction(
-      ID,
-      REV,
-      "chat",
-      // @ts-expect-error -- deliberately malformed
-      {
-        kind: "gmail_draft",
-        gmailDraft: { recipientEmail: "x", subject: "s", body: "b" },
+  expect(
+    StagedActionPayloadSchema.safeParse({
+      kind: "gmail_draft",
+      gmailDraft: { recipientEmail: "x", subject: "s", body: "b" },
+      send: true,
+    }).success,
+  ).toBe(false);
+  expect(
+    StagedActionPayloadSchema.safeParse({
+      kind: "gmail_draft",
+      gmailDraft: {
+        recipientEmail: "lead@example.com",
+        subject: "s",
+        body: "b",
         send: true,
       },
-      0,
-    ),
-  ).toThrow();
+    }).success,
+  ).toBe(false);
   const task = newStagedAction(
     ID,
     REV,
