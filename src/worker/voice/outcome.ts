@@ -11,6 +11,11 @@ const SavedReportSchema = z.object({
 
 const ReadFileSchema = z.object({ path: z.string(), content: z.string() });
 
+const DispatchedTaskSchema = z.object({
+  taskId: z.string().min(1),
+  status: z.literal("dispatched"),
+});
+
 function readWorkspacePath(output: unknown): string | undefined {
   const read = ReadFileSchema.safeParse(output);
   if (!read.success) return undefined;
@@ -54,6 +59,8 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
   corrected: boolean;
   savedPaths: string[];
   filePaths: string[];
+  /** Read-only research workers started this turn; dispatched, not done. */
+  dispatchedTaskIds: string[];
   unverifiedFileClaim?: boolean;
 } {
   const parts = messages
@@ -66,6 +73,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
   const failures = new Set<string>();
   const savedPaths = new Set<string>();
   const readPaths = new Set<string>();
+  const dispatchedTaskIds = new Set<string>();
   for (const part of parts) {
     if (!isToolUIPart(part)) continue;
     const name = getToolName(part);
@@ -83,16 +91,39 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       if (saved.success) savedPaths.add(saved.data.path);
       else failures.add(name);
     }
+    if (name === "spawn_background_task") {
+      const dispatched = DispatchedTaskSchema.safeParse(part.output);
+      if (dispatched.success) dispatchedTaskIds.add(dispatched.data.taskId);
+      else failures.add(name);
+    }
   }
+  const dispatched = [...dispatchedTaskIds];
   const finalText =
     parts.filter((part) => part.type === "text").at(-1)?.text ??
     "No completed answer was returned. Please check the chat and retry.";
-  if (hasUnverifiedFileLink(finalText, new Set([...savedPaths, ...readPaths])))
+  const unverifiedFileClaim = hasUnverifiedFileLink(
+    finalText,
+    new Set([...savedPaths, ...readPaths]),
+  );
+  if (dispatched.length && !failures.size && !savedPaths.size)
+    // A dispatch receipt is the outcome; the model's own promise about what
+    // the worker will do is not. The finish is announced separately. An
+    // invented path in the prose is still corrected in chat.
+    return {
+      text: "I've started a read-only background research task. Its findings will be saved and linked in chat when it finishes, and I'll tell you when that happens, even on a later call.",
+      corrected: true,
+      savedPaths: [],
+      filePaths: [...readPaths],
+      dispatchedTaskIds: dispatched,
+      ...(unverifiedFileClaim ? { unverifiedFileClaim } : {}),
+    };
+  if (unverifiedFileClaim)
     return {
       text: "I couldn't verify the file link returned for that request. No report save was confirmed for it. Please retry in chat.",
       corrected: true,
       savedPaths: [...savedPaths],
       filePaths: [...savedPaths],
+      dispatchedTaskIds: dispatched,
       unverifiedFileClaim: true,
     };
   if (savedPaths.size)
@@ -101,6 +132,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       corrected: true,
       savedPaths: [...savedPaths],
       filePaths: [...savedPaths],
+      dispatchedTaskIds: dispatched,
     };
   if (failures.size)
     return {
@@ -110,6 +142,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       corrected: true,
       savedPaths: [],
       filePaths: [],
+      dispatchedTaskIds: dispatched,
     };
   // Intermediate promises are not outcomes. Speak only the final text part.
   return {
@@ -119,6 +152,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
     corrected: false,
     savedPaths: [],
     filePaths: [...readPaths],
+    dispatchedTaskIds: [],
   };
 }
 

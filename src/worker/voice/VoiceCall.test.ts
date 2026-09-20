@@ -582,3 +582,57 @@ it("keeps a failed lookup terminal and never sends its result to a closed call",
   );
   expect(mocks.lookup).toHaveBeenCalledOnce();
 });
+
+it("acknowledges dispatched research once, keeps the lookup open, and announces the finish from the task record", async () => {
+  mocks.lookup.mockResolvedValue({
+    answer: "I've started a read-only background research task.",
+    pending: true,
+  });
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "one", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Compare the three vendors' pricing pages",
+    end_ms: 100,
+  });
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "compare", target: "client" },
+  });
+  await f.drain();
+  const acknowledgements = sentEvents(f.socket).filter(
+    (event) =>
+      event.type === "session.commentary.append" &&
+      event.content?.includes("started"),
+  );
+  expect(acknowledgements).toHaveLength(1);
+  expect(acknowledgements[0].delegation_id).toBe("compare");
+  expect((await f.call.heartbeat("one"))?.working).toBe(true);
+  // Still running: nothing new is said and the ack is not repeated.
+  mocks.lookupResult.mockResolvedValue({
+    state: "running",
+    answer: "I've started a read-only background research task.",
+  });
+  vi.setSystemTime(1_020_000);
+  const before = f.socket.sent.length;
+  await f.call.heartbeat("one");
+  expect(f.socket.sent).toHaveLength(before);
+  expect(mocks.lookup).toHaveBeenCalledTimes(1);
+  // The worker finishes: the durable record is read, never the model re-run.
+  mocks.lookupResult.mockResolvedValue({
+    state: "finished",
+    answer:
+      "The background research has finished. Its findings are saved as a new workspace note and the link is in chat.",
+  });
+  await f.call.heartbeat("one");
+  const finish = sentEvents(f.socket).filter(
+    (event) =>
+      event.type === "session.commentary.append" &&
+      event.content?.includes("has finished"),
+  );
+  expect(finish).toHaveLength(1);
+  expect(finish[0].delegation_id).toBe("compare");
+  expect((await f.call.heartbeat("one"))?.working).toBe(false);
+  expect(mocks.lookup).toHaveBeenCalledTimes(1);
+});

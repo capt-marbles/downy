@@ -6,14 +6,27 @@ between the browser and OpenAI. A separate authenticated server connection passe
 lookups to the existing Downy agent. Kimi, Jev, workspace storage, and chat remain
 the existing backend; the Mac Studio does not need to be awake.
 
-Voice can discuss and read existing workspace material and save a **new Markdown
-report** when explicitly requested. It uses the existing `write` tool with a
-voice-specific executor: a single `.md` filename directly under
+Voice can discuss and read existing workspace material, search and read the
+web inline (`web_search`, `web_scrape`, `read_peer_agent`), and save a **new
+Markdown report** when explicitly requested. It uses the existing `write` tool
+with a voice-specific executor: a single `.md` filename directly under
 `workspace/research/`, `workspace/reports/` or `workspace/drafts/`, up to 100,000
 characters. It cannot overwrite files, alter raw browser captures, publish,
-send, schedule, connect services, approve gates or dispatch general background
-workers. Those tools remain hidden and blocked at execution. Use chat controls
-for other actions and credential cards for secrets. No agent tools were added.
+send, schedule, connect services or approve gates. Those tools remain hidden and
+blocked at execution. Use chat controls for other actions and credential cards
+for secrets. No agent tools were added.
+
+For multi-source research the caller should not wait for, voice may start a
+**read-only background research worker**. The voice `spawn_background_task`
+schema accepts only a brief; the worker is recorded with `access: "read-only"`
+and receives search, scrape, workspace and skill reads, and peer reads. Its
+write, edit, delete, skill-authoring and local-hands tools are hidden and throw,
+and it gets no MCP proxies, so a brief cannot reach connected services. The
+parent saves the worker's document as a new note under `workspace/notes/` and
+runs its normal completion turn in chat, exactly as for chat-dispatched tasks.
+The call hears one acknowledgement that the task started; the lookup stays open
+and the finish is announced from the durable task record, including on a later
+call. "Started" is never spoken as "done".
 
 Report writes check that the destination is new and read the saved content back
 before returning `saved:true`. The voice handoff derives save/failure status from
@@ -103,8 +116,9 @@ before enabling it.
 
 Automated tests cover the request contract, browser permissions and cleanup,
 mute, blocked autoplay, caption bounds, stale/duplicate delegations, expiry,
-cross-origin rejection, server-secret isolation, and execution-level action
-restrictions and verified report saves. They simulate the provider; they do not prove live audio quality or
+cross-origin rejection, server-secret isolation, execution-level action
+restrictions, verified report saves, read-only research dispatch, and the
+read-only worker tool set. They simulate the provider; they do not prove live audio quality or
 account access.
 
 Before treating this as live-ready, run a short call on desktop and on an iPhone
@@ -114,7 +128,10 @@ in Safari and home-screen mode, behind Access:
    in chat. Check a follow-up that needs another read.
 2. Interrupt: “No, the second digest.” Confirm the correction is respected.
 3. Ask to combine existing captures into a new report; verify the saved file
-   and its link. Try an existing filename: it must not overwrite. Ask to publish
+   and its link. Ask a question that needs the web and confirm an inline
+   search answers it. Ask for a multi-source comparison you do not want to
+   wait for; confirm the call says it started, the Background tasks view shows
+   a read-only task, and the finish is announced with a note link in chat. Try an existing filename: it must not overwrite. Ask to publish
    or approve something; voice must direct you to chat without performing it.
 4. Check mute, headphones, sound activation, microphone denial, and hangup.
 5. Background the app and disconnect the network. Verify microphone release,

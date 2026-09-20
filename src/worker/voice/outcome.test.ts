@@ -250,3 +250,53 @@ it("does not let a successful read validate a different invented report link", (
     "invented.md",
   );
 });
+
+it("speaks a dispatch receipt instead of the model's promise and records the task id", () => {
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "Let me dig into that." },
+        {
+          type: "tool-spawn_background_task",
+          toolCallId: "spawn",
+          state: "output-available",
+          input: { brief: "Compare vendor pricing pages" },
+          output: { taskId: "task-9", status: "dispatched" },
+        },
+        {
+          type: "text",
+          text: "Done! The comparison is saved at workspace/notes/vendors.md.",
+        },
+      ],
+    },
+  ]);
+  expect(result.dispatchedTaskIds).toEqual(["task-9"]);
+  expect(result.corrected).toBe(true);
+  expect(result.text).toContain("started");
+  expect(result.text).not.toContain("Done!");
+  expect(result.text).not.toContain("workspace/");
+  expect(result.filePaths).toEqual([]);
+});
+
+it("treats a dispatch without a task id as a failure, not a start", () => {
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-spawn_background_task",
+          toolCallId: "spawn",
+          state: "output-available",
+          input: { brief: "Compare vendor pricing pages" },
+          output: { status: "queued" },
+        },
+        { type: "text", text: "Research is underway." },
+      ],
+    },
+  ]);
+  expect(result.dispatchedTaskIds).toEqual([]);
+  expect(result.text).toContain("did not start");
+});

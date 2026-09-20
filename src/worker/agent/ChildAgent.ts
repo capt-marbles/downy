@@ -15,6 +15,7 @@ import {
   renderActivePlanSection,
 } from "./build-system-prompt";
 import type { ActivePlan } from "./tools/todo-write";
+import { readOnlyActiveTools, readOnlyToolSet } from "./read-only-tools";
 import { buildMcpProxyTools, buildSharedToolSet } from "./tool-registry";
 
 type BackgroundTaskMeta = {
@@ -22,8 +23,12 @@ type BackgroundTaskMeta = {
   taskId: string;
   kind: string;
   brief: string;
+  // "read-only" workers are dispatched from voice: no writes, MCP, or hands.
+  access?: "full" | "read-only";
   startedAt: number;
 };
+
+const READ_ONLY_PROMPT_ADDENDUM = `**Read-only task.** This task was dispatched from a voice call. You can search and scrape the web, read workspace files and skills, and read peer agents. You cannot write or edit files, author skills, use connected services, or request local actions; those tools fail if called. Put everything the parent needs in your final document. Include the sources you used and what you could not verify.`;
 
 const META_KEY = "meta";
 
@@ -140,7 +145,7 @@ export class ChildAgent extends Think {
     return session.withCachedPrompt();
   }
 
-  override async beforeTurn() {
+  override async beforeTurn(ctx: { tools: ToolSet }) {
     this.#peerReadCount = 0;
     // Resolve the parent stub once and reuse it for both the MCP listing
     // and the MCP proxy `execute` callbacks. `getAgentByName` is cheap, but
@@ -160,38 +165,53 @@ export class ChildAgent extends Think {
       readAiProvider(this.env.DB),
       this.ctx.storage.get<ActivePlan>(ACTIVE_PLAN_KEY).then((v) => v ?? null),
     ]);
-    const mcpTools = buildMcpProxyTools({
-      descriptors: mcpDescriptors,
-      callTool: (serverId, name, args) =>
-        parent.callMcpToolForChild(serverId, name, args),
-    });
-    // No `activeTools` filter — Think exposes the full merged tool set
-    // (shared bundle + workspace tools auto-registered off `this.workspace`
-    // + MCP proxies). Mirrors the parent, which also doesn't filter.
+    const readOnly = meta.access === "read-only";
+    const mcpTools = readOnly
+      ? {}
+      : buildMcpProxyTools({
+          descriptors: mcpDescriptors,
+          callTool: (serverId, name, args) =>
+            parent.callMcpToolForChild(serverId, name, args),
+        });
+    // Full-access workers get no `activeTools` filter — Think exposes the
+    // merged tool set (shared bundle + workspace tools auto-registered off
+    // `this.workspace` + MCP proxies), mirroring the parent. Read-only
+    // workers are filtered and blocked below.
     // Append the active-plan section the same way DownyAgent does — the
     // child's prompt is a single static constant (no `buildSystemPrompt`),
     // so we concatenate manually rather than refactor the constant.
     const planSection = renderActivePlanSection(latestPlan);
-    const system = planSection
-      ? `${BACKGROUND_TASK_SYSTEM_PROMPT}\n\n${planSection}`
-      : BACKGROUND_TASK_SYSTEM_PROMPT;
+    const system = [
+      BACKGROUND_TASK_SYSTEM_PROMPT,
+      ...(readOnly ? [READ_ONLY_PROMPT_ADDENDUM] : []),
+      ...(planSection ? [planSection] : []),
+    ].join("\n\n");
+    const tools: ToolSet = {
+      ...buildSharedToolSet({
+        env: this.env,
+        getWorkspace: () => this.workspace,
+        parentSlug: meta.parentName,
+        bumpPeerReadCount: () => this.bumpPeerReadCount(),
+        setActivePlan: (plan) => this.#setActivePlan(plan),
+      }),
+      request_local_hands_action: createRequestLocalHandsActionTool({
+        db: this.env.DB,
+        agentSlug: meta.parentName,
+        scheduled: meta.kind.startsWith("scheduled:"),
+      }),
+      ...mcpTools,
+    };
+    if (!readOnly)
+      return { system, tools, model: getModelFor(this.env, aiProvider) };
+    // Hide blocked schemas and block their executors: Think merges overrides
+    // rather than replacing the set, and the remote workspace proxy would
+    // otherwise accept a write on the parent's behalf.
     return {
       system,
-      tools: {
-        ...buildSharedToolSet({
-          env: this.env,
-          getWorkspace: () => this.workspace,
-          parentSlug: meta.parentName,
-          bumpPeerReadCount: () => this.bumpPeerReadCount(),
-          setActivePlan: (plan) => this.#setActivePlan(plan),
-        }),
-        request_local_hands_action: createRequestLocalHandsActionTool({
-          db: this.env.DB,
-          agentSlug: meta.parentName,
-          scheduled: meta.kind.startsWith("scheduled:"),
-        }),
-        ...mcpTools,
-      },
+      tools: readOnlyToolSet(tools),
+      // Think's auto-registered workspace tools (list/find/grep) live in
+      // ctx.tools, not in the set built here.
+      activeTools: readOnlyActiveTools({ ...ctx.tools, ...tools }),
       model: getModelFor(this.env, aiProvider),
     };
   }

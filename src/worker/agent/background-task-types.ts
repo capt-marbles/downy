@@ -5,6 +5,9 @@ export const BackgroundTaskRecordSchema = z.object({
   kind: z.string(),
   brief: z.string(),
   status: z.enum(["running", "done", "error"]),
+  // "read-only" workers (voice-dispatched research) get search, scrape and
+  // workspace reads only: no file writes, MCP proxies or local-hands actions.
+  access: z.enum(["full", "read-only"]).optional(),
   spawnedAt: z.number(),
   completedAt: z.number().optional(),
   artifactPath: z.string().optional(),

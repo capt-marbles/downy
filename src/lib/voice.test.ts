@@ -309,3 +309,60 @@ it("allows portable skill reads and connection status during voice without enabl
     ).activeTools,
   ).toEqual(["read_skill", "list_skills", "list_mcp_servers"]);
 });
+
+it("allows web research and peer reads in voice without granting writes or setup", () => {
+  expect(
+    voiceReadTools([
+      "web_search",
+      "web_scrape",
+      "read_peer_agent",
+      "list_skill_files",
+      "edit",
+      "delete",
+      "connect_mcp_server",
+      "request_local_hands_action",
+    ]),
+  ).toEqual([
+    "web_search",
+    "web_scrape",
+    "read_peer_agent",
+    "list_skill_files",
+  ]);
+});
+
+it("replaces the chat background task tool with a read-only research dispatch when enabled", async () => {
+  const briefs: string[] = [];
+  const chatSpawn = tool({
+    inputSchema: z.object({ kind: z.string(), brief: z.string() }),
+    execute: async (): Promise<string> => {
+      throw new Error("chat dispatcher must not run from voice");
+    },
+  });
+  const turn = voiceTurnTools(
+    { spawn_background_task: chatSpawn, read: chatSpawn },
+    undefined,
+    async (brief) => {
+      briefs.push(brief);
+      return { taskId: "task-1", status: "dispatched" as const };
+    },
+  );
+  expect(turn.activeTools).toEqual(["spawn_background_task", "read"]);
+  expect(
+    await turn.tools.spawn_background_task.execute?.(
+      { brief: "Compare three orchestration vendors' pricing pages." },
+      { toolCallId: "spawn", messages: [] },
+    ),
+  ).toEqual({ taskId: "task-1", status: "dispatched" });
+  expect(briefs).toEqual([
+    "Compare three orchestration vendors' pricing pages.",
+  ]);
+  // Without a dispatcher the tool stays hidden and blocked, as before.
+  const blocked = voiceTurnTools({ spawn_background_task: chatSpawn });
+  expect(blocked.activeTools).toEqual([]);
+  await expect(
+    blocked.tools.spawn_background_task.execute?.(
+      { kind: "task", brief: "x".repeat(20) },
+      { toolCallId: "spawn", messages: [] },
+    ),
+  ).rejects.toThrow("This action did not run");
+});

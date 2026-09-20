@@ -523,6 +523,9 @@ export class VoiceCall extends DurableObject {
   private async delegate(lookup: Lookup, transcript: string) {
     const call = this.call;
     if (!call || call.callId !== lookup.callId) return;
+    // Read-only research dispatched by the turn keeps the lookup open; the
+    // agent's durable task record reports the finish through reconciliation.
+    let pending = false;
     try {
       // Caption/delegation streams can arrive out of order. Wait outside the
       // event queue so late caller captions can still arrive.
@@ -551,24 +554,48 @@ export class VoiceCall extends DurableObject {
           "I didn't receive enough of the question to look it up. Please repeat it.";
       } else {
         const agent = await getAgentStub(this.env, call.slug);
-        lookup.answer = (
-          await agent.runVoiceTurn(
-            lookup.callId,
-            lookup.delegationId,
-            transcript,
-          )
-        ).slice(0, 16_000);
+        const result = await agent.runVoiceTurn(
+          lookup.callId,
+          lookup.delegationId,
+          transcript,
+        );
+        if (typeof result === "string") lookup.answer = result.slice(0, 16_000);
+        else {
+          lookup.answer = result.answer.slice(0, 16_000);
+          pending = true;
+        }
       }
     } catch {
       lookup.answer =
         "Downy could not complete that lookup. Please check the chat and try again there.";
     } finally {
-      lookup.state = "finished";
+      lookup.state = pending ? "running" : "finished";
       // This receipt belongs to the agent, not the audio session. A new call
       // may already be open by the time the original lookup returns.
       await this.ctx.storage.put(lookup.key, lookup);
+      if (pending) await this.acknowledgeDispatch(lookup);
       await this.publishLookups();
     }
+  }
+
+  // Tell the caller once that research started. The lookup stays running, so
+  // `publishLookups` skips it until the worker's finish is reconciled.
+  private async acknowledgeDispatch(lookup: Lookup) {
+    const call = this.call;
+    if (!call || call.state !== "active" || call.callId !== lookup.callId)
+      return;
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    call.deliveredLookups ??= [];
+    const receipt = `${lookup.key}:dispatched`;
+    if (call.deliveredLookups.includes(receipt)) return;
+    for (const content of voiceChunks(this.lookupText(lookup)))
+      this.send({
+        type: "session.commentary.append",
+        delegation_id: lookup.delegationId,
+        content,
+      });
+    call.deliveredLookups = [...call.deliveredLookups.slice(-119), receipt];
+    await this.persist();
   }
 
   private async saveTranscript(final = false) {

@@ -6,11 +6,16 @@ import { normalizeWorkspacePath } from "../agent/child-workspace-rpc";
 
 // Positive allowlist: new tools and MCP tools never acquire voice permissions
 // implicitly. Spoken approval never grants external actions. The only write
-// exceptions are a constrained new Markdown report and explicit creation of an empty bot.
+// exceptions are a constrained new Markdown report, explicit creation of an
+// empty bot, and dispatch of a read-only research worker.
 const VOICE_READ_TOOLS = new Set([
   "create_bot",
   "airtable_records",
+  "web_search",
+  "web_scrape",
+  "read_peer_agent",
   "read",
+  "list_skill_files",
   "read_skill",
   "list_skills",
   "list_mcp_servers",
@@ -24,13 +29,20 @@ const VOICE_READ_TOOLS = new Set([
   "list_scheduled_tasks",
 ]);
 
+type VoiceResearchDispatch = (
+  brief: string,
+) => Promise<{ taskId: string; status: "dispatched" }>;
+
 export function voiceReadTools(
   names: string[],
   reportsEnabled = false,
+  researchEnabled = false,
 ): string[] {
   return names.filter(
     (name) =>
-      VOICE_READ_TOOLS.has(name) || (reportsEnabled && name === "write"),
+      VOICE_READ_TOOLS.has(name) ||
+      (reportsEnabled && name === "write") ||
+      (researchEnabled && name === "spawn_background_task"),
   );
 }
 
@@ -39,16 +51,22 @@ export function voiceReadTools(
 export function voiceTurnTools(
   availableTools: ToolSet,
   saveReport?: (path: string, content: string) => Promise<void>,
+  dispatchResearch?: VoiceResearchDispatch,
 ) {
   return {
-    activeTools: voiceReadTools(Object.keys(availableTools), !!saveReport),
-    tools: voiceToolSet(availableTools, saveReport),
+    activeTools: voiceReadTools(
+      Object.keys(availableTools),
+      !!saveReport,
+      !!dispatchResearch,
+    ),
+    tools: voiceToolSet(availableTools, saveReport, dispatchResearch),
   };
 }
 
 export function voiceToolSet(
   tools: ToolSet,
   saveReport?: (path: string, content: string) => Promise<void>,
+  dispatchResearch?: VoiceResearchDispatch,
 ): ToolSet {
   // Think merges tool overrides rather than replacing the tool set, and its
   // beforeToolCall hook is currently observational. Block executors as well
@@ -120,6 +138,15 @@ export function voiceToolSet(
           bytesWritten: new TextEncoder().encode(content).byteLength,
         };
       },
+    });
+  if (dispatchResearch && tools.spawn_background_task)
+    // The chat tool's kind/brief schema is replaced: voice cannot choose the
+    // worker's access level, and the worker never inherits MCP or writes.
+    restricted.spawn_background_task = tool({
+      description:
+        "Start a READ-ONLY background research worker for multi-source work the caller does not need to wait for. The worker can search and scrape the web and read workspace files; it cannot write files, use connected services or take actions. Its findings are saved as a new workspace note and linked in chat when it finishes, and the caller is told when that happens, including in a later call. The brief must be self-contained: goal, sources or topics, and the desired output shape. Returns { taskId, status:'dispatched' }; dispatched is not finished.",
+      inputSchema: z.object({ brief: z.string().min(10).max(4000) }),
+      execute: async ({ brief }) => dispatchResearch(brief),
     });
   return restricted;
 }
