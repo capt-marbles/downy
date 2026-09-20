@@ -1,4 +1,10 @@
 import {
+  createBot,
+  createBotTool,
+  isNamedBotCreationRequest,
+} from "./tools/create-bot";
+import { getAgentStub } from "../lib/get-agent";
+import {
   ComparisonRunSchema,
   ComparisonFeedbackSchema,
   withComparisonFeedback,
@@ -228,6 +234,39 @@ export class DownyAgent extends Think {
         bumpPeerReadCount: () => this.bumpPeerReadCount(),
         setActivePlan: (plan) => this.#setActivePlan(plan),
       }),
+      create_bot: createBotTool({
+        create: async (input) => {
+          const result = await createBot(
+            this.env.DB,
+            input,
+            async (slug, name, purpose) => {
+              const bot = await getAgentStub(this.env, slug);
+              await bot.initializeConversationalBot(name, purpose);
+            },
+          );
+          if (result.state === "ready") {
+            const id = `bot-created:${result.slug}`;
+            if (!this.session.getMessage(id))
+              await this.session.appendMessage({
+                id,
+                role: "assistant",
+                parts: [
+                  {
+                    type: "text",
+                    text: `[Open ${result.name}](${result.url}). Your bot is ready; no task has started.`,
+                  },
+                ],
+              });
+            this.broadcast(
+              JSON.stringify({
+                type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+                messages: this.messages,
+              }),
+            );
+          }
+          return result;
+        },
+      }),
       read_user_profile: createReadUserProfileTool({ db: this.env.DB }),
       write_user_profile: createWriteUserProfileTool({ db: this.env.DB }),
       spawn_background_task: createSpawnBackgroundTaskTool({
@@ -447,9 +486,20 @@ export class DownyAgent extends Think {
       (latest, message) => (message.role === "user" ? message : latest),
       undefined,
     );
+    // A direct request to create a named bot must execute the action, not just
+    // produce plausible completion prose. One step gives us the tool result;
+    // the server's persisted receipt supplies the verified chat link.
+    const forceBotCreation =
+      !ctx.continuation &&
+      isNamedBotCreationRequest(
+        latestUser?.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join(" ") ?? "",
+      );
     if (latestUser?.id.startsWith("voice-request:")) {
       return {
-        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
+        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
         model: getModelFor(this.env, aiProvider),
         activeTools: voiceReadTools(Object.keys(ctx.tools), true),
         tools: voiceToolSet(ctx.tools, (path, content) =>
@@ -463,7 +513,10 @@ export class DownyAgent extends Think {
               throw new Error("Report save could not be verified.");
           }),
         ),
-        maxSteps: 12,
+        maxSteps: forceBotCreation ? 1 : 12,
+        ...(forceBotCreation
+          ? { toolChoice: { type: "tool" as const, toolName: "create_bot" } }
+          : {}),
       };
     }
     const mcpTools = toolRegistry.buildMcpProxyTools({
@@ -475,6 +528,12 @@ export class DownyAgent extends Think {
       system,
       model: getModelFor(this.env, aiProvider),
       tools: mcpTools,
+      ...(forceBotCreation
+        ? {
+            toolChoice: { type: "tool" as const, toolName: "create_bot" },
+            maxSteps: 1,
+          }
+        : {}),
       activeTools: toolRegistry.activeToolsWithMcpWrappers(ctx.tools, mcpTools),
     };
   }
@@ -1798,6 +1857,24 @@ export class DownyAgent extends Think {
       migrated += 1;
     }
     return { migrated };
+  }
+
+  async initializeConversationalBot(
+    name: string,
+    purpose?: string,
+  ): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      if (await this.ctx.storage.get("bot:initialized")) return;
+      if (!(await this.workspace.exists("identity/IDENTITY.md")))
+        await this.workspace.writeFile(
+          "identity/IDENTITY.md",
+          `# ${name}\n\n${purpose ?? "Help the user with tasks they assign in this conversation."}\n\nConnected accounts require explicit setup. Creating this bot does not authorize sending, publishing, paid enrichment, or scheduled work.\n`,
+        );
+      await this.#ensureBootstrapSeeded();
+      if (await this.workspace.exists(BOOTSTRAP_PATH))
+        await this.workspace.deleteFile(BOOTSTRAP_PATH);
+      await this.ctx.storage.put("bot:initialized", true);
+    });
   }
 
   async connectMcpEndpoint(params: {

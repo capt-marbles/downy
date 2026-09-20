@@ -5,8 +5,9 @@ import { normalizeWorkspacePath } from "../agent/child-workspace-rpc";
 
 // Positive allowlist: new tools and MCP tools never acquire voice permissions
 // implicitly. Spoken approval never grants external actions. The only write
-// exception is a constrained, new Markdown report with a verified save.
+// exceptions are a constrained new Markdown report and explicit creation of an empty bot.
 const VOICE_READ_TOOLS = new Set([
+  "create_bot",
   "read",
   "list",
   "find",
@@ -45,7 +46,7 @@ export function voiceToolSet(
             needsApproval: false,
             execute: async () => {
               throw new Error(
-                "Voice only permits reads and new workspace reports. This action did not run. Use the chat controls for other actions.",
+                "Voice only permits reads, new workspace reports, and explicitly requested empty bots. This action did not run. Use the chat controls for other actions.",
               );
             },
           },
