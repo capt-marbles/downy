@@ -1,4 +1,7 @@
-import { airtableErrorCode } from "../composio/airtable-diagnostics";
+import {
+  airtableErrorCode,
+  airtableDiagnostic,
+} from "../composio/airtable-diagnostics";
 import { seedBuiltinSkills } from "./skills/builtin";
 import {
   runServiceSetup,
@@ -8,6 +11,7 @@ import {
 import { findToolSetup } from "../composio/discovery";
 import {
   runPipelineReport,
+  pipelineFailure,
   type PipelineCheckpoint,
 } from "../runbooks/pipeline-report";
 import {
@@ -562,11 +566,20 @@ export class DownyAgent extends Think {
               .object({ account: z.string(), data: z.unknown() })
               .parse(JSON.parse(result));
           } catch (error) {
+            const { code, phase } =
+              input.action === "pipeline_report"
+                ? pipelineFailure(error)
+                : {
+                    code: airtableErrorCode(error),
+                    phase: airtableDiagnostic(error)?.phase,
+                  };
             return {
               state: "failed",
-              code: airtableErrorCode(error),
-              error:
-                "Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.",
+              code,
+              phase,
+              error: ["timeout", "temporarily_unavailable"].includes(code)
+                ? "Airtable is temporarily unavailable. The read did not complete after bounded recovery. This does not establish an authorization problem; do not ask the user to reconnect solely because of this error."
+                : "Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.",
             };
           }
         },

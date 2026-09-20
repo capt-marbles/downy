@@ -81,3 +81,13 @@ The same pipeline runbook is available for authenticated acceptance checks at
 action body above. It requires the existing per-bot Airtable grant and the same
 Access/origin checks. Resume with `reportId` until `complete:true`; no raw lead
 records are returned. Failures expose a fixed phase and code, not provider text.
+
+### Transient Airtable reads
+
+Read-only Airtable actions retry once after a timeout or HTTP 502/503/504/network
+failure, provided the first attempt took less than 45 seconds. The retry checks
+the pinned account again. Permission, argument, unknown-provider and invalid
+response failures are not automatically retried. This policy does not apply to
+Gmail drafts or any write. Safe phase and error codes survive the Durable Object
+RPC boundary; raw provider messages and credentials do not. A temporary read
+failure does not establish a need to reconnect the account.

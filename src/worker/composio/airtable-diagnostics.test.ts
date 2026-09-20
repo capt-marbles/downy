@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import {
   airtableFailure,
+  airtableDiagnostic,
   airtableErrorCode,
   schemaReadSummary,
 } from "./airtable-diagnostics";
@@ -35,4 +36,15 @@ it("returns only table/field counts and rejects malformed schema", () => {
   expect(() => schemaReadSummary({ error: "secret" })).toThrow(
     "response_invalid",
   );
+});
+it("preserves a timeout code and safe phase after crossing the DO RPC boundary", () => {
+  const error = airtableFailure(
+    new DOMException("secret-sentinel", "TimeoutError"),
+    "provider_failure",
+    "schema_read",
+  );
+  const rpcError = new Error(error.message);
+  expect(airtableErrorCode(rpcError)).toBe("timeout");
+  expect(airtableDiagnostic(rpcError)?.phase).toBe("schema_read");
+  expect(error.message).not.toContain("secret-sentinel");
 });

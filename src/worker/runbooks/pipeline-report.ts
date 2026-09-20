@@ -158,7 +158,7 @@ async function inPhase<T>(
 export function pipelineFailure(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   const match = message.match(
-    /Pipeline failure \[(schema_read|schema_validation|records_read|checkpoint_load|checkpoint_save):(validation|permission_denied|invalid_arguments|tool_unavailable|not_found|rate_limited|response_invalid|provider_failure)\]/,
+    /Pipeline failure \[(schema_read|schema_validation|records_read|checkpoint_load|checkpoint_save):(validation|permission_denied|invalid_arguments|tool_unavailable|not_found|rate_limited|response_invalid|provider_failure|timeout|temporarily_unavailable)\]/,
   );
   return {
     state: "failed" as const,

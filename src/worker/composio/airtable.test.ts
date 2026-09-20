@@ -253,3 +253,57 @@ it("schema checks recover successful responses offloaded by Composio", async () 
     f.call.mock.calls.some(([name]) => name === "COMPOSIO_REMOTE_WORKBENCH"),
   ).toBe(true);
 });
+it("retries a transient schema read once, revalidating the pinned identity", async () => {
+  const f = fixture();
+  f.connect();
+  await f.make().start();
+  f.offload();
+  const original = f.call.getMockImplementation()!;
+  let schemaCalls = 0;
+  f.call.mockImplementation(async (name, args) => {
+    if (
+      (JSON.stringify(args.tools) ?? "").includes("AIRTABLE_GET_BASE_SCHEMA") &&
+      ++schemaCalls === 1
+    )
+      throw new DOMException("secret-sentinel", "TimeoutError");
+    return original(name, args);
+  });
+  const result = await f
+    .make()
+    .action({ action: "get_schema", baseId: "appExample" });
+  expect(result.data).toMatchObject({ tables: [{ name: "Leads" }] });
+  expect(schemaCalls).toBe(2);
+  expect(JSON.stringify(result)).not.toContain("secret-sentinel");
+});
+it.each([
+  [new DOMException("secret-sentinel", "TimeoutError"), 2, "timeout"],
+  [new Error("HTTP 503 secret-sentinel"), 2, "temporarily_unavailable"],
+  [new Error("HTTP 403 secret-sentinel"), 1, "permission_denied"],
+  [new Error("unknown secret-sentinel"), 1, "provider_failure"],
+])(
+  "bounds retries and preserves a safe phase on failure",
+  async (error, attempts, code) => {
+    const f = fixture();
+    f.connect();
+    await f.make().start();
+    const original = f.call.getMockImplementation()!;
+    let schemaCalls = 0;
+    f.call.mockImplementation(async (name, args) => {
+      if (
+        (JSON.stringify(args.tools) ?? "").includes("AIRTABLE_GET_BASE_SCHEMA")
+      ) {
+        schemaCalls++;
+        throw error;
+      }
+      return original(name, args);
+    });
+    const result = await f.make().checkSchema("appExample");
+    expect(schemaCalls).toBe(attempts);
+    expect(result).toMatchObject({
+      state: "failed",
+      code,
+      diagnostic: { phase: "schema_read" },
+    });
+    expect(JSON.stringify(result)).not.toContain("secret-sentinel");
+  },
+);

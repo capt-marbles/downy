@@ -7,13 +7,32 @@ const codes = [
   "rate_limited",
   "response_invalid",
   "provider_failure",
+  "timeout",
+  "temporarily_unavailable",
 ] as const;
+const phases = [
+  "provider",
+  "discovery",
+  "identity_read",
+  "schema_read",
+  "records_read",
+  "bases_read",
+  "execution_envelope",
+  "tool_response",
+  "remote_file_metadata",
+  "schema_projection",
+  "schema_size",
+  "schema_summary",
+] as const;
+type Phase = (typeof phases)[number];
 class AirtableReadError extends Error {
   constructor(
     readonly code: (typeof codes)[number],
     readonly diagnostic?: ReturnType<typeof responseShape>,
   ) {
-    super(`Airtable action failed: ${code}`);
+    super(
+      `Airtable action failed: ${code} [${diagnostic?.phase ?? "provider"}]`,
+    );
   }
 }
 // Provider errors may echo authorization values. Inspect internally, emit only
@@ -21,31 +40,44 @@ class AirtableReadError extends Error {
 export function airtableFailure(
   value: unknown,
   fallback: (typeof codes)[number] = "provider_failure",
-  phase = "provider",
+  phase: Phase = "provider",
 ) {
+  if (value instanceof AirtableReadError)
+    return value.diagnostic?.phase !== "provider"
+      ? value
+      : new AirtableReadError(value.code, responseShape(value, phase));
   const text = (
     value instanceof Error ? value.message : (JSON.stringify(value) ?? "")
   )
     .slice(0, 50_000)
     .toLowerCase();
   const code =
-    /permission|forbidden|unauthoriz|insufficient.*scope|invalid_permissions|\b403\b|\b401\b/.test(
-      text,
-    )
-      ? "permission_denied"
-      : /validation|invalid.*argument|required.*field|missing.*parameter|field required/.test(
+    (value instanceof Error && value.name === "TimeoutError") ||
+    /timed?\s*out|timeout/.test(text)
+      ? "timeout"
+      : /\b50[234]\b|temporarily unavailable|fetch failed|network error/.test(
             text,
           )
-        ? "invalid_arguments"
-        : /tool.*(?:not found|not available|not enabled|not discovered|unknown)|unknown.*tool/.test(
-              text,
-            )
-          ? "tool_unavailable"
-          : /not.found|\b404\b/.test(text)
-            ? "not_found"
-            : /rate.limit|\b429\b/.test(text)
-              ? "rate_limited"
-              : fallback;
+        ? "temporarily_unavailable"
+        : value instanceof z.ZodError
+          ? "response_invalid"
+          : /permission|forbidden|unauthoriz|insufficient.*scope|invalid_permissions|\b403\b|\b401\b/.test(
+                text,
+              )
+            ? "permission_denied"
+            : /validation|invalid.*argument|required.*field|missing.*parameter|field required/.test(
+                  text,
+                )
+              ? "invalid_arguments"
+              : /tool.*(?:not found|not available|not enabled|not discovered|unknown)|unknown.*tool/.test(
+                    text,
+                  )
+                ? "tool_unavailable"
+                : /not.found|\b404\b/.test(text)
+                  ? "not_found"
+                  : /rate.limit|\b429\b/.test(text)
+                    ? "rate_limited"
+                    : fallback;
   return new AirtableReadError(code, responseShape(value, phase));
 }
 export function airtableErrorCode(error: unknown) {
@@ -53,11 +85,16 @@ export function airtableErrorCode(error: unknown) {
   // DO RPC preserves the message, not the Error subclass.
   const message = error instanceof Error ? error.message : "";
   return (
-    codes.find((code) => message.endsWith(`Airtable action failed: ${code}`)) ??
-    "provider_failure"
+    codes.find(
+      (code) =>
+        message.endsWith(`Airtable action failed: ${code}`) ||
+        phases.some((phase) =>
+          message.endsWith(`Airtable action failed: ${code} [${phase}]`),
+        ),
+    ) ?? "provider_failure"
   );
 }
-function responseShape(value: unknown, phase: string) {
+function responseShape(value: unknown, phase: Phase) {
   const item = z
     .object({
       successful: z.boolean().optional(),
@@ -92,7 +129,14 @@ function responseShape(value: unknown, phase: string) {
   };
 }
 export function airtableDiagnostic(error: unknown) {
-  return error instanceof AirtableReadError ? error.diagnostic : undefined;
+  if (error instanceof AirtableReadError) return error.diagnostic;
+  const message = error instanceof Error ? error.message : "";
+  const phase = phases.find((candidate) =>
+    codes.some((code) =>
+      message.endsWith(`Airtable action failed: ${code} [${candidate}]`),
+    ),
+  );
+  return phase ? { phase } : undefined;
 }
 export function schemaReadSummary(data: unknown) {
   const parsed = z

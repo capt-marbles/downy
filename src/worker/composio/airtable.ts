@@ -298,13 +298,38 @@ export class AirtableConnection {
   }
   async action(input: AirtableReadAction) {
     const action = AirtableReadActionSchema.parse(input);
+    const started = this.now();
+    try {
+      return await this.readAction(action);
+    } catch (error) {
+      // These operations only read. Retry once for a known transient transport
+      // failure, with identity revalidated. Never apply this policy to Gmail
+      // drafts or other writes whose outcome may be unknown after a timeout.
+      if (
+        !["timeout", "temporarily_unavailable"].includes(
+          airtableErrorCode(error),
+        ) ||
+        this.now() - started >= 45_000
+      )
+        throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return this.readAction(action);
+    }
+  }
+  private async readAction(action: AirtableReadAction) {
     const state = await this.load();
     if (state?.state !== "ready" || !state.accountId || !state.identity)
       throw new Error("Connect Airtable first");
-    const found = await this.search(state);
+    const found = await this.search(state).catch((error: unknown) => {
+      throw airtableFailure(error, "provider_failure", "discovery");
+    });
     if (
       !found.accounts.some((account) => account.id === state.accountId) ||
-      (await this.profile(found.sessionId, state.accountId)) !== state.identity
+      (await this.profile(found.sessionId, state.accountId).catch(
+        (error: unknown) => {
+          throw airtableFailure(error, "provider_failure", "identity_read");
+        },
+      )) !== state.identity
     )
       throw new Error("Airtable account changed; verify the connection card");
     const slug =
@@ -328,7 +353,22 @@ export class AirtableConnection {
             };
     return {
       account: state.identity,
-      data: await this.execute(found.sessionId, state.accountId, slug, args),
+      data: await this.execute(
+        found.sessionId,
+        state.accountId,
+        slug,
+        args,
+      ).catch((error: unknown) => {
+        throw airtableFailure(
+          error,
+          "provider_failure",
+          action.action === "get_schema"
+            ? "schema_read"
+            : action.action === "list_records"
+              ? "records_read"
+              : "bases_read",
+        );
+      }),
     };
   }
 }

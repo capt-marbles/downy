@@ -408,7 +408,9 @@ export class ComposioOAuth {
       },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
     });
-    if (!response.ok) throw new Error("Composio verification failed");
+    if (!response.ok)
+      // Keep only HTTP status, never provider text or credential-bearing bodies.
+      throw new Error(`Composio request failed (HTTP ${response.status})`);
     const reader = response.body?.getReader();
     if (!reader) throw new Error("Empty MCP response");
     const decoder = new TextDecoder();
