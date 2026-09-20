@@ -16,7 +16,6 @@ import AgentPanel from "./AgentPanel";
 import InputBox from "./InputBox";
 import VoiceCallPanel from "./VoiceCallPanel";
 import BrowserResearchPanel from "./BrowserResearchPanel";
-import { PilotChoicesButton } from "./PilotChoices";
 import MessageView, { turnHasSideEffects } from "./MessageView";
 import TodoList from "./TodoList";
 import VpcConnectivityWarning from "./VpcConnectivityWarning";
@@ -462,14 +461,6 @@ export default function ChatPage() {
           <CloudComputerCard compact />
           <CloudComputerCard compact backend="boat-computer" />
           <BrowserResearchPanel key={`browser-${slug}`} slug={slug} />
-          <PilotChoicesButton key={`pilot-${slug}`} slug={slug} />
-          <a
-            className="mb-2 flex min-h-11 items-center justify-between rounded-lg border border-base-300 bg-base-200/40 px-3 text-sm"
-            href={`/agent/${encodeURIComponent(slug)}/research`}
-          >
-            <span>Research &amp; reports</span>
-            <span className="text-xs text-base-content/60">Jev view →</span>
-          </a>
           <VoiceCallPanel
             key={slug}
             slug={slug}
