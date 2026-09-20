@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { agentFetch } from "../../lib/agent-request";
 import { useCurrentAgentSlug } from "../../lib/agents";
 import { GmailConnectStatusSchema } from "../../lib/gmail-connect";
@@ -22,8 +22,30 @@ export default function GmailConnectCard() {
     refetchIntervalInBackground: false,
   });
   const connection = status.data;
+  const select = useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await agentFetch(
+        slug,
+        "/api/composio/oauth/gmail/select",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accountId }),
+        },
+      );
+      if (!response.ok)
+        throw new Error(
+          "Could not verify that Gmail account. Your sign-in is preserved; please retry.",
+        );
+    },
+    onSuccess: () => {
+      void status.refetch();
+    },
+  });
   const ready = connection?.state === "ready" && connection.authorized;
   const pending = connection?.state === "pending";
+  const needsSelection =
+    connection?.state === "needs_selection" && connection.authorized;
   return (
     <section
       data-kind="gmail-connect"
@@ -49,18 +71,55 @@ export default function GmailConnectCard() {
         <p className="mt-3 text-sm">Checking connection…</p>
       )}
       {connection?.state === "needs_composio" && <ComposioConnectCard />}
-      {connection && connection.state !== "needs_composio" && !ready && (
-        <form
-          action={`/api/composio/oauth/gmail/start?agentSlug=${encodeURIComponent(slug)}`}
-          method="post"
-          target="_blank"
-          rel="noopener"
-          className="mt-3"
-        >
-          <button className="btn btn-primary btn-sm" type="submit">
-            {pending ? "Continue Gmail sign-in" : "Connect Gmail"}
-          </button>
-        </form>
+      {connection &&
+        connection.state !== "needs_composio" &&
+        !ready &&
+        !needsSelection && (
+          <form
+            action={`/api/composio/oauth/gmail/start?agentSlug=${encodeURIComponent(slug)}`}
+            method="post"
+            target="_blank"
+            rel="noopener"
+            className="mt-3"
+          >
+            <button className="btn btn-primary btn-sm" type="submit">
+              {pending ? "Continue Gmail sign-in" : "Connect Gmail"}
+            </button>
+          </form>
+        )}
+      {needsSelection && (
+        <div className="mt-3 space-y-2">
+          <p role="status" className="text-sm">
+            Gmail is authorized. Choose which account Downy should use for
+            reading and drafts.
+          </p>
+          {connection.accounts?.map((account) => (
+            <button
+              key={account.id}
+              type="button"
+              className="btn btn-outline btn-sm mr-2"
+              disabled={select.isPending}
+              onClick={() => select.mutate(account.id)}
+            >
+              Use {account.label}
+            </button>
+          ))}
+          {!connection.accounts?.length && (
+            <p className="text-sm">
+              No active mailbox is available yet. Retry status shortly.
+            </p>
+          )}
+          {select.isPending && (
+            <p role="status" className="text-sm">
+              Verifying account…
+            </p>
+          )}
+          {select.error && (
+            <p role="alert" className="text-sm text-error">
+              {select.error.message}
+            </p>
+          )}
+        </div>
       )}
       {pending && (
         <p role="status" className="mt-2 text-sm">

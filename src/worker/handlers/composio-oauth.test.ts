@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   disconnect: vi.fn(),
   gmailStatus: vi.fn(),
   gmailStart: vi.fn(),
+  gmailSelect: vi.fn(),
   record: vi.fn(),
   owner: vi.fn(),
   grant: vi.fn(),
@@ -49,6 +50,7 @@ beforeEach(() => {
     showComposioConnectCard: mocks.card,
     getComposioGmailStatus: mocks.gmailStatus,
     startComposioGmail: mocks.gmailStart,
+    selectComposioGmail: mocks.gmailSelect,
   });
   mocks.active.mockResolvedValue({
     showComposioConnectCard: mocks.card,
@@ -74,6 +76,36 @@ beforeEach(() => {
   });
   mocks.owner.mockResolvedValue(false);
   mocks.getAgent.mockResolvedValue({ archivedAt: null });
+});
+const choose = () =>
+  new Request(
+    "https://downy.example/api/composio/oauth/gmail/select?agentSlug=gtm",
+    {
+      method: "POST",
+      headers: {
+        origin: "https://downy.example",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ accountId: "account-one" }),
+    },
+  );
+it("account choice requires an existing bot grant and never restarts OAuth", async () => {
+  expect((await handleComposioOAuthRequest(choose(), env)).status).toBe(403);
+  expect(mocks.gmailSelect).not.toHaveBeenCalled();
+  mocks.owner.mockResolvedValue(true);
+  mocks.gmailStatus.mockResolvedValue({
+    state: "ready",
+    email: "owner@example.com",
+    checkedAt: 1,
+    error: null,
+    authorized: false,
+  });
+  const response = await handleComposioOAuthRequest(choose(), env);
+  expect(response.status).toBe(200);
+  expect(mocks.gmailSelect).toHaveBeenCalledWith("account-one");
+  expect(mocks.notify).toHaveBeenCalledWith("owner@example.com");
+  expect(mocks.gmailStart).not.toHaveBeenCalled();
+  expect(mocks.grant).not.toHaveBeenCalled();
 });
 it("requires same-origin POST and verified Access identity before reaching the vault", async () => {
   expect(

@@ -23,6 +23,14 @@ function fixture() {
   let now = 100_000;
   let connected = false;
   let accountId = "account-one";
+  let accounts:
+    | {
+        id: string;
+        status: string;
+        is_default: boolean;
+        user_info: { email: string };
+      }[]
+    | undefined;
   const calls: { name: string; args: Record<string, unknown> }[] = [];
   const call = vi.fn(
     async (name: string, args: Record<string, unknown>): Promise<unknown> => {
@@ -35,8 +43,11 @@ function fixture() {
               toolkit: "gmail",
               has_active_connection: connected,
               connection_details: connected
-                ? { connected_account_id: accountId }
+                ? accounts
+                  ? null
+                  : { connected_account_id: accountId }
                 : null,
+              ...(accounts ? { accounts, account_selection: "required" } : {}),
             },
           ],
         });
@@ -87,6 +98,29 @@ function fixture() {
     connect: () => {
       connected = true;
     },
+    multipleAccounts: () => {
+      connected = true;
+      accounts = [
+        {
+          id: "account-one",
+          status: "ACTIVE",
+          is_default: true,
+          user_info: { email: "owner@example.com" },
+        },
+        {
+          id: "account-two",
+          status: "ACTIVE",
+          is_default: false,
+          user_info: { email: "second@example.com" },
+        },
+      ];
+    },
+    forgetPendingId: () => {
+      if (saved) delete saved.accountId;
+    },
+    duplicateEmail: () => {
+      if (accounts) accounts[1].user_info.email = accounts[0].user_info.email;
+    },
     changeAccount: () => {
       accountId = "different-account";
     },
@@ -103,6 +137,88 @@ it("viewing a card only checks status; it never starts OAuth or enables an exist
   expect(status.authorized).toBe(false);
   expect(f.calls.map((c) => c.name)).toEqual(["COMPOSIO_SEARCH_TOOLS"]);
   expect(JSON.stringify(status)).not.toContain("sentinel-secret");
+});
+it("post-consent discovery with multiple accounts shows a choice instead of failing or guessing the default", async () => {
+  const f = fixture();
+  await f.make().start();
+  f.forgetPendingId();
+  f.multipleAccounts();
+  f.advance(11_000);
+  const status = await f.make().status(true);
+  expect(status).toMatchObject({
+    state: "needs_selection",
+    email: null,
+    accounts: [
+      { id: "account-one", label: "owner@example.com" },
+      { id: "account-two", label: "second@example.com" },
+    ],
+  });
+  expect(
+    f.calls.filter((c) => c.name === "COMPOSIO_MULTI_EXECUTE_TOOL"),
+  ).toHaveLength(0);
+  await expect(f.make().select("not-this-users-account")).rejects.toThrow(
+    "unavailable",
+  );
+  expect(
+    f.calls.filter((c) => c.name === "COMPOSIO_MULTI_EXECUTE_TOOL"),
+  ).toHaveLength(0);
+  await f.make().select("account-one");
+  expect((await f.make().status()).state).toBe("ready");
+  await f.make().action({ action: "search", query: "in:drafts", limit: 1 });
+  expect(
+    f.calls
+      .filter((c) => c.name === "COMPOSIO_MULTI_EXECUTE_TOOL")
+      .every(
+        (c) =>
+          z
+            .array(z.object({ account: z.literal("account-one") }))
+            .safeParse(c.args.tools).success,
+      ),
+  ).toBe(true);
+  // Once explicitly selected, a second account never dislodges the pin.
+  f.advance(16 * 60_000);
+  expect((await f.make().status(true)).state).toBe("ready");
+  expect(
+    f.calls.filter((c) => c.name === "COMPOSIO_MANAGE_CONNECTIONS"),
+  ).toHaveLength(1);
+});
+it("selecting an account only marks it ready after profile verification succeeds", async () => {
+  const f = fixture();
+  f.multipleAccounts();
+  await f.make().start();
+  const original = f.call.getMockImplementation()!;
+  f.call.mockImplementation(async (name, args) =>
+    name === "COMPOSIO_MULTI_EXECUTE_TOOL"
+      ? envelope({
+          results: [
+            {
+              tool_slug: "GMAIL_GET_PROFILE",
+              error: "private-provider-error",
+              response: null,
+            },
+          ],
+        })
+      : original(name, args),
+  );
+  await expect(f.make().select("account-one")).rejects.toThrow(
+    "Gmail action failed",
+  );
+  expect((await f.make().status()).state).toBe("needs_selection");
+});
+it("distinguishes duplicate connections for the same mailbox without selecting either", async () => {
+  const f = fixture();
+  f.multipleAccounts();
+  f.duplicateEmail();
+  await f.make().start();
+  const status = await f.make().status();
+  expect(status.state).toBe("needs_selection");
+  expect(new Set(status.accounts?.map((account) => account.label)).size).toBe(
+    2,
+  );
+  expect(status.accounts?.[0].label).toContain("Composio default");
+  expect(
+    f.calls.some((call) => call.name === "COMPOSIO_MULTI_EXECUTE_TOOL"),
+  ).toBe(false);
 });
 it("clicking Connect starts Gmail OAuth once and resumes the same pending link", async () => {
   const f = fixture();

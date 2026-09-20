@@ -43,6 +43,14 @@ Composio execution or workbench access. Draft creation is not automatically
 retried after ambiguous failures. The user sends from Gmail. Google consent may
 show broader scopes; the no-send restriction is enforced in Downy code.
 
+If Composio returns multiple active Gmail accounts, the card says **Gmail is
+authorized** and presents mailbox choices. This is a selection step, not an OAuth
+failure. Downy never guesses from Composio's default account. The authenticated
+selection POST checks that the account belongs to this user's active connections,
+verifies its profile, and persists its ID encrypted. Every subsequent profile,
+read and draft call includes that explicit `account` ID. Reloading the card or
+changing the provider's default cannot silently switch mailboxes.
+
 `list_mcp_servers` now returns `managedConnections` as well as ordinary `servers`.
 An empty ordinary-server array does not mean Composio OAuth failed. Managed
 status is synchronized by the authenticated cards and includes its last check.

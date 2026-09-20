@@ -2,6 +2,7 @@ import { verifyAccessJwt } from "../auth/cloudflare-access";
 import { getActiveAgentStub } from "../lib/active-agent";
 import { getAgentStub, slugFromRequest } from "../lib/get-agent";
 import { getAgent } from "../db/profile";
+import { z } from "zod";
 
 const headers = {
   "Cache-Control": "private, no-store",
@@ -61,6 +62,36 @@ export async function handleComposioOAuthRequest(
     }
     if (
       request.method === "POST" &&
+      path === "/api/composio/oauth/gmail/select"
+    ) {
+      const agent = await getActiveAgentStub(request, env);
+      if (!(await agent.isGmailOwner(owner)))
+        return Response.json(
+          { error: "Connect Gmail for this bot first." },
+          { status: 403, headers },
+        );
+      const input = z
+        .object({ accountId: z.string().min(1).max(200) })
+        .strict()
+        .safeParse(await request.json());
+      if (!input.success)
+        return Response.json(
+          { error: "Choose a Gmail account." },
+          { status: 400, headers },
+        );
+      await vault.selectComposioGmail(input.data.accountId);
+      const gmail = await vault.getComposioGmailStatus();
+      const composio = await vault.getComposioOAuthStatus();
+      await agent.recordManagedStatus({
+        composio,
+        gmail: { ...gmail, authorized: true },
+      });
+      if (gmail.state === "ready" && gmail.email)
+        await agent.notifyGmailReady(gmail.email);
+      return Response.json({ ...gmail, authorized: true }, { headers });
+    }
+    if (
+      request.method === "POST" &&
       path === "/api/composio/oauth/gmail/start"
     ) {
       const agent = await getActiveAgentStub(request, env);
@@ -109,8 +140,9 @@ export async function handleComposioOAuthRequest(
     if (url.pathname.endsWith("/callback")) return redirect("/settings");
     return Response.json(
       {
-        error:
-          "Could not complete Composio setup. Please retry from Preferences.",
+        error: url.pathname.includes("/gmail")
+          ? "Could not verify Gmail. Your authorization is preserved; retry the status check."
+          : "Could not complete Composio setup. Please retry from Preferences.",
       },
       { status: 503, headers },
     );

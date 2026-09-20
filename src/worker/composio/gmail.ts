@@ -6,7 +6,15 @@ import {
 } from "../../lib/gmail-connect";
 
 export const GmailStateSchema = z.object({
-  state: z.enum(["not_connected", "pending", "ready", "failed", "expired"]),
+  state: z.enum([
+    "not_connected",
+    "pending",
+    "needs_selection",
+    "ready",
+    "failed",
+    "expired",
+  ]),
+  accounts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
   sessionId: z.string().optional(),
   accountId: z.string().optional(),
   redirectUrl: z.string().optional(),
@@ -25,6 +33,22 @@ const Search = z.object({
     z.object({
       toolkit: z.string(),
       has_active_connection: z.boolean(),
+      accounts: z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            status: z.string(),
+            alias: z.string().nullish(),
+            is_default: z.boolean().optional(),
+            user_info: z
+              .object({
+                email: z.string().nullish(),
+                emailAddress: z.string().nullish(),
+              })
+              .nullish(),
+          }),
+        )
+        .optional(),
       connection_details: z
         .object({ connected_account_id: z.string().nullish() })
         .nullish()
@@ -33,6 +57,35 @@ const Search = z.object({
   ),
   session: z.object({ id: z.string() }),
 });
+type GmailStatus = z.infer<
+  typeof Search
+>["toolkit_connection_statuses"][number];
+function activeAccounts(gmail: GmailStatus) {
+  if (!gmail.has_active_connection) return [];
+  if (gmail.accounts) {
+    const accounts = gmail.accounts
+      .filter((account) => account.status.toLowerCase() === "active")
+      .map((account) => ({
+        id: account.id,
+        isDefault: account.is_default === true,
+        label: (
+          account.user_info?.emailAddress ??
+          account.user_info?.email ??
+          account.alias ??
+          `Gmail account ${account.id.slice(-8)}`
+        ).slice(0, 200),
+      }));
+    return accounts.map(({ id, label, isDefault }) => ({
+      id,
+      label:
+        accounts.filter((account) => account.label === label).length > 1
+          ? `${label} (${isDefault ? "Composio default" : `connection ${id.slice(-6)}`})`
+          : label,
+    }));
+  }
+  const id = gmail.connection_details.connected_account_id;
+  return id ? [{ id, label: `Gmail account ${id.slice(-8)}` }] : [];
+}
 const Managed = z.object({
   results: z.object({
     gmail: z.object({
@@ -171,13 +224,28 @@ export class GmailConnection {
       state.sessionId = sessionId;
       state.checkedAt = this.now();
       if (gmail.has_active_connection && state.state !== "not_connected") {
-        const id = gmail.connection_details.connected_account_id;
-        if (!id || (state.accountId && state.accountId !== id))
-          throw new Error("Gmail account changed; reconnect required");
-        state.accountId = id;
-        state.email = await this.profile(sessionId);
-        state.state = "ready";
-        delete state.redirectUrl;
+        const accounts = activeAccounts(gmail);
+        const savedId = state.accountId;
+        const selected = savedId
+          ? accounts.find((account) => account.id === savedId)
+          : accounts.length === 1
+            ? accounts[0]
+            : undefined;
+        if (!selected) {
+          // An active toolkit can contain several mailboxes. A provider default
+          // is not the user's choice. Keep OAuth intact and ask in the card.
+          state.state = "needs_selection";
+          state.accounts = accounts;
+          state.email = null;
+          delete state.redirectUrl;
+        } else {
+          state.email = await this.profile(sessionId, selected.id);
+          state.accountId = selected.id;
+          state.state = "ready";
+          delete state.accounts;
+          delete state.redirectUrl;
+          delete state.expiresAt;
+        }
       } else if (state.expiresAt && state.expiresAt <= this.now()) {
         state.state = "expired";
         delete state.redirectUrl;
@@ -190,6 +258,9 @@ export class GmailConnection {
       email: state.email,
       checkedAt: state.checkedAt,
       authorized: false,
+      ...(state.state === "needs_selection"
+        ? { accounts: state.accounts ?? [] }
+        : {}),
       error:
         state.state === "failed"
           ? "Gmail authorization failed. Try again."
@@ -207,16 +278,24 @@ export class GmailConnection {
     )
       return { redirectUrl: gmailAuthorizationUrl(state.redirectUrl) };
     const { gmail, sessionId } = await this.search(state);
-    if (
-      gmail.has_active_connection &&
-      gmail.connection_details.connected_account_id
-    ) {
+    const accounts = activeAccounts(gmail);
+    if (gmail.has_active_connection) {
+      if (accounts.length !== 1) {
+        await this.save({
+          state: "needs_selection",
+          accounts,
+          sessionId,
+          email: null,
+          checkedAt: this.now(),
+        });
+        return { redirectUrl: null };
+      }
       await this.save({
         state: "ready",
         sessionId,
-        accountId: gmail.connection_details.connected_account_id,
+        accountId: accounts[0].id,
         checkedAt: this.now(),
-        email: await this.profile(sessionId),
+        email: await this.profile(sessionId, accounts[0].id),
       });
       return { redirectUrl: null };
     }
@@ -245,14 +324,39 @@ export class GmailConnection {
       checkedAt: this.now(),
       email: null,
     };
-    if (state.state === "ready") state.email = await this.profile(sessionId);
+    // An active response without a selected account still needs discovery.
+    if (state.state === "ready") {
+      if (state.accountId)
+        state.email = await this.profile(sessionId, state.accountId);
+      else {
+        state.state = "pending";
+        state.checkedAt = null;
+      }
+    }
     await this.save(state);
     return { redirectUrl };
+  }
+  async select(accountId: string): Promise<void> {
+    const state = await this.load();
+    if (!state || state.state !== "needs_selection")
+      throw new Error("Gmail selection unavailable");
+    const { gmail, sessionId } = await this.search(state);
+    if (!activeAccounts(gmail).some((account) => account.id === accountId))
+      throw new Error("Gmail account unavailable");
+    const email = await this.profile(sessionId, accountId);
+    await this.save({
+      state: "ready",
+      sessionId,
+      accountId,
+      email,
+      checkedAt: this.now(),
+    });
   }
   private async execute(
     sessionId: string,
     slug: string,
     args: Record<string, unknown>,
+    accountId: string,
   ) {
     const data = z
       .object({
@@ -267,7 +371,7 @@ export class GmailConnection {
       .parse(
         metaData(
           await this.call("COMPOSIO_MULTI_EXECUTE_TOOL", {
-            tools: [{ tool_slug: slug, arguments: args }],
+            tools: [{ tool_slug: slug, arguments: args, account: accountId }],
             session_id: sessionId,
             sync_response_to_workbench: false,
             current_step:
@@ -286,11 +390,16 @@ export class GmailConnection {
     if (!response.successful) throw new Error("Gmail action failed");
     return response.data;
   }
-  private async profile(sessionId: string) {
+  private async profile(sessionId: string, accountId: string) {
     return z
       .object({ emailAddress: z.string().email() })
       .parse(
-        await this.execute(sessionId, "GMAIL_GET_PROFILE", { user_id: "me" }),
+        await this.execute(
+          sessionId,
+          "GMAIL_GET_PROFILE",
+          { user_id: "me" },
+          accountId,
+        ),
       ).emailAddress;
   }
   async action(input: GmailAction) {
@@ -308,8 +417,10 @@ export class GmailConnection {
     const found = await this.search(state);
     if (
       !found.gmail.has_active_connection ||
-      found.gmail.connection_details.connected_account_id !== state.accountId ||
-      (await this.profile(found.sessionId)) !== state.email
+      !activeAccounts(found.gmail).some(
+        (account) => account.id === state.accountId,
+      ) ||
+      (await this.profile(found.sessionId, state.accountId)) !== state.email
     )
       throw new Error("Gmail account changed; reconnect required");
     if (action.action === "create_draft") {
@@ -321,14 +432,19 @@ export class GmailConnection {
           message: z.object({ id: z.string() }).optional(),
         })
         .parse(
-          await this.execute(found.sessionId, "GMAIL_CREATE_EMAIL_DRAFT", {
-            user_id: "me",
-            recipient_email: action.recipientEmail,
-            subject: action.subject,
-            body: action.body,
-            is_html: false,
-            ...(action.threadId ? { thread_id: action.threadId } : {}),
-          }),
+          await this.execute(
+            found.sessionId,
+            "GMAIL_CREATE_EMAIL_DRAFT",
+            {
+              user_id: "me",
+              recipient_email: action.recipientEmail,
+              subject: action.subject,
+              body: action.body,
+              is_html: false,
+              ...(action.threadId ? { thread_id: action.threadId } : {}),
+            },
+            state.accountId,
+          ),
         );
       return {
         state: "draft_created",
@@ -353,6 +469,7 @@ export class GmailConnection {
             verbose: false,
           }
         : { user_id: "me", message_id: action.messageId },
+      state.accountId,
     );
     return { account: state.email, data: result };
   }

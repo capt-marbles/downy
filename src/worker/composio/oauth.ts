@@ -529,6 +529,9 @@ export class ComposioOAuth {
   async startGmail() {
     return this.gmail().start();
   }
+  async selectGmail(accountId: string) {
+    return this.gmail().select(accountId);
+  }
   async gmailAction(input: GmailAction) {
     return this.gmail().action(input);
   }

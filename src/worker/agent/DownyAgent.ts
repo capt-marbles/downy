@@ -2061,6 +2061,9 @@ export class DownyAgent extends Think {
   async startComposioGmail() {
     return this.withComposioOAuth((oauth) => oauth.startGmail());
   }
+  async selectComposioGmail(accountId: string) {
+    return this.withComposioOAuth((oauth) => oauth.selectGmail(accountId));
+  }
   async executeComposioGmail(input: GmailAction) {
     return this.withComposioOAuth((oauth) => oauth.gmailAction(input));
   }

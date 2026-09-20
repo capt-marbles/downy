@@ -4,6 +4,7 @@ export const GmailConnectStatusSchema = z.object({
     "needs_composio",
     "not_connected",
     "pending",
+    "needs_selection",
     "ready",
     "failed",
     "expired",
@@ -12,6 +13,7 @@ export const GmailConnectStatusSchema = z.object({
   checkedAt: z.number().nullable(),
   error: z.string().nullable(),
   authorized: z.boolean().default(false),
+  accounts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
 });
 export type GmailConnectStatus = z.infer<typeof GmailConnectStatusSchema>;
 
