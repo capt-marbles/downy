@@ -13,3 +13,6 @@ dist-ssr
 __unconfig*
 todos.json
 auth.json
+
+# nested, separately-versioned content-writing agent (every-app/sam)
+sam/
