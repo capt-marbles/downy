@@ -24,8 +24,11 @@
 Replace example project paths with real IDs or URL-encoded paths. The default is
 an empty array, so nothing syncs until configured. `GITLAB_BASE_URL` defaults to
 `https://gitlab.com`. Provision `DOWNY_GITLAB_TOKEN` (read_api + read_repository)
-and `DOWNY_GITLAB_WEBHOOK_SECRET` in Secrets Store; Worker bindings are
-`GITLAB_TOKEN` and `GITLAB_WEBHOOK_SECRET`. Neither reaches the agent.
+and `DOWNY_GITLAB_WEBHOOK_SECRET` in Secrets Store, then set
+`DOWNY_CORPUS_ENABLED=true` in `.env` and deploy; Worker bindings are
+`GITLAB_TOKEN` and `GITLAB_WEBHOOK_SECRET`. The bindings are opt-in because the
+Worker upload is rejected when a referenced secret does not exist. Neither
+reaches the agent.
 
 Configure a push webhook to `/api/corpus/gitlab-webhook`, set its secret token,
 and add custom `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers using a

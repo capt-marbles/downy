@@ -124,11 +124,22 @@ export const worker = await TanStackStart("downy", {
       process.env.EFFECT_GATE_CONFIDENCE_FLOOR ?? "0.6",
     CORPUS_REPOS: process.env.CORPUS_REPOS ?? "[]",
     GITLAB_BASE_URL: process.env.GITLAB_BASE_URL ?? "https://gitlab.com",
-    GITLAB_TOKEN: await SecretRef({ name: "DOWNY_GITLAB_TOKEN" }),
-    GITLAB_WEBHOOK_SECRET: await SecretRef({
-      name: "DOWNY_GITLAB_WEBHOOK_SECRET",
-    }),
-    COMPOSIO_API_KEY: await SecretRef({ name: "DOWNY_COMPOSIO_API_KEY" }),
+    // Opt-in like voice: the Worker upload fails if a referenced Secrets Store
+    // secret does not exist, so these bind only once the operator has
+    // provisioned them. Absent bindings fail closed at use (readSecret throws).
+    ...(process.env.DOWNY_CORPUS_ENABLED === "true"
+      ? {
+          GITLAB_TOKEN: await SecretRef({ name: "DOWNY_GITLAB_TOKEN" }),
+          GITLAB_WEBHOOK_SECRET: await SecretRef({
+            name: "DOWNY_GITLAB_WEBHOOK_SECRET",
+          }),
+        }
+      : {}),
+    ...(process.env.DOWNY_COMPOSIO_ENABLED === "true"
+      ? {
+          COMPOSIO_API_KEY: await SecretRef({ name: "DOWNY_COMPOSIO_API_KEY" }),
+        }
+      : {}),
     CREDENTIAL_KEY: await SecretRef({ name: "DOWNY_CREDENTIAL_KEY" }),
     DB: db,
     WORKSPACE_BUCKET: workspaceBucket,

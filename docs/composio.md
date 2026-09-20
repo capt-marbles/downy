@@ -1,7 +1,9 @@
 # Managed service setup
 
 Provision `DOWNY_COMPOSIO_API_KEY` in Cloudflare Secrets Store with Workers scope,
-then bind it to `COMPOSIO_API_KEY` on the Worker. Enter it only in the Cloudflare
+then set `DOWNY_COMPOSIO_ENABLED=true` in `.env` and deploy; that binds it to
+`COMPOSIO_API_KEY` on the Worker. The binding is opt-in because the Worker
+upload is rejected when a referenced secret does not exist. Enter it only in the Cloudflare
 secure form. `CREDENTIAL_KEY` uses the existing `DOWNY_CREDENTIAL_KEY` binding.
 No key is accepted as a model tool argument or chat message.
 
