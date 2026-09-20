@@ -48,3 +48,45 @@ return manual troubleshooting guidance only in the failure result. Jev never
 marks an endpoint trustworthy, validates a credential, or approves a gate.
 `mcp_connect_diagnostics` records the model version, class, confidence, HTTP status,
 attempt ladder and outcome without credential values.
+
+## Tool-call effect gate
+
+Name allowlists decide which tools a read-only worker or a voice turn may
+call. They cannot see that the same tool reads or acts depending on its
+arguments: `web_scrape` of a product page is a read; `web_scrape` of an
+unsubscribe link with a token changes state on someone else's server. Before a
+gated tool executes, one Jev request classifies the exact call (tool name,
+truncated description, redacted arguments) into `read_only`,
+`workspace_write`, `proposal_only`, `external_effect` or `destructive`, plus a
+`noul` for whether the effect is hard to undo. Code owns the consequence:
+
+- `external_effect` and `destructive` are blocked. The tool result tells the
+  model nothing ran and to use a different input or the chat controls.
+- Below `EFFECT_GATE_CONFIDENCE_FLOOR` (default `0.6`) the riskier of the two
+  most probable classes is assumed. Uncertainty between read and workspace
+  write still runs; uncertainty that straddles the external line blocks.
+- Evaluator errors, deadlines (3 s) and unoffered classes fail open and are
+  recorded as `unavailable`. The allowlists remain the hard floor, so an
+  outage degrades to the previous behaviour instead of widening it.
+- Empty-argument calls and MCP calls carrying `confirm_destructive_action`
+  skip the evaluator; an explicit operator confirmation is not second-guessed.
+
+Where it applies: read-only background workers gate every allowlisted tool;
+voice turns gate every active tool; chat and full-access workers gate the
+read-oriented tools (`web_search`, `web_scrape`, `read`, `list`, `find`,
+`grep`, skill reads, `read_peer_agent`) and every MCP proxy tool. Tools whose
+declared purpose is to act (`schedule_task`, `delete`, `stage_action`, MCP
+tools named destructively) keep their existing confirmation paths and are not
+gated in chat. Jev never marks a call safe, never chooses an action and never
+confirms a proposal.
+
+Before the call leaves the worker, argument values under secret-looking keys,
+bearer or basic values, token-shaped words and secret-named query parameters
+are replaced with `[redacted]`; long strings and arrays are truncated. Set
+`EFFECT_GATE_ENABLED=false` to disable. Every non-skipped decision is stored in
+`tool_effect_decisions` with the model version, class, confidence, whether the
+riskier reading applied, and the elapsed time, so blocks and outages are
+inspectable per bot. See `src/worker/agent/effect-gate.ts` and
+`scripts/jev-lab/` for the experiment that motivated the class set
+(11 of 12 calls classified as intended; the miss was uncertain and would have
+been blocked by the riskier-reading rule).

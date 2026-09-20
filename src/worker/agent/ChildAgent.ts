@@ -16,6 +16,15 @@ import {
 } from "./build-system-prompt";
 import type { ActivePlan } from "./tools/todo-write";
 import { readOnlyActiveTools, readOnlyToolSet } from "./read-only-tools";
+import {
+  chatGateNames,
+  effectGateConfigFromEnv,
+  gateToolSet,
+  recordEffectDecision,
+  type EffectGateContext,
+  type EffectGateDeps,
+} from "./effect-gate";
+import { runJev } from "../jev/client";
 import { buildMcpProxyTools, buildSharedToolSet } from "./tool-registry";
 
 type BackgroundTaskMeta = {
@@ -201,17 +210,37 @@ export class ChildAgent extends Think {
       }),
       ...mcpTools,
     };
+    const gate = (context: EffectGateContext): EffectGateDeps => ({
+      run: (request) => runJev(this.env.AI, request),
+      config: effectGateConfigFromEnv(this.env),
+      onDecision: (decision) =>
+        recordEffectDecision(this.env.DB, meta.parentName, context, decision),
+    });
     if (!readOnly)
-      return { system, tools, model: getModelFor(this.env, aiProvider) };
+      return {
+        system,
+        tools: gateToolSet(tools, {
+          ...gate("background"),
+          names: chatGateNames(tools),
+        }),
+        model: getModelFor(this.env, aiProvider),
+      };
     // Hide blocked schemas and block their executors: Think merges overrides
     // rather than replacing the set, and the remote workspace proxy would
     // otherwise accept a write on the parent's behalf.
+    // The name allowlist is the hard floor; the effect gate then checks the
+    // arguments of the tools that remain, so a scrape of an action URL
+    // cannot slip through as a read.
+    const activeTools = readOnlyActiveTools({ ...ctx.tools, ...tools });
     return {
       system,
-      tools: readOnlyToolSet(tools),
+      tools: gateToolSet(readOnlyToolSet(tools), {
+        ...gate("background-read-only"),
+        names: activeTools,
+      }),
       // Think's auto-registered workspace tools (list/find/grep) live in
       // ctx.tools, not in the set built here.
-      activeTools: readOnlyActiveTools({ ...ctx.tools, ...tools }),
+      activeTools,
       model: getModelFor(this.env, aiProvider),
     };
   }

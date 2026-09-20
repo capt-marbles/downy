@@ -6,6 +6,9 @@
     "cloud-computer/server.mjs",
     "boat-computer/server.mjs",
     "scripts/**/*.{js,mjs}",
+    // Jev lab live checks run only with the scratch proxy up (scripts/jev-lab/README.md).
+    "scripts/jev-lab/*.test.ts",
+    "scripts/jev-lab/vitest.live.config.ts",
     "alchemy.run.ts",
     "vite.config.ts",
   ],

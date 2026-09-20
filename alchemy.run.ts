@@ -119,6 +119,9 @@ export const worker = await TanStackStart("downy", {
     CRITERIA_PASS_THRESHOLD: process.env.CRITERIA_PASS_THRESHOLD ?? "0.7",
     CRITERIA_CONFIDENCE_FLOOR: process.env.CRITERIA_CONFIDENCE_FLOOR ?? "0.6",
     JEV_DISABLED_TEMPLATES: process.env.JEV_DISABLED_TEMPLATES ?? "[]",
+    EFFECT_GATE_ENABLED: process.env.EFFECT_GATE_ENABLED ?? "true",
+    EFFECT_GATE_CONFIDENCE_FLOOR:
+      process.env.EFFECT_GATE_CONFIDENCE_FLOOR ?? "0.6",
     CORPUS_REPOS: process.env.CORPUS_REPOS ?? "[]",
     GITLAB_BASE_URL: process.env.GITLAB_BASE_URL ?? "https://gitlab.com",
     GITLAB_TOKEN: await SecretRef({ name: "DOWNY_GITLAB_TOKEN" }),

@@ -1,0 +1,40 @@
+npm warn Unknown user config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+ ⛅️ wrangler 4.135.0
+────────────────────
+Support for remote bindings in `wrangler dev` is now available as a replacement for `wrangler dev --remote`. Try it out now by running `wrangler dev` with the `remote` option enabled on your resources and let us know how it goes!
+This gives you access to remote resources in development while retaining all the usual benefits of local dev: fast iteration speed, breakpoint debugging, and more.
+
+Refer to https://developers.cloudflare.com/workers/development-testing/#remote-bindings for more information.
+Your Worker has access to the following bindings:
+Binding        Resource      
+env.AI         AI            
+
+⎔ Starting remote preview...
+Total Upload: 5.83 KiB / gzip: 1.74 KiB
+[wrangler:info] Ready on http://localhost:8799
+[wrangler:info] GET / 405 Method Not Allowed (538ms)
+[wrangler:info] POST / 200 OK (667ms)
+[wrangler:info] POST / 200 OK (565ms)
+[wrangler:info] POST / 200 OK (243ms)
+[wrangler:info] POST / 200 OK (217ms)
+[wrangler:info] POST / 200 OK (325ms)
+[wrangler:info] POST / 200 OK (329ms)
+[wrangler:info] POST / 200 OK (239ms)
+[wrangler:info] POST / 200 OK (247ms)
+[wrangler:info] POST / 200 OK (231ms)
+[wrangler:info] POST / 200 OK (254ms)
+[wrangler:info] POST / 200 OK (228ms)
+[wrangler:info] POST / 200 OK (208ms)
+[wrangler:info] POST / 200 OK (573ms)
+[wrangler:info] POST / 200 OK (405ms)
+[wrangler:info] POST / 200 OK (339ms)
+[wrangler:info] POST / 200 OK (249ms)
+[wrangler:info] POST / 200 OK (266ms)
+[wrangler:info] POST / 200 OK (230ms)
+[wrangler:info] POST / 200 OK (252ms)
+[wrangler:info] POST / 200 OK (225ms)
+[wrangler:info] POST / 200 OK (234ms)
+[wrangler:info] POST / 200 OK (406ms)
+[wrangler:info] POST / 200 OK (253ms)
+[wrangler:info] POST / 200 OK (322ms)
