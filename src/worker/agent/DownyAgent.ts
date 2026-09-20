@@ -39,7 +39,7 @@ import {
   browserResearchPath,
   browserResearchMarkdown,
 } from "../../lib/browser-research";
-import { voiceReadTools, voiceToolSet } from "../voice/policy";
+import { voiceTurnTools } from "../voice/policy";
 import { voiceTurnOutcome, voiceOutcomeChatText } from "../voice/outcome";
 import type { AdvanceWorkflowInput } from "../buildroom/workflows";
 import { syncCorpus } from "../corpus/sync";
@@ -525,28 +525,6 @@ export class DownyAgent extends Think {
             .join(" ") ?? "",
         ),
       );
-    if (latestUser?.id.startsWith("voice-request:")) {
-      return {
-        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
-        model: getModelFor(this.env, aiProvider),
-        activeTools: voiceReadTools(Object.keys(ctx.tools), true),
-        tools: voiceToolSet(ctx.tools, (path, content) =>
-          this.ctx.blockConcurrencyWhile(async () => {
-            if (await this.workspace.exists(path))
-              throw new Error(
-                "Report already exists. Choose a new filename; voice cannot overwrite files.",
-              );
-            await this.workspace.writeFile(path, content);
-            if ((await this.workspace.readFile(path)) !== content)
-              throw new Error("Report save could not be verified.");
-          }),
-        ),
-        maxSteps: forceBotCreation ? 1 : 12,
-        ...(forceBotCreation
-          ? { toolChoice: { type: "tool" as const, toolName: "create_bot" } }
-          : {}),
-      };
-    }
     const mcpTools = toolRegistry.buildMcpProxyTools({
       descriptors: listMcpToolDescriptors(this.mcp),
       callTool: (serverId, name, args) =>
@@ -595,10 +573,34 @@ export class DownyAgent extends Think {
           }
         },
       });
+    // Resolve authorized integrations before applying channel permissions.
+    // Voice must see the same inventory as chat, including restored grants.
+    const availableTools = { ...ctx.tools, ...mcpTools };
+    if (latestUser?.id.startsWith("voice-request:")) {
+      return {
+        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. For Airtable questions, use airtable_records directly when available; it needs no skill file or Boat filesystem access. Inspect the authorized base and actual table/field schema first. For pipeline counts, request only the stage field with limit 100 and follow each returned offset until none remains. Include records with a missing stage. If you cannot read all pages in this turn, label counts partial and state that the total is unknown. Never present a page count as a complete pipeline count. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn; do not delegate to spawn_background_task, which is unavailable in voice. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
+        model: getModelFor(this.env, aiProvider),
+        ...voiceTurnTools(availableTools, (path, content) =>
+          this.ctx.blockConcurrencyWhile(async () => {
+            if (await this.workspace.exists(path))
+              throw new Error(
+                "Report already exists. Choose a new filename; voice cannot overwrite files.",
+              );
+            await this.workspace.writeFile(path, content);
+            if ((await this.workspace.readFile(path)) !== content)
+              throw new Error("Report save could not be verified.");
+          }),
+        ),
+        maxSteps: forceBotCreation ? 1 : 12,
+        ...(forceBotCreation
+          ? { toolChoice: { type: "tool" as const, toolName: "create_bot" } }
+          : {}),
+      };
+    }
     return {
       system,
       model: getModelFor(this.env, aiProvider),
-      tools: mcpTools,
+      tools: availableTools,
       ...(forceManagedSetup
         ? {
             toolChoice: { type: "tool" as const, toolName: "find_tool_setup" },

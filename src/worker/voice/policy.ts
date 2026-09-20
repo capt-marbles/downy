@@ -1,3 +1,4 @@
+import { AirtableActionSchema } from "../../lib/airtable-connect";
 import { VOICE_IDLE_MS, VOICE_LEASE_MS, VOICE_MAX_MS } from "../../lib/voice";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
@@ -8,6 +9,7 @@ import { normalizeWorkspacePath } from "../agent/child-workspace-rpc";
 // exceptions are a constrained new Markdown report and explicit creation of an empty bot.
 const VOICE_READ_TOOLS = new Set([
   "create_bot",
+  "airtable_records",
   "read",
   "list",
   "find",
@@ -27,6 +29,18 @@ export function voiceReadTools(
     (name) =>
       VOICE_READ_TOOLS.has(name) || (reportsEnabled && name === "write"),
   );
+}
+
+// Both the advertised schemas and executable guards use the fully resolved
+// authorized inventory. Do not pass only Think's base tools here.
+export function voiceTurnTools(
+  availableTools: ToolSet,
+  saveReport?: (path: string, content: string) => Promise<void>,
+) {
+  return {
+    activeTools: voiceReadTools(Object.keys(availableTools), !!saveReport),
+    tools: voiceToolSet(availableTools, saveReport),
+  };
 }
 
 export function voiceToolSet(
@@ -52,6 +66,27 @@ export function voiceToolSet(
           },
     ]),
   );
+  const airtable = tools.airtable_records;
+  if (airtable?.execute) {
+    const execute = airtable.execute;
+    restricted.airtable_records = tool({
+      description: airtable.description,
+      inputSchema: AirtableActionSchema,
+      execute: async (input, options) => {
+        // Keep this operation allowlist even if chat later gains Airtable writes.
+        // Hidden/malformed calls must fail before the original executor runs.
+        if (
+          !["list_bases", "get_schema", "list_records"].includes(input.action)
+        )
+          throw new Error("Voice only permits Airtable reads.");
+        const result: unknown = await execute(
+          AirtableActionSchema.parse(input),
+          options,
+        );
+        return result;
+      },
+    });
+  }
   if (saveReport && tools.write)
     restricted.write = tool({
       description:

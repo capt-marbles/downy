@@ -1,9 +1,10 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { appendCaption, VoiceCommandSchema, voiceChunks } from "./voice";
 import {
   voiceDeadline,
   voiceReadTools,
   voiceToolSet,
+  voiceTurnTools,
 } from "../worker/voice/policy";
 import { tool } from "ai";
 import { z } from "zod";
@@ -203,4 +204,86 @@ it("never reports saved when the server rejects an existing report or verificati
       { toolCallId: "save", messages: [] },
     ),
   ).rejects.toThrow("already exists");
+});
+
+it("advertises and executes authorized Airtable reads from the resolved turn inventory", async () => {
+  const execute = vi.fn(async (input: unknown) => ({
+    account: "verified-account",
+    data: input,
+  }));
+  const read = tool({ inputSchema: z.object({}), execute });
+  const connected = tool({ inputSchema: z.unknown(), execute });
+  const turn = voiceTurnTools({
+    read,
+    airtable_records: connected,
+    gmail_email: connected,
+    tool_airtable_update: connected,
+    request_credential: connected,
+    connect_mcp_server: connected,
+  });
+  expect(turn.activeTools).toEqual(["read", "airtable_records"]);
+  const options = { toolCallId: "voice-airtable", messages: [] };
+  for (const input of [
+    { action: "list_bases" },
+    { action: "get_schema", baseId: "appCRM" },
+    {
+      action: "list_records",
+      baseId: "appCRM",
+      tableId: "tblLeads",
+      fields: ["Stage"],
+      limit: 100,
+      offset: "opaque/page-two",
+    },
+  ]) {
+    expect(await turn.tools.airtable_records.execute?.(input, options)).toEqual(
+      {
+        account: "verified-account",
+        data: input,
+      },
+    );
+    expect(execute).toHaveBeenLastCalledWith(input, options);
+  }
+  expect(execute).toHaveBeenCalledTimes(3);
+  for (const name of [
+    "gmail_email",
+    "tool_airtable_update",
+    "request_credential",
+    "connect_mcp_server",
+  ])
+    await expect(turn.tools[name].execute?.({}, options)).rejects.toThrow(
+      "This action did not run",
+    );
+  expect(execute).toHaveBeenCalledTimes(3);
+});
+
+it("does not synthesize Airtable access when the bot has no authorized tool", () => {
+  const turn = voiceTurnTools({ read: tool({ inputSchema: z.object({}) }) });
+  expect(turn.activeTools).toEqual(["read"]);
+  expect(turn.tools.airtable_records).toBeUndefined();
+});
+
+it("rejects Airtable mutations and credential injection even if the underlying tool is widened", async () => {
+  const execute = vi.fn(async () => "must not run");
+  const turn = voiceTurnTools({
+    airtable_records: tool({ inputSchema: z.unknown(), execute }),
+  });
+  for (const input of [
+    { action: "update_record", baseId: "appCRM" },
+    { action: "delete_record", baseId: "appCRM" },
+    { action: "list_bases", account: "another-account" },
+    { action: "list_bases", headers: { authorization: "secret" } },
+    {
+      action: "list_records",
+      baseId: "appCRM",
+      tableId: "tblLeads",
+      limit: 101,
+    },
+  ])
+    await expect(
+      turn.tools.airtable_records.execute?.(input, {
+        toolCallId: "blocked",
+        messages: [],
+      }),
+    ).rejects.toThrow();
+  expect(execute).not.toHaveBeenCalled();
 });
