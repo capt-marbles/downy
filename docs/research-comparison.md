@@ -65,3 +65,26 @@ contradicted, and an unsupported productivity claim failed. This is a transport
 and behavior smoke test, not a calibration study. The full Studio-to-report
 operator run awaits three selected URLs; iPhone hang-up acceptance is still to
 be exercised on that run.
+
+### First operator run: drafting recovery
+
+All three selected GitHub pages were captured by Studio. Draft generation
+failed: a replay showed Kimi consuming all 5,000 output tokens on reasoning,
+returning no JSON. Comparison drafts now set Kimi K2.6's documented
+`chat_template_kwargs.thinking=false` through a scoped AI binding wrapper;
+normal chat, other providers and Jev are unchanged. The same frozen sources
+then produced six schema-valid findings in 1,308 output tokens. Budget stops,
+empty answers, malformed JSON and invalid citation schemas now have distinct,
+code-owned error messages without leaking arbitrary provider errors.
+
+An explicit retry after a drafting failure reuses the completed capture IDs
+when the source revision is unchanged. Changing URLs or retrying an incomplete
+capture creates new reads. Idle cards continue polling to observe a run started
+from another client, and the UI distinguishes saving URLs from starting work.
+
+The recovered production run `4f5469dc-3406-4614-aab7-5f133c295f9d`
+reused all three capture IDs, completed with Kimi and `jev-1.13.0`, and saved
+six findings: three supported, three requiring review. The report API returned
+200 and its completion receipt/link were read back from chat. CI, build and
+228 tests pass. The original absent start request could not be attributed to
+a specific button/client failure; the subsequent Kimi failure was reproduced.

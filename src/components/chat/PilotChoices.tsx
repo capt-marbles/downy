@@ -304,7 +304,10 @@ function PilotSources({ choice, slug }: { choice: PilotChoice; slug: string }) {
           </p>
         )}
         {choice.sources && (
-          <p>Three URLs saved. The pages haven’t been read yet.</p>
+          <p>
+            Three URLs saved. Use the comparison panel below to start research
+            or view its progress.
+          </p>
         )}
       </div>
     </form>

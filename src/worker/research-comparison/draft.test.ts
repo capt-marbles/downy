@@ -39,3 +39,18 @@ it("rejects malformed generated claims without a repair loop", async () => {
   ).rejects.toThrow();
   expect(generate).toHaveBeenCalledTimes(1);
 });
+
+it("reports an output-budget stop instead of accepting even valid partial JSON", async () => {
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => ({
+      content: [{ type: "text", text: JSON.stringify({ findings }) }],
+      finishReason: { unified: "length", raw: "length" },
+      usage: {
+        inputTokens: { total: 20, noCache: 20, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 5000, text: 100, reasoning: 4900 },
+      },
+      warnings: [],
+    }),
+  });
+  await expect(draftComparison(model, [])).rejects.toThrow("output limit");
+});

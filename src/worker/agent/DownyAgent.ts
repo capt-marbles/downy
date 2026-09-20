@@ -2,10 +2,12 @@ import {
   ComparisonRunSchema,
   ComparisonFeedbackSchema,
   withComparisonFeedback,
+  comparisonActionIds,
   type ComparisonRun,
 } from "../../lib/research-comparison";
 import { advanceComparison } from "../research-comparison/runner";
 import { comparisonCaptures } from "../research-comparison/captures";
+import { comparisonAiBinding } from "../research-comparison/model";
 import { draftComparison } from "../research-comparison/draft";
 import { runJev } from "../jev/client";
 import { advanceCampaignWorkflow } from "../campaign-room/advance";
@@ -1290,7 +1292,12 @@ export class DownyAgent extends Think {
         createdAt: now,
         updatedAt: now,
         urls: [...choice.sources!.urls],
-        actionIds: [0, 1, 2].map((i) => `hands-${now}-${id.slice(0, 8)}${i}`),
+        actionIds: comparisonActionIds(
+          parsed.success ? parsed.data : null,
+          choice.sources!.revision,
+          id,
+          now,
+        ),
         phase: "capturing",
         error: null,
         sources: [],
@@ -1343,7 +1350,10 @@ export class DownyAgent extends Think {
       captures: (value) => comparisonCaptures(this.env.DB, this.name, value),
       draft: async (sources) =>
         draftComparison(
-          getModelFor(this.env, await readAiProvider(this.env.DB)),
+          getModelFor(
+            { ...this.env, AI: comparisonAiBinding(this.env.AI) },
+            await readAiProvider(this.env.DB),
+          ),
           sources,
         ),
       evaluate: (request) => runJev(this.env.AI, request),

@@ -106,3 +106,18 @@ export function withComparisonFeedback(
     feedback: [...run.feedback, { ...feedback, createdAt: now }],
   };
 }
+
+export function comparisonActionIds(
+  previous: ComparisonRun | null,
+  sourceRevision: string,
+  id: string,
+  now: number,
+): string[] {
+  if (
+    previous?.phase === "failed" &&
+    previous.sourceRevision === sourceRevision &&
+    previous.sources.length === 3
+  )
+    return [...previous.actionIds];
+  return [0, 1, 2].map((i) => `hands-${now}-${id.slice(0, 8)}${i}`);
+}

@@ -73,6 +73,9 @@ function render(value: typeof run | null) {
 it("offers explicit start and explains which browser runs the pilot", () => {
   const html = render(null);
   expect(html).toContain("Start comparison with Studio");
+  expect(html).toContain(
+    "Sources saved. Tap Start comparison with Studio to begin research.",
+  );
   expect(html).toContain("does not run CUA");
 });
 it("renders persisted findings, direct report links, review sample, and corrections", () => {

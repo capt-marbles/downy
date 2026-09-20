@@ -36,9 +36,9 @@ export default function ComparisonPanel({
     },
     refetchInterval: (state) =>
       state.state.data &&
-      !["complete", "failed"].includes(state.state.data.phase)
-        ? 5000
-        : false,
+      ["complete", "failed"].includes(state.state.data.phase)
+        ? false
+        : 5000,
   });
   const start = useMutation({
     mutationFn: async () => {
@@ -73,6 +73,11 @@ export default function ComparisonPanel({
         your selected model, then checks their cited evidence with Jev. This
         tests report verification; it does not run CUA.
       </p>
+      {!run && !query.isPending && !query.error && (
+        <p role="status" className="mt-3 text-sm">
+          Sources saved. Tap Start comparison with Studio to begin research.
+        </p>
+      )}
       {run && (
         <p role="status" className="mt-3 text-sm">
           {labels[run.phase]}

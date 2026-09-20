@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { JevResponseSchema, type JevRunner } from "../jev/client";
+import { ComparisonDraftError } from "./errors";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   ComparisonRunSchema,
   withComparisonFeedback,
+  comparisonActionIds,
 } from "../../lib/research-comparison";
 import { evaluateComparison } from "./evaluate";
 import { advanceComparison } from "./runner";
@@ -304,4 +306,32 @@ it("queues exactly three Studio-pinned reads across repeated reconciliation and 
   await expect(comparisonCaptures(db, "wrong-agent", run)).rejects.toThrow(
     "ownership",
   );
+});
+
+it("reuses completed captures for a failed draft retry, but not a changed selection", () => {
+  const run = initial();
+  run.phase = "failed";
+  run.sources = sources;
+  const next = crypto.randomUUID();
+  expect(comparisonActionIds(run, run.sourceRevision, next, 100)).toEqual(
+    run.actionIds,
+  );
+  expect(comparisonActionIds(run, crypto.randomUUID(), next, 100)).not.toEqual(
+    run.actionIds,
+  );
+  run.sources = [];
+  expect(comparisonActionIds(run, run.sourceRevision, next, 100)).not.toEqual(
+    run.actionIds,
+  );
+});
+
+it("surfaces a code-owned output-limit diagnostic and never evaluates the failed draft", async () => {
+  const run = initial(),
+    deps = io();
+  deps.draft.mockRejectedValue(new ComparisonDraftError("length"));
+  await advanceComparison(run, deps);
+  expect(run.phase).toBe("failed");
+  expect(run.error).toContain("output limit");
+  expect(run.sources).toHaveLength(3);
+  expect(deps.evaluate).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { ComparisonDraftError } from "./errors";
 import {
   type ComparisonRun,
   type ComparisonSource,
@@ -105,12 +106,14 @@ export async function advanceComparison(
     await io.save(run);
     completedSaved = true;
     await io.notify(run);
-  } catch {
+  } catch (error) {
     if (completedSaved) return; // The scheduled watchdog can retry receipt delivery.
     run.phase = "failed";
     run.updatedAt = Date.now();
     run.error =
-      "Comparison stopped. Check Studio capture status or the selected model's login. Interrupted model work is not automatically repeated; use Retry comparison when ready.";
+      error instanceof ComparisonDraftError
+        ? error.message
+        : "Comparison stopped. Check Studio capture status or the selected model's login. Interrupted model work is not automatically repeated; use Retry comparison when ready.";
     await io.save(run);
     await io.notify(run);
   }
