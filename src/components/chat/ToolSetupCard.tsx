@@ -1,3 +1,4 @@
+import GmailConnectCard from "./GmailConnectCard";
 import { agentFetch } from "../../lib/agent-request";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -75,6 +76,11 @@ export default function ToolSetupCard({ part }: { part: ToolPart }) {
     },
   });
   if (!parsed.success) return <p className="text-xs">Finding setup options…</p>;
+  if (
+    parsed.data.candidates.length === 1 &&
+    parsed.data.candidates[0]?.toolkit === "gmail"
+  )
+    return <GmailConnectCard />;
   return (
     <section className="my-3 rounded-lg border border-base-300 bg-base-100 p-4">
       <h3 className="font-semibold">Connect a service</h3>

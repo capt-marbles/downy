@@ -1,3 +1,5 @@
+import GmailConnectCard from "./GmailConnectCard";
+import { ComposioCardPartSchema } from "../../lib/composio";
 import type { UIMessage } from "ai";
 import {
   Check,
@@ -435,6 +437,8 @@ function MessageViewImpl({
           <BackgroundTaskHeader source={backgroundTaskSource} />
         ) : null}
         {message.parts.map((part, idx) => {
+          if (!isUser && ComposioCardPartSchema.safeParse(part).success)
+            return <GmailConnectCard key={idx} />;
           const pilot = !isUser ? PilotChoicePartSchema.safeParse(part) : null;
           if (pilot?.success)
             return (

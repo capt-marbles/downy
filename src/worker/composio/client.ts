@@ -6,7 +6,7 @@ export async function composio(
   path: string,
   body?: unknown,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`https://backend.composio.dev/api/v3${path}`, {
+  const response = await fetch(`https://backend.composio.dev/api/v3.1${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: {
       "x-api-key": await readSecret(binding),

@@ -17,6 +17,18 @@ const DIRECT = [
   },
 ];
 export async function findToolSetup(env: Cloudflare.Env, query: string) {
+  if (/^(gmail|google mail|connect gmail)$/i.test(query.trim()))
+    return {
+      candidates: [
+        {
+          name: "Gmail",
+          toolkit: "gmail",
+          path: "composio" as const,
+          confidence: "confirmed" as const,
+        },
+      ],
+      warnings: [],
+    };
   const warnings: string[] = [];
   try {
     const list = await composio(

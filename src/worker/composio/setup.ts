@@ -2,6 +2,7 @@ import { z } from "zod";
 import { composio, ToolkitSchema, ToolListSchema } from "./client";
 import { createCredentialRequest } from "../credentials/requests";
 import { getAgentStub } from "../lib/get-agent";
+import { GMAIL_PILOT_TOOLS } from "../../lib/composio";
 import { readSecret } from "../credentials/crypto";
 
 export const SetupInputSchema = z.object({
@@ -27,6 +28,13 @@ export async function startComposioSetup(
   userId: string,
   input: z.infer<typeof SetupInputSchema>,
 ) {
+  if (
+    input.toolkit === "gmail" &&
+    input.allowedTools.some(
+      (tool) => !GMAIL_PILOT_TOOLS.some((allowed) => allowed === tool),
+    )
+  )
+    throw new Error("The Gmail pilot permits read-only tools only");
   const tools = ToolListSchema.parse(
     await composio(
       env.COMPOSIO_API_KEY,
@@ -97,6 +105,9 @@ export async function startComposioSetup(
     )
       .bind(link.connected_account_id, id)
       .run();
+    const agent = await getAgentStub(env, agentSlug);
+    await agent.storeComposioLink(id, userId, link.redirect_url);
+    await agent.scheduleComposioSetup(id, userId);
     return {
       kind: "oauth" as const,
       setupId: id,
@@ -170,8 +181,27 @@ export async function pollComposioSetup(
   )
     .bind(setupId, agentSlug, userId)
     .first<Connection>();
-  if (!connection || connection.expires_at <= Date.now())
-    throw new Error("Setup expired");
+  if (!connection) throw new Error("Setup not found");
+  if (connection.status === "ready")
+    return {
+      state: "ready",
+      toolNames: z
+        .array(z.string())
+        .parse(JSON.parse(connection.allowed_tools_json)),
+      error: null,
+    };
+  if (connection.status === "failed")
+    return {
+      state: "failed",
+      toolNames: [],
+      error: "Managed connection failed",
+    };
+  if (connection.expires_at <= Date.now())
+    return {
+      state: "expired",
+      toolNames: [],
+      error: "Authorization expired. Connect again.",
+    };
   if (!connection.account_id)
     return { state: "pending", toolNames: [] as string[], error: null };
   const account = await composio(
@@ -209,24 +239,50 @@ export async function pollComposioSetup(
       .array(z.string())
       .min(1)
       .parse(JSON.parse(connection.allowed_tools_json));
-    const server = z.object({ id: z.string() }).parse(
-      await composio(env.COMPOSIO_API_KEY, "/mcp/servers", {
-        name: `Downy ${connection.toolkit}`.slice(0, 30),
-        auth_config_ids: [connection.auth_config_id],
-        allowed_tools: allowedTools,
-        managed_auth_via_composio: true,
-      }),
-    );
+    // Fixed direct-tool session: no discovery, arbitrary execution, proxy or
+    // workbench paths that could expand this connection's approved tool scope.
+    const session = z
+      .object({
+        session_id: z.string(),
+        mcp: z.object({ url: z.string().url() }),
+      })
+      .parse(
+        await composio(env.COMPOSIO_API_KEY, "/tool_router/session", {
+          user_id: userId,
+          toolkits: { enable: [connection.toolkit] },
+          auth_configs: { [connection.toolkit]: connection.auth_config_id },
+          connected_accounts: { [connection.toolkit]: [connection.account_id] },
+          tools: { [connection.toolkit]: { enable: allowedTools } },
+          preload: { tools: allowedTools },
+          manage_connections: {
+            enable: false,
+            enable_connection_removal: false,
+          },
+          workbench: {
+            enable: false,
+            enable_tool_execution: false,
+            enable_proxy_execution: false,
+          },
+          search: { enable: false },
+          execute: { enable_multi_execute: false },
+        }),
+      );
+    const endpoint = new URL(session.mcp.url);
+    if (
+      endpoint.protocol !== "https:" ||
+      !["backend.composio.dev", "app.composio.dev"].includes(endpoint.hostname)
+    )
+      throw new Error("Unexpected MCP host");
     await env.DB.prepare(
       "UPDATE composio_connections SET server_id = ? WHERE id = ?",
     )
-      .bind(server.id, setupId)
+      .bind(session.session_id, setupId)
       .run();
     const agent = await getAgentStub(env, agentSlug);
     const result = await agent.connectCredential(
       {
         serverName: `Composio ${connection.toolkit}`,
-        url: `https://backend.composio.dev/v3/mcp/${encodeURIComponent(server.id)}?user_id=${encodeURIComponent(userId)}`,
+        url: session.mcp.url,
         transport: "streamable-http",
       },
       { "x-api-key": await readSecret(env.COMPOSIO_API_KEY) },
@@ -236,7 +292,18 @@ export async function pollComposioSetup(
     )
       .bind(result.state === "ready" ? "ready" : "failed", setupId)
       .run();
-    return result;
+    if (result.state === "ready")
+      await agent.notifyComposioConnection(
+        setupId,
+        connection.toolkit,
+        result.toolNames,
+      );
+    // Never forward vendor diagnostics or follow-up credential prompts here.
+    return {
+      state: result.state === "ready" ? "ready" : "failed",
+      toolNames: result.state === "ready" ? result.toolNames : [],
+      error: result.state === "ready" ? null : "Managed connection failed",
+    };
   } catch {
     await env.DB.prepare(
       "UPDATE composio_connections SET status = 'failed' WHERE id = ?",

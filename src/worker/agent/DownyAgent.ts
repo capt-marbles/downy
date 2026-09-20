@@ -4,6 +4,7 @@ import {
   isNamedBotCreationRequest,
 } from "./tools/create-bot";
 import { getAgentStub } from "../lib/get-agent";
+import { pollComposioSetup } from "../composio/setup";
 import {
   ComparisonRunSchema,
   ComparisonFeedbackSchema,
@@ -32,6 +33,7 @@ import { createRequestCredentialTool } from "./tools/credentials";
 import {
   encryptHeaders,
   decryptHeaders,
+  type CredentialEnvelope,
   readSecret,
 } from "../credentials/crypto";
 import type { CredentialTarget, CredentialOutcome } from "../credentials/types";
@@ -1875,6 +1877,118 @@ export class DownyAgent extends Think {
         await this.workspace.deleteFile(BOOTSTRAP_PATH);
       await this.ctx.storage.put("bot:initialized", true);
     });
+  }
+
+  async scheduleComposioSetup(id: string, userId: string): Promise<void> {
+    await this.schedule(5, "resumeComposioSetup", { id, userId, attempt: 0 });
+  }
+
+  async resumeComposioSetup(data: {
+    id: string;
+    userId: string;
+    attempt: number;
+  }): Promise<void> {
+    if (data.attempt >= 30) return;
+    try {
+      const result = await pollComposioSetup(
+        this.env,
+        this.name,
+        data.id,
+        data.userId,
+      );
+      if (["ready", "failed", "expired"].includes(result.state)) return;
+    } catch {
+      /* Transient provider failures are retried within the ticket lifetime. */
+    }
+    await this.schedule(30, "resumeComposioSetup", {
+      ...data,
+      attempt: data.attempt + 1,
+    });
+  }
+
+  async storeComposioLink(
+    id: string,
+    userId: string,
+    url: string,
+  ): Promise<void> {
+    const envelope = await encryptHeaders(
+      { url },
+      await readSecret(this.env.CREDENTIAL_KEY),
+      `${this.name}:composio:${id}:${userId}`,
+    );
+    await this.ctx.storage.put(`composio-link:${id}`, {
+      envelope,
+      userId,
+      expiresAt: Date.now() + 15 * 60_000,
+    });
+  }
+
+  async getComposioLink(id: string, userId: string): Promise<string | null> {
+    const stored = await this.ctx.storage.get<{
+      envelope: CredentialEnvelope;
+      userId: string;
+      expiresAt: number;
+    }>(`composio-link:${id}`);
+    if (!stored || stored.userId !== userId) return null;
+    if (stored.expiresAt <= Date.now()) {
+      await this.ctx.storage.delete(`composio-link:${id}`);
+      return null;
+    }
+    return (
+      await decryptHeaders(
+        stored.envelope,
+        await readSecret(this.env.CREDENTIAL_KEY),
+        `${this.name}:composio:${id}:${userId}`,
+      )
+    ).url;
+  }
+
+  async showGmailConnectCard(): Promise<void> {
+    const id = "composio-setup:gmail";
+    const message: UIMessage = {
+      id,
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: "Connect Gmail securely using the card below. This first test enables reading only. Google authorization stays outside chat.",
+        },
+        { type: "data-composio-setup", data: { toolkit: "gmail" } },
+      ],
+    };
+    if (!this.session.getMessage(id)) await this.session.appendMessage(message);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+  }
+
+  async notifyComposioConnection(
+    id: string,
+    toolkit: string,
+    toolNames: string[],
+  ): Promise<void> {
+    const messageId = `composio-connected:${id}`;
+    if (!this.session.getMessage(messageId))
+      await this.session.appendMessage({
+        id: messageId,
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: `${toolkit === "gmail" ? "Gmail" : toolkit} connected through Composio. Available capabilities: ${toolNames.join(", ")}. Authorization completed securely; no credential was added to this conversation.`,
+          },
+        ],
+      });
+    await this.ctx.storage.delete(`composio-link:${id}`);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
   }
 
   async connectMcpEndpoint(params: {

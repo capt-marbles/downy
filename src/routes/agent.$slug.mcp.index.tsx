@@ -1,3 +1,4 @@
+import GmailConnectCard from "../components/chat/GmailConnectCard";
 import { createFileRoute } from "@tanstack/react-router";
 
 import McpServersCard from "../components/McpServersCard";
@@ -17,6 +18,7 @@ function McpPage() {
 
       <PageHeader kicker="MCP servers" title="Connected tools." />
 
+      <GmailConnectCard />
       <McpServersCard />
     </PageShell>
   );
