@@ -366,3 +366,15 @@ it("replaces the chat background task tool with a read-only research dispatch wh
     ),
   ).rejects.toThrow("This action did not run");
 });
+
+it("lets voice stage and list proposals but never confirm one", () => {
+  expect(
+    voiceReadTools([
+      "stage_action",
+      "list_staged_actions",
+      "confirm_staged_action",
+      "gmail_email",
+      "schedule_task",
+    ]),
+  ).toEqual(["stage_action", "list_staged_actions"]);
+});

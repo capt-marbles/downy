@@ -209,6 +209,7 @@ import type {
 const BOOTSTRAP_SEEDED_KEY = "downy:bootstrap-seeded";
 
 const backgroundTaskKey = (id: string) => `background_task:${id}`;
+const stagedActionKey = (id: string) => `staged-action:${id}`;
 const voiceTaskKey = (callId: string, delegationId: string) =>
   `voice-task:${callId}:${delegationId}`;
 const MCP_SERVER_KEY_PREFIX = "mcp_server:";
@@ -310,6 +311,12 @@ export class DownyAgent extends Think {
       }),
       read_user_profile: createReadUserProfileTool({ db: this.env.DB }),
       write_user_profile: createWriteUserProfileTool({ db: this.env.DB }),
+      stage_action: createStageActionTool({
+        stage: (payload) => this.createStagedAction(payload, "chat"),
+      }),
+      list_staged_actions: createListStagedActionsTool({
+        list: () => this.listStagedActions(),
+      }),
       spawn_background_task: createSpawnBackgroundTaskTool(
         this.#backgroundTaskDispatchDeps(),
       ),
@@ -619,8 +626,11 @@ export class DownyAgent extends Think {
     // Voice must see the same inventory as chat, including restored grants.
     const availableTools = { ...ctx.tools, ...mcpTools };
     if (latestUser?.id.startsWith("voice-request:")) {
+      availableTools.stage_action = createStageActionTool({
+        stage: (payload) => this.createStagedAction(payload, "voice"),
+      });
       return {
-        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. For facts not in the workspace, use web_search and web_scrape inline when one or two lookups will answer the question. For multi-source research, a comparison, or anything that should become a document the caller need not wait for, call spawn_background_task with a self-contained brief: it starts a read-only research worker whose findings are saved as a new workspace note and announced when finished; say it has started, not that it is done. For Airtable questions, use airtable_records directly when available; it needs no skill file or Boat filesystem access. Inspect the authorized base and actual table/field schema first. For pipeline counts, load reporting-crm-pipeline with read_skill and use airtable_records action pipeline_report with the selected base, table and stage field ID. Resume partial results using reportId. Counts are calculated in code, including records with a missing stage. If you cannot read all pages in this turn, label counts partial and state that the total is unknown. Never present a page count as a complete pipeline count. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn when the sources are already in the workspace; use spawn_background_task only when new research is needed first. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
+        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. For facts not in the workspace, use web_search and web_scrape inline when one or two lookups will answer the question. For multi-source research, a comparison, or anything that should become a document the caller need not wait for, call spawn_background_task with a self-contained brief: it starts a read-only research worker whose findings are saved as a new workspace note and announced when finished; say it has started, not that it is done. For Airtable questions, use airtable_records directly when available; it needs no skill file or Boat filesystem access. Inspect the authorized base and actual table/field schema first. For pipeline counts, load reporting-crm-pipeline with read_skill and use airtable_records action pipeline_report with the selected base, table and stage field ID. Resume partial results using reportId. Counts are calculated in code, including records with a missing stage. If you cannot read all pages in this turn, label counts partial and state that the total is unknown. Never present a page count as a complete pipeline count. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn when the sources are already in the workspace; use spawn_background_task only when new research is needed first. To draft an email or schedule a recurring task, call stage_action with the exact final content: it puts a proposal card in chat and nothing runs until the caller taps Confirm there. Say the proposal is in chat awaiting their tap; never say it is drafted or scheduled, and never treat a spoken yes as confirmation. Use list_staged_actions to answer whether a proposal was confirmed and what happened. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
         model: getModelFor(this.env, aiProvider),
         ...voiceTurnTools(
           availableTools,
@@ -1273,6 +1283,267 @@ export class DownyAgent extends Think {
   }
 
   #researchViewPending: Promise<ResearchSnapshot> | null = null;
+
+  // ---- Staged actions: proposals confirmed only by a tap on the card ----
+
+  #stagedActionRuns = new Map<string, Promise<StagedAction>>();
+
+  async createStagedAction(
+    payload: StagedActionPayload,
+    source: StagedAction["source"],
+  ): Promise<StagedAction> {
+    const action = newStagedAction(
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      source,
+      payload,
+      Date.now(),
+    );
+    await this.ctx.storage.transaction(async (txn) => {
+      const index = (await txn.get<string[]>("staged-actions:index")) ?? [];
+      await txn.put({
+        [stagedActionKey(action.id)]: action,
+        "staged-actions:index": [...index.slice(-49), action.id],
+      });
+    });
+    const message: UIMessage = {
+      id: stagedActionKey(action.id),
+      role: "assistant",
+      parts: [
+        { type: "text", text: stagedActionChatText(action) },
+        { type: "data-staged-action", data: { stagedActionId: action.id } },
+      ],
+    };
+    await this.session.appendMessage(message);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+    return action;
+  }
+
+  async getStagedAction(id: string): Promise<StagedAction | null> {
+    if (!this.session.getMessage(stagedActionKey(id))) return null;
+    const parsed = StagedActionSchema.safeParse(
+      await this.ctx.storage.get(stagedActionKey(id)),
+    );
+    if (!parsed.success) return null;
+    const action = parsed.data;
+    // An executor interrupted by a restart leaves "executing" behind with no
+    // run in flight. Report that honestly as unknown rather than retrying.
+    if (
+      action.state === "executing" &&
+      !this.#stagedActionRuns.has(id) &&
+      action.confirmedAt !== null &&
+      Date.now() - action.confirmedAt > 2 * 60_000
+    ) {
+      const unknown = finishedStagedAction(
+        action,
+        {
+          state: "unknown",
+          error:
+            "The confirmation was interrupted before a result was recorded. Check the destination before proposing again.",
+        },
+        Date.now(),
+      );
+      await this.ctx.storage.put(stagedActionKey(id), unknown);
+      await this.#deliverStagedActionReceipt(unknown);
+      return unknown;
+    }
+    return action;
+  }
+
+  async listStagedActions(): Promise<StagedAction[]> {
+    const index =
+      (await this.ctx.storage.get<string[]>("staged-actions:index")) ?? [];
+    const actions = await Promise.all(
+      index.slice(-20).map((id) => this.getStagedAction(id)),
+    );
+    return actions.filter((action) => action !== null);
+  }
+
+  async cancelStagedAction(
+    id: string,
+  ): Promise<{ action: StagedAction | null; error: string | null }> {
+    if (!this.session.getMessage(stagedActionKey(id)))
+      return {
+        action: null,
+        error: "This proposal is no longer in this conversation.",
+      };
+    const result = await this.ctx.storage.transaction(async (txn) => {
+      const parsed = StagedActionSchema.safeParse(
+        await txn.get(stagedActionKey(id)),
+      );
+      if (!parsed.success)
+        return { action: null, error: "Proposal not found." };
+      try {
+        const action = cancelledStagedAction(parsed.data, Date.now());
+        if (action !== parsed.data) await txn.put(stagedActionKey(id), action);
+        return { action, error: null };
+      } catch (error) {
+        return {
+          action: parsed.data,
+          error:
+            error instanceof StagedActionError
+              ? error.message
+              : "Could not cancel.",
+        };
+      }
+    });
+    if (result.action?.state === "cancelled")
+      await this.#deliverStagedActionReceipt(result.action);
+    return result;
+  }
+
+  async confirmStagedAction(
+    id: string,
+    revision: string,
+  ): Promise<{ action: StagedAction | null; error: string | null }> {
+    if (!this.session.getMessage(stagedActionKey(id)))
+      return {
+        action: null,
+        error: "This proposal is no longer in this conversation.",
+      };
+    const decided = await this.ctx.storage.transaction(async (txn) => {
+      const parsed = StagedActionSchema.safeParse(
+        await txn.get(stagedActionKey(id)),
+      );
+      if (!parsed.success)
+        return { action: null, error: "Proposal not found.", run: false };
+      try {
+        const action = confirmedStagedAction(
+          parsed.data,
+          revision,
+          crypto.randomUUID(),
+          Date.now(),
+        );
+        const run = action !== parsed.data;
+        if (run) await txn.put(stagedActionKey(id), action);
+        return { action, error: null, run };
+      } catch (error) {
+        return {
+          action: parsed.data,
+          error:
+            error instanceof StagedActionError
+              ? error.message
+              : "Could not confirm.",
+          run: false,
+        };
+      }
+    });
+    if (!decided.action || decided.error) return decided;
+    // Single flight per proposal: a repeated tap or retried request observes
+    // the same run; the operation id was fixed before the executor started.
+    let run = this.#stagedActionRuns.get(id);
+    if (!run && decided.run) {
+      run = this.#runStagedAction(decided.action).finally(() => {
+        this.#stagedActionRuns.delete(id);
+      });
+      this.#stagedActionRuns.set(id, run);
+    }
+    return { action: run ? await run : decided.action, error: null };
+  }
+
+  async #runStagedAction(action: StagedAction): Promise<StagedAction> {
+    const outcome = await this.#executeStagedAction(action);
+    const finished = finishedStagedAction(action, outcome, Date.now());
+    await this.ctx.storage.put(stagedActionKey(action.id), finished);
+    await this.#deliverStagedActionReceipt(finished);
+    return finished;
+  }
+
+  async #executeStagedAction(
+    action: StagedAction,
+  ): Promise<Parameters<typeof finishedStagedAction>[1]> {
+    const { payload } = action;
+    if (payload.kind === "gmail_draft") {
+      const gmailGrant = await this.ctx.storage.get<string>("gmail-owner");
+      if (!gmailGrant)
+        return {
+          state: "failed",
+          error:
+            "Gmail is not connected for this bot. Nothing was drafted. Connect Gmail, then propose again.",
+        };
+      try {
+        const result = z
+          .object({
+            state: z.literal("draft_created"),
+            account: z.string(),
+            draftId: z.string(),
+            url: z.string().url(),
+          })
+          .parse(
+            await (
+              await getAgentStub(this.env, gmailGrant)
+            ).executeComposioGmail({
+              action: "create_draft",
+              ...payload.gmailDraft,
+            }),
+          );
+        return {
+          state: "succeeded",
+          result: {
+            receipt: `Draft created in Gmail for ${result.account}. It has not been sent.`,
+            url: result.url,
+            reference: result.draftId,
+          },
+        };
+      } catch {
+        // Composio does not distinguish a rejected request from a lost
+        // acknowledgement; a draft may exist. Never retry automatically.
+        return {
+          state: "unknown",
+          error:
+            "Gmail did not return a verified result. The draft may or may not exist: check Gmail Drafts before proposing again. Nothing was sent.",
+        };
+      }
+    }
+    try {
+      const task = await createScheduledTask(this.env.DB, {
+        ...payload.scheduleTask,
+        agentSlug: this.name,
+      });
+      return {
+        state: "succeeded",
+        result: {
+          receipt: `Scheduled “${task.title}”. Next run ${new Date(task.nextDueAt).toISOString()}.`,
+          reference: task.id,
+        },
+      };
+    } catch (error) {
+      return {
+        state: "failed",
+        error: `The task was not scheduled: ${error instanceof Error ? error.message : "unknown error"}`,
+      };
+    }
+  }
+
+  async #deliverStagedActionReceipt(action: StagedAction): Promise<void> {
+    const id = `staged-action-receipt:${action.id}:${action.state}`;
+    if (this.session.getMessage(id)) return;
+    const title = stagedActionChatText(action).split("\n")[0];
+    const text =
+      action.state === "cancelled"
+        ? `Cancelled: ${title}. Nothing ran.`
+        : action.state === "succeeded"
+          ? `Confirmed and done: ${title}. ${action.result?.receipt ?? ""}${action.result?.url ? ` [Open](${action.result.url})` : ""}`
+          : action.state === "failed"
+            ? `Confirmed, but it failed: ${title}. ${action.error ?? ""}`
+            : `Confirmed, outcome unknown: ${title}. ${action.error ?? ""}`;
+    await this.session.appendMessage({
+      id,
+      role: "assistant",
+      parts: [{ type: "text", text }],
+    });
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+  }
 
   #pilotChoicePending: Promise<PilotChoice> | null = null;
   #pilotReceiptPending = new Map<string, Promise<void>>();
@@ -2948,4 +3219,20 @@ import {
   type PilotOptionId,
 } from "../../lib/pilot-choices";
 import { handlePilotVoiceRequest } from "../pilot-choices/voice";
+import {
+  cancelledStagedAction,
+  confirmedStagedAction,
+  finishedStagedAction,
+  newStagedAction,
+  stagedActionChatText,
+  StagedActionError,
+  StagedActionSchema,
+  type StagedAction,
+  type StagedActionPayload,
+} from "../../lib/staged-actions";
+import {
+  createListStagedActionsTool,
+  createStageActionTool,
+} from "./tools/staged-actions";
+import { createScheduledTask } from "../scheduled-tasks/db";
 import { composePilotChoices } from "../pilot-choices/compose";

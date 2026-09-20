@@ -7,9 +7,12 @@ import { normalizeWorkspacePath } from "../agent/child-workspace-rpc";
 // Positive allowlist: new tools and MCP tools never acquire voice permissions
 // implicitly. Spoken approval never grants external actions. The only write
 // exceptions are a constrained new Markdown report, explicit creation of an
-// empty bot, and dispatch of a read-only research worker.
+// empty bot, dispatch of a read-only research worker, and staging a proposal
+// card that only a tap in chat can confirm.
 const VOICE_READ_TOOLS = new Set([
   "create_bot",
+  "stage_action",
+  "list_staged_actions",
   "airtable_records",
   "web_search",
   "web_scrape",

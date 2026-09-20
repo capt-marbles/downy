@@ -28,6 +28,11 @@ The call hears one acknowledgement that the task started; the lookup stays open
 and the finish is announced from the durable task record, including on a later
 call. "Started" is never spoken as "done".
 
+To draft an email or schedule a recurring task from a call, voice uses
+`stage_action`, which puts a proposal card in chat. Nothing runs until the
+caller taps **Confirm and run** on that card; a spoken yes never confirms it.
+See [staged actions](staged-actions.md).
+
 Report writes check that the destination is new and read the saved content back
 before returning `saved:true`. The voice handoff derives save/failure status from
 tool results, not an assistant promise. Failed tool calls produce an explicit

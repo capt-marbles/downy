@@ -11,6 +11,11 @@ const SavedReportSchema = z.object({
 
 const ReadFileSchema = z.object({ path: z.string(), content: z.string() });
 
+const StagedProposalSchema = z.object({
+  stagedActionId: z.string().min(1),
+  state: z.literal("proposed"),
+});
+
 const DispatchedTaskSchema = z.object({
   taskId: z.string().min(1),
   status: z.literal("dispatched"),
@@ -61,6 +66,8 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
   filePaths: string[];
   /** Read-only research workers started this turn; dispatched, not done. */
   dispatchedTaskIds: string[];
+  /** Proposal cards staged this turn; awaiting a tap, never run. */
+  stagedActionIds: string[];
   unverifiedFileClaim?: boolean;
 } {
   const parts = messages
@@ -74,6 +81,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
   const savedPaths = new Set<string>();
   const readPaths = new Set<string>();
   const dispatchedTaskIds = new Set<string>();
+  const stagedActionIds = new Set<string>();
   for (const part of parts) {
     if (!isToolUIPart(part)) continue;
     const name = getToolName(part);
@@ -96,8 +104,14 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       if (dispatched.success) dispatchedTaskIds.add(dispatched.data.taskId);
       else failures.add(name);
     }
+    if (name === "stage_action") {
+      const staged = StagedProposalSchema.safeParse(part.output);
+      if (staged.success) stagedActionIds.add(staged.data.stagedActionId);
+      else failures.add(name);
+    }
   }
   const dispatched = [...dispatchedTaskIds];
+  const staged = [...stagedActionIds];
   const finalText =
     parts.filter((part) => part.type === "text").at(-1)?.text ??
     "No completed answer was returned. Please check the chat and retry.";
@@ -115,6 +129,19 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       savedPaths: [],
       filePaths: [...readPaths],
       dispatchedTaskIds: dispatched,
+      stagedActionIds: staged,
+      ...(unverifiedFileClaim ? { unverifiedFileClaim } : {}),
+    };
+  if (staged.length && !failures.size && !savedPaths.size)
+    // The proposal exists; the action has not run. Never let the model's
+    // prose promote "proposed" to "drafted" or "scheduled".
+    return {
+      text: `I've put ${staged.length === 1 ? "a proposal" : `${staged.length} proposals`} in chat for you to review. Nothing has run: tap Confirm on the card to run it, or Cancel.${dispatched.length ? " I also started a read-only background research task." : ""}`,
+      corrected: true,
+      savedPaths: [],
+      filePaths: [...readPaths],
+      dispatchedTaskIds: dispatched,
+      stagedActionIds: staged,
       ...(unverifiedFileClaim ? { unverifiedFileClaim } : {}),
     };
   if (unverifiedFileClaim)
@@ -124,6 +151,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       savedPaths: [...savedPaths],
       filePaths: [...savedPaths],
       dispatchedTaskIds: dispatched,
+      stagedActionIds: staged,
       unverifiedFileClaim: true,
     };
   if (savedPaths.size)
@@ -133,6 +161,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       savedPaths: [...savedPaths],
       filePaths: [...savedPaths],
       dispatchedTaskIds: dispatched,
+      stagedActionIds: staged,
     };
   if (failures.size)
     return {
@@ -143,6 +172,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       savedPaths: [],
       filePaths: [],
       dispatchedTaskIds: dispatched,
+      stagedActionIds: staged,
     };
   // Intermediate promises are not outcomes. Speak only the final text part.
   return {
@@ -153,6 +183,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
     savedPaths: [],
     filePaths: [...readPaths],
     dispatchedTaskIds: [],
+    stagedActionIds: [],
   };
 }
 

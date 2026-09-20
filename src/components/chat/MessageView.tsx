@@ -34,6 +34,8 @@ import { ToolPartSchema } from "./tool-part-types";
 import ToolPart from "./ToolParts";
 import PilotChoices from "./PilotChoices";
 import { PilotChoicePartSchema } from "../../lib/pilot-choices";
+import StagedActionCard from "./StagedActionCard";
+import { StagedActionPartSchema } from "../../lib/staged-actions";
 
 const CORE_FILE_PATHS = new Set<string>([
   SOUL_PATH,
@@ -459,13 +461,25 @@ function MessageViewImpl({
                 ticketId={pilot.data.data.ticketId}
               />
             );
+          const staged = !isUser
+            ? StagedActionPartSchema.safeParse(part)
+            : null;
+          if (staged?.success)
+            return (
+              <StagedActionCard
+                key={staged.data.data.stagedActionId}
+                stagedActionId={staged.data.data.stagedActionId}
+              />
+            );
           // The plain-text option descriptions remain in model/voice context;
           // the persisted interactive card is their presentation in chat.
           if (
             !isUser &&
             part.type === "text" &&
             message.parts.some(
-              (item) => PilotChoicePartSchema.safeParse(item).success,
+              (item) =>
+                PilotChoicePartSchema.safeParse(item).success ||
+                StagedActionPartSchema.safeParse(item).success,
             )
           )
             return null;

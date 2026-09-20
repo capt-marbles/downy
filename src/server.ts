@@ -3,6 +3,7 @@ import { handleResearchComparisonRequest } from "./worker/handlers/research-comp
 import { handleCloudComputerRequest } from "./worker/handlers/cloud-computer";
 import { handleResearchViewRequest } from "./worker/handlers/research-view";
 import { handlePilotChoicesRequest } from "./worker/handlers/pilot-choices";
+import { handleStagedActionsRequest } from "./worker/handlers/staged-actions";
 import { handleCorpusRequest } from "./worker/handlers/corpus";
 import { handleVoiceRequest } from "./worker/handlers/voice";
 import { reconcileCorpus } from "./worker/corpus/runner";
@@ -88,6 +89,7 @@ const exactRoutes = new Map([
   ["/api/research-view", handleResearchViewRequest],
   ["/api/research-comparison", handleResearchComparisonRequest],
   ["/api/pilot-choices", handlePilotChoicesRequest],
+  ["/api/staged-actions", handleStagedActionsRequest],
 ]);
 
 export default {

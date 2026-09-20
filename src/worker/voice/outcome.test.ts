@@ -300,3 +300,32 @@ it("treats a dispatch without a task id as a failure, not a start", () => {
   expect(result.dispatchedTaskIds).toEqual([]);
   expect(result.text).toContain("did not start");
 });
+
+it("speaks a staged proposal as awaiting a tap, never as done", () => {
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-stage_action",
+          toolCallId: "stage",
+          state: "output-available",
+          input: { kind: "gmail_draft" },
+          output: {
+            stagedActionId: "11111111-1111-4111-8111-111111111111",
+            revision: "22222222-2222-4222-8222-222222222222",
+            state: "proposed",
+          },
+        },
+        { type: "text", text: "Done, I've drafted the email for you." },
+      ],
+    },
+  ]);
+  expect(result.stagedActionIds).toEqual([
+    "11111111-1111-4111-8111-111111111111",
+  ]);
+  expect(result.corrected).toBe(true);
+  expect(result.text).toContain("Nothing has run");
+  expect(result.text).not.toContain("drafted");
+});
