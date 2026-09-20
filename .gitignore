@@ -16,3 +16,6 @@ auth.json
 
 # nested, separately-versioned content-writing agent (every-app/sam)
 sam/
+
+# Jev lab scratch proxy output
+scripts/jev-lab/dev.log

@@ -447,14 +447,20 @@ export async function decideToolCall(
   return decision;
 }
 
-/** Apply the gate to a turn's `{ tools, activeTools }` pair, gating exactly the active tools. */
-export function gateTurnTools<
+/**
+ * Apply the gate to a voice turn's `{ tools, activeTools }` pair. Voice gates
+ * the same names as chat: the allowlist already limits voice to reads plus a
+ * few declared-purpose tools (`stage_action`, `create_bot`,
+ * `spawn_background_task`, new-file `write`) whose own guardrails must not be
+ * second-guessed by a probability.
+ */
+export function gateVoiceTurn<
   T extends { tools: ToolSet; activeTools: string[] },
 >(turn: T, deps: EffectGateDeps): T {
-  return {
-    ...turn,
-    tools: gateToolSet(turn.tools, { ...deps, names: turn.activeTools }),
-  };
+  const names = chatGateNames(turn.tools).filter((name) =>
+    turn.activeTools.includes(name),
+  );
+  return { ...turn, tools: gateToolSet(turn.tools, { ...deps, names }) };
 }
 
 export type EffectGateContext =

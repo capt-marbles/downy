@@ -54,7 +54,7 @@ import {
   chatGateNames,
   effectGateConfigFromEnv,
   gateToolSet,
-  gateTurnTools,
+  gateVoiceTurn,
   recordEffectDecision,
   type EffectGateContext,
   type EffectGateDeps,
@@ -641,7 +641,10 @@ export class DownyAgent extends Think {
       return {
         system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. For facts not in the workspace, use web_search and web_scrape inline when one or two lookups will answer the question. For multi-source research, a comparison, or anything that should become a document the caller need not wait for, call spawn_background_task with a self-contained brief: it starts a read-only research worker whose findings are saved as a new workspace note and announced when finished; say it has started, not that it is done. For Airtable questions, use airtable_records directly when available; it needs no skill file or Boat filesystem access. Inspect the authorized base and actual table/field schema first. For pipeline counts, load reporting-crm-pipeline with read_skill and use airtable_records action pipeline_report with the selected base, table and stage field ID. Resume partial results using reportId. Counts are calculated in code, including records with a missing stage. If you cannot read all pages in this turn, label counts partial and state that the total is unknown. Never present a page count as a complete pipeline count. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn when the sources are already in the workspace; use spawn_background_task only when new research is needed first. To draft an email or schedule a recurring task, call stage_action with the exact final content: it puts a proposal card in chat and nothing runs until the caller taps Confirm there. Say the proposal is in chat awaiting their tap; never say it is drafted or scheduled, and never treat a spoken yes as confirmation. Use list_staged_actions to answer whether a proposal was confirmed and what happened. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
         model: getModelFor(this.env, aiProvider),
-        ...gateTurnTools(
+        // Voice gates the same set as chat: read-oriented tools and MCP
+        // proxies. stage_action, create_bot, spawn_background_task and the
+        // new-file write carry their own guardrails and are not second-guessed.
+        ...gateVoiceTurn(
           voiceTurnTools(
             availableTools,
             (path, content) =>

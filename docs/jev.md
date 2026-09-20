@@ -72,12 +72,14 @@ truncated description, redacted arguments) into `read_only`,
   skip the evaluator; an explicit operator confirmation is not second-guessed.
 
 Where it applies: read-only background workers gate every allowlisted tool;
-voice turns gate every active tool; chat and full-access workers gate the
-read-oriented tools (`web_search`, `web_scrape`, `read`, `list`, `find`,
+voice, chat and full-access workers gate the read-oriented tools (`web_search`, `web_scrape`, `read`, `list`, `find`,
 `grep`, skill reads, `read_peer_agent`) and every MCP proxy tool. Tools whose
 declared purpose is to act (`schedule_task`, `delete`, `stage_action`, MCP
 tools named destructively) keep their existing confirmation paths and are not
-gated in chat. Jev never marks a call safe, never chooses an action and never
+gated. In voice that also covers `stage_action`, `create_bot`,
+`spawn_background_task` and the new-file `write`: a card that the operator
+must tap is proposal_only by construction, and a probability must not be able
+to veto it. Jev never marks a call safe, never chooses an action and never
 confirms a proposal.
 
 Before the call leaves the worker, argument values under secret-looking keys,
