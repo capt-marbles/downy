@@ -49,9 +49,16 @@ Disabling voice on a subsequent deploy should follow ending any open calls.
 ## Call behavior and retention
 
 - Calls listen while speaking. Interrupt naturally. Lookups run through Downy's
-  existing inference queue, with at most eight model steps per lookup and thirty
-  delegations per call. An older result is supplied as quiet context when newer
-  speech has arrived, rather than spoken over the correction.
+  existing inference queue, with at most twelve model steps per lookup and thirty
+  delegations per call. Completion receipts identify their original request,
+  including after a progress question or correction. A correction is still
+  respected; an older result is not presented as answering the revised question.
+- Lookup receipts survive hangup. A subsequent call receives recent task status
+  in its opening context and an explicit update when earlier work finishes.
+  Heartbeats reconcile unfinished receipts with the agent's persisted results,
+  without rerunning tools or model work. Unknown execution state is reported as
+  unconfirmed, never invented progress. At most sixty receipts are retained;
+  completed receipts are evicted first. Only bounded request/result text is saved.
 - One call per agent. There is no automatic reconnect or replay of a paid
   creation request. Delegation IDs are recorded before dispatch; duplicates or
   worker recovery do not repeat the lookup.

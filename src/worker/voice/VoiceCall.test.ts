@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   attach: vi.fn(),
   lookup: vi.fn(),
+  lookupResult: vi.fn(),
   transcript: vi.fn(),
 }));
 vi.mock("./provider", () => ({
@@ -26,6 +27,7 @@ vi.mock("../lib/get-agent", () => ({
   getAgentStub: async () => ({
     getVoiceContext: async () => "Existing digest",
     runVoiceTurn: mocks.lookup,
+    getVoiceTaskResult: mocks.lookupResult,
     saveVoiceTranscript: mocks.transcript,
   }),
 }));
@@ -49,7 +51,8 @@ class Socket extends EventTarget {
 
 const SentEvent = z.object({
   type: z.string(),
-  delegation_id: z.string().optional(),
+  delegation_id: z.string().nullable().optional(),
+  content: z.string().optional(),
 });
 function sentEvents(socket: Socket) {
   return socket.sent.map((data) => SentEvent.parse(JSON.parse(data)));
@@ -64,10 +67,22 @@ function fixture(records = new Map<string, unknown>()) {
       records.set(key, structuredClone(value));
     }),
     list: vi.fn(
-      async ({ prefix, limit }: { prefix: string; limit: number }) =>
+      async ({
+        prefix,
+        limit,
+        reverse,
+      }: {
+        prefix: string;
+        limit: number;
+        reverse?: boolean;
+      }) =>
         new Map(
           [...records]
             .filter(([key]) => key.startsWith(prefix))
+            // eslint-disable-next-line unicorn/no-array-sort -- Fresh fixture array; project targets ES2022.
+            .sort(([a], [b]) =>
+              reverse ? b.localeCompare(a) : a.localeCompare(b),
+            )
             .slice(0, limit)
             .map(([key, value]) => [key, structuredClone(value)]),
         ),
@@ -110,6 +125,7 @@ beforeEach(() => {
   });
   mocks.lookup.mockResolvedValue("The digest cites a new game AI paper.");
   mocks.transcript.mockResolvedValue(undefined);
+  mocks.lookupResult.mockResolvedValue({ state: "running", answer: null });
 });
 afterEach(() => vi.useRealTimers());
 
@@ -150,7 +166,7 @@ it("deduplicates delegation and leaves actions to the existing read-only backend
   ).toBe(true);
 });
 
-it("does not speak a stale lookup over a correction and never stores audio", async () => {
+it("scopes completion to the original request after a correction and never stores audio", async () => {
   let finish: ((answer: string) => void) | undefined;
   mocks.lookup.mockReturnValue(
     new Promise<string>((resolve) => {
@@ -184,11 +200,13 @@ it("does not speak a stale lookup over a correction and never stores audio", asy
   finish?.("First digest result");
   await f.drain();
   expect(sentEvents(f.socket).map((data) => data.type)).toContain(
-    "session.thinking.append",
-  );
-  expect(sentEvents(f.socket).map((data) => data.type)).not.toContain(
     "session.commentary.append",
   );
+  expect(
+    sentEvents(f.socket).find(
+      (data) => data.type === "session.commentary.append",
+    )?.content,
+  ).toContain("Original request context: You: Read the first digest");
   expect(JSON.stringify([...f.records])).not.toContain("private-audio-bytes");
 });
 
@@ -286,6 +304,7 @@ it("recovers the phone transcript after coordinator restart and a new laptop cal
   await laptop.call.start("research", "laptop", "offer");
   expect(phone.records.has("pending-transcript:phone")).toBe(true);
   mocks.transcript.mockResolvedValue(undefined);
+  mocks.lookupResult.mockResolvedValue({ state: "running", answer: null });
   await laptop.call.alarm();
   expect(mocks.transcript).toHaveBeenLastCalledWith(
     "phone",
@@ -371,4 +390,195 @@ it("retains final captions that supersede a transcript being delivered", async (
     expect.stringContaining("A safe public-page capture"),
   );
   expect(f.records.has("pending-transcript:phone")).toBe(false);
+});
+
+it("announces a completed lookup after the caller asks for progress", async () => {
+  let finish!: (answer: string) => void;
+  mocks.lookup.mockReturnValue(
+    new Promise<string>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "one", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Count pipeline records",
+    end_ms: 100,
+  });
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "pipeline", target: "client" },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Are you still working on it?",
+    start_ms: 200,
+    end_ms: 300,
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  finish("Complete pipeline count: 1460 records across 15 pages.");
+  await f.drain();
+  expect(
+    f.socket.sent.some(
+      (raw) =>
+        raw.includes("session.commentary.append") && raw.includes("1460"),
+    ),
+  ).toBe(true);
+  expect((await f.call.heartbeat("one"))?.working).toBe(false);
+});
+
+it("delivers a lookup from an ended call to the current call without rerunning it", async () => {
+  let finish!: (answer: string) => void;
+  mocks.lookup.mockReturnValue(
+    new Promise<string>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "first", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Count pipeline records",
+    end_ms: 100,
+  });
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "pipeline", target: "client" },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  await f.call.end("first");
+  f.socket.event({ type: "session.closed" });
+  await vi.advanceTimersByTimeAsync(0);
+  const next = new Socket();
+  mocks.attach.mockResolvedValue(next);
+  await f.call.start("research", "second", "offer");
+  finish("Complete pipeline count: 1460 records across 15 pages.");
+  await f.drain();
+  expect(
+    next.sent.some(
+      (raw) =>
+        raw.includes("session.commentary.append") && raw.includes("1460"),
+    ),
+  ).toBe(true);
+  expect(mocks.lookup).toHaveBeenCalledTimes(1);
+  expect(
+    sentEvents(next)
+      .filter((event) => event.type === "session.commentary.append")
+      .every((event) => event.delegation_id === null),
+  ).toBe(true);
+  const count = next.sent.length;
+  await f.call.heartbeat("second");
+  expect(next.sent).toHaveLength(count);
+});
+
+function storedLookup(state: "running" | "finished" | "unknown" = "running") {
+  const key = "voice-lookup:990000:first:pipeline";
+  return new Map<string, unknown>([
+    [
+      key,
+      {
+        key,
+        callId: "first",
+        delegationId: "pipeline",
+        slug: "research",
+        startedAt: 990_000,
+        request: "Count pipeline records",
+        state,
+        ...(state === "finished"
+          ? { answer: "1460 records across 15 pages." }
+          : {}),
+      },
+    ],
+  ]);
+}
+
+it("recovers completion from the agent after a coordinator restart without replaying the task", async () => {
+  const f = fixture(storedLookup());
+  await f.ready();
+  expect((await f.call.start("research", "second", "offer")).working).toBe(
+    true,
+  );
+  expect(mocks.create.mock.calls[0][2]).toContain("Count pipeline records");
+  mocks.lookupResult.mockResolvedValue({
+    state: "finished",
+    answer: "1460 records across 15 pages.",
+  });
+  expect((await f.call.heartbeat("second"))?.working).toBe(false);
+  expect(f.socket.sent.join("")).toContain("1460");
+  expect(mocks.lookup).not.toHaveBeenCalled();
+  expect(mocks.lookupResult).toHaveBeenCalledWith("first", "pipeline");
+  const count = f.socket.sent.length;
+  await Promise.all([f.call.heartbeat("second"), f.call.heartbeat("second")]);
+  expect(f.socket.sent).toHaveLength(count);
+});
+
+it("includes already completed work in a new call's context without announcing it unprompted", async () => {
+  const f = fixture(storedLookup("finished"));
+  await f.ready();
+  expect((await f.call.start("research", "second", "offer")).working).toBe(
+    false,
+  );
+  expect(mocks.create.mock.calls[0][2]).toContain("1460");
+  expect(f.socket.sent).toHaveLength(0);
+  expect(mocks.lookup).not.toHaveBeenCalled();
+});
+
+it("reports unverifiable task status instead of pretending to make progress, then recovers", async () => {
+  const f = fixture(storedLookup());
+  await f.ready();
+  await f.call.start("research", "second", "offer");
+  mocks.lookupResult.mockRejectedValueOnce(new Error("private-provider-error"));
+  expect((await f.call.heartbeat("second"))?.working).toBe(false);
+  expect(f.socket.sent.join("")).toContain("could not be verified");
+  expect(f.socket.sent.join("")).not.toContain("private-provider-error");
+  mocks.lookupResult.mockResolvedValue({
+    state: "finished",
+    answer: "1460 records across 15 pages.",
+  });
+  await f.call.heartbeat("second");
+  expect(f.socket.sent.join("")).toContain("1460");
+  expect(mocks.lookup).not.toHaveBeenCalled();
+});
+
+it("keeps a failed lookup terminal and never sends its result to a closed call", async () => {
+  let fail!: (error: Error) => void;
+  mocks.lookup.mockReturnValue(
+    new Promise<string>((_resolve, reject) => {
+      fail = reject;
+    }),
+  );
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "first", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Count pipeline records",
+    end_ms: 100,
+  });
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "pipeline", target: "client" },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  await f.call.end("first");
+  f.socket.event({ type: "session.closed" });
+  await vi.advanceTimersByTimeAsync(0);
+  const count = f.socket.sent.length;
+  fail(new Error("private-provider-error"));
+  await f.drain();
+  expect(f.socket.sent).toHaveLength(count);
+  const next = new Socket();
+  mocks.attach.mockResolvedValue(next);
+  expect((await f.call.start("research", "second", "offer")).working).toBe(
+    false,
+  );
+  expect(mocks.create.mock.calls.at(-1)?.[2]).toContain("could not complete");
+  expect(mocks.create.mock.calls.at(-1)?.[2]).not.toContain(
+    "private-provider-error",
+  );
+  expect(mocks.lookup).toHaveBeenCalledOnce();
 });

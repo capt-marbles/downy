@@ -19,6 +19,19 @@ import {
 } from "./provider";
 import { voiceDeadline } from "./policy";
 
+const LOOKUP_PREFIX = "voice-lookup:";
+const MAX_LOOKUPS = 60;
+interface Lookup {
+  key: string;
+  callId: string;
+  delegationId: string;
+  slug: string;
+  startedAt: number;
+  request: string;
+  state: "running" | "finished" | "unknown";
+  answer?: string;
+}
+
 const TRANSCRIPT_PREFIX = "pending-transcript:";
 interface PendingTranscript {
   callId: string;
@@ -39,6 +52,7 @@ interface Call extends VoiceStatus {
   usageSeconds?: number;
   pendingTasks: number;
   closeAttempts: number;
+  deliveredLookups?: string[];
 }
 
 // One coordinator per agent. Its alarm is independent of Think's scheduler.
@@ -48,6 +62,8 @@ export class VoiceCall extends DurableObject {
   private socket: WebSocket | undefined;
   private events: Promise<void> = Promise.resolve();
   private starting = false;
+  private lookups: Lookup[] = [];
+  private refreshing: Promise<void> | undefined;
   private transcriptDelivery: Promise<void> | undefined;
   private attaching: Promise<void> | undefined;
 
@@ -55,6 +71,14 @@ export class VoiceCall extends DurableObject {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
       this.call = await ctx.storage.get<Call>("call");
+      this.lookups = [
+        ...(
+          await ctx.storage.list<Lookup>({
+            prefix: LOOKUP_PREFIX,
+            limit: MAX_LOOKUPS,
+          })
+        ).values(),
+      ];
     });
   }
 
@@ -133,6 +157,18 @@ export class VoiceCall extends DurableObject {
       await this.ctx.storage.setAlarm(now + 30_000);
       const agent = await getAgentStub(this.env, slug);
       const context = await agent.getVoiceContext();
+      await this.refreshLookups();
+      // Existing outcomes are in the opening context; don't read them aloud
+      // unprompted. Anything finishing after this snapshot is announced.
+      const recent = this.lookups
+        .filter((lookup) => lookup.slug === slug)
+        .slice(-6);
+      this.call.deliveredLookups = this.lookups
+        .filter((lookup) => lookup.state !== "running")
+        .map((lookup) => `${lookup.key}:${lookup.state}`);
+      const taskContext = recent
+        .map((lookup) => voiceChunks(this.lookupText(lookup)).join(""))
+        .join("\n\n");
       if (this.call.state !== "starting") {
         this.call.state = "closed";
         await this.persist();
@@ -142,7 +178,7 @@ export class VoiceCall extends DurableObject {
       const created = await createLiveSession(
         this.env.OPENAI_API_KEY,
         sdp,
-        context,
+        `${context}\n\nBackend lookup status (authoritative as of call start):\n${taskContext || "No tracked voice lookups."}`,
       );
       this.call.providerId = created.session.id;
       await this.persist();
@@ -152,6 +188,7 @@ export class VoiceCall extends DurableObject {
         return this.status();
       }
       this.call.state = "active";
+      await this.publishLookups();
       await this.persist();
       await this.ctx.storage.setAlarm(voiceDeadline(this.call));
       return this.status(created.transport.sdp);
@@ -185,6 +222,8 @@ export class VoiceCall extends DurableObject {
         await this.end(callId);
       else {
         this.call.heartbeatAt = Date.now();
+        await this.refreshLookups();
+        await this.publishLookups();
         await this.persist();
         await this.ctx.storage.setAlarm(voiceDeadline(this.call));
       }
@@ -357,13 +396,36 @@ export class VoiceCall extends DurableObject {
         return;
       }
       call.delegations.push(id);
-      const revision = call.inputRevision;
       const transcript = captionText(call.captions);
       call.pendingTasks++;
       call.working = true;
       // Persist receipt before dispatch. A DO restart never replays a tool turn.
       await this.persist();
-      this.ctx.waitUntil(this.delegate(callId, id, revision, transcript));
+      const expired = this.lookups.find(
+        (lookup) => lookup.state === "finished",
+      );
+      if (this.lookups.length >= MAX_LOOKUPS && expired) {
+        this.lookups = this.lookups.filter((lookup) => lookup !== expired);
+        await this.ctx.storage.delete(expired.key);
+      }
+      if (this.lookups.length >= MAX_LOOKUPS) {
+        call.reason =
+          "Too many unfinished lookups; check chat before starting more";
+        await this.end(callId);
+        return;
+      }
+      const lookup: Lookup = {
+        key: `${LOOKUP_PREFIX}${Date.now()}:${callId}:${id}`,
+        callId,
+        delegationId: id,
+        slug: call.slug,
+        startedAt: Date.now(),
+        request: transcript.slice(-1500),
+        state: "running",
+      };
+      this.lookups.push(lookup);
+      await this.ctx.storage.put(lookup.key, lookup);
+      this.ctx.waitUntil(this.delegate(lookup, transcript));
       return;
     }
     if (event.type === "error") {
@@ -374,17 +436,96 @@ export class VoiceCall extends DurableObject {
     await this.persist();
   }
 
-  private async delegate(
-    callId: string,
-    id: string,
-    revision: number,
-    transcript: string,
-  ) {
-    const call = this.call;
-    if (!call || call.callId !== callId) return;
+  private lookupText(lookup: Lookup) {
+    return `Backend lookup ${lookup.callId}/${lookup.delegationId}: ${lookup.state}. Original request context: ${lookup.request}\n${lookup.answer ?? "Submitted; no final result received yet. This is not evidence of ongoing progress."}`;
+  }
+
+  private async refreshLookups() {
+    if (this.refreshing) return this.refreshing;
+    this.refreshing = this.reconcileLookups();
     try {
-      // The sideband delegation and caption streams can arrive out of order.
-      // Wait outside the event queue so late caller captions can still arrive.
+      await this.refreshing;
+    } finally {
+      this.refreshing = undefined;
+    }
+  }
+
+  private async reconcileLookups() {
+    await Promise.all(
+      this.lookups
+        .filter(
+          (lookup) =>
+            lookup.state !== "finished" && Date.now() - lookup.startedAt > 5000,
+        )
+        .map(async (lookup) => {
+          // Read durable results only. Recovery never replays inference or tools.
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const agent = await getAgentStub(this.env, lookup.slug);
+            const result = await Promise.race([
+              agent.getVoiceTaskResult(lookup.callId, lookup.delegationId),
+              new Promise<null>((resolve) => {
+                timer = setTimeout(() => resolve(null), 3000);
+              }),
+            ]);
+            // A callback may have completed while the status RPC was in flight.
+            if (lookup.state === "finished") return;
+            lookup.state = result?.state ?? "unknown";
+            lookup.answer = result
+              ? result.answer?.slice(0, 16_000)
+              : "Task status could not be verified. Check chat; do not claim the lookup is still running.";
+            await this.ctx.storage.put(lookup.key, lookup);
+          } catch {
+            // Transport failure proves neither completion nor ongoing execution.
+            if (lookup.state === "finished") return;
+            lookup.state = "unknown";
+            lookup.answer =
+              "Task status could not be verified. Check the report in chat; do not claim the lookup is still running.";
+            await this.ctx.storage.put(lookup.key, lookup);
+          } finally {
+            clearTimeout(timer);
+          }
+        }),
+    );
+  }
+
+  private async publishLookups() {
+    const call = this.call;
+    if (!call || call.state !== "active") return;
+    call.pendingTasks = this.lookups.filter(
+      (lookup) => lookup.slug === call.slug && lookup.state === "running",
+    ).length;
+    call.working = call.pendingTasks > 0;
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    call.deliveredLookups ??= [];
+    for (const lookup of this.lookups) {
+      const receipt = `${lookup.key}:${lookup.state}`;
+      if (
+        lookup.slug !== call.slug ||
+        lookup.state === "running" ||
+        call.deliveredLookups.includes(receipt)
+      )
+        continue;
+      // Completion is useful even after an interruption or hangup. Scope it to
+      // the original request rather than treating all newer speech as cancellation.
+      for (const content of voiceChunks(this.lookupText(lookup)))
+        this.send({
+          type: "session.commentary.append",
+          delegation_id:
+            lookup.callId === call.callId ? lookup.delegationId : null,
+          content,
+        });
+      call.deliveredLookups = [...call.deliveredLookups.slice(-119), receipt];
+    }
+    await this.persist();
+  }
+
+  private async delegate(lookup: Lookup, transcript: string) {
+    const call = this.call;
+    if (!call || call.callId !== lookup.callId) return;
+    try {
+      // Caption/delegation streams can arrive out of order. Wait outside the
+      // event queue so late caller captions can still arrive.
       if (
         !call.captions.some(
           (caption) => caption.role === "user" && caption.text.trim(),
@@ -399,47 +540,34 @@ export class VoiceCall extends DurableObject {
         )
           await new Promise((resolve) => setTimeout(resolve, 50));
         transcript = captionText(call.captions);
-        revision = call.inputRevision;
+        lookup.request = transcript.slice(-1500);
       }
       if (
         !call.captions.some(
           (caption) => caption.role === "user" && caption.text.trim(),
         )
       ) {
-        if (this.call?.callId !== callId || this.call.state !== "active")
-          return;
-        this.send({
-          type: "session.commentary.append",
-          delegation_id: id,
-          content:
-            "I didn't receive enough of the question to look it up. Please repeat it.",
-        });
-        return;
+        lookup.answer =
+          "I didn't receive enough of the question to look it up. Please repeat it.";
+      } else {
+        const agent = await getAgentStub(this.env, call.slug);
+        lookup.answer = (
+          await agent.runVoiceTurn(
+            lookup.callId,
+            lookup.delegationId,
+            transcript,
+          )
+        ).slice(0, 16_000);
       }
-      const agent = await getAgentStub(this.env, call.slug);
-      const answer = await agent.runVoiceTurn(callId, id, transcript);
-      if (this.call?.callId !== callId || this.call.state !== "active") return;
-      const type =
-        this.call.inputRevision === revision
-          ? "session.commentary.append"
-          : "session.thinking.append";
-      for (const content of voiceChunks(answer))
-        this.send({ type, delegation_id: id, content });
     } catch {
-      if (this.call?.callId === callId && this.call.state === "active")
-        this.send({
-          type: "session.commentary.append",
-          delegation_id: id,
-          content:
-            "Downy could not complete that lookup. Please check the chat and try again there.",
-        });
+      lookup.answer =
+        "Downy could not complete that lookup. Please check the chat and try again there.";
     } finally {
-      if (this.call?.callId === callId) {
-        this.call.pendingTasks = Math.max(0, this.call.pendingTasks - 1);
-        this.call.working =
-          this.call.state === "active" && this.call.pendingTasks > 0;
-        await this.persist();
-      }
+      lookup.state = "finished";
+      // This receipt belongs to the agent, not the audio session. A new call
+      // may already be open by the time the original lookup returns.
+      await this.ctx.storage.put(lookup.key, lookup);
+      await this.publishLookups();
     }
   }
 

@@ -853,6 +853,24 @@ export class DownyAgent extends Think {
 
   #voicePending = new Set<string>();
 
+  async getVoiceTaskResult(callId: string, delegationId: string) {
+    const value = await this.ctx.storage.get<string>(
+      `voice-result:${callId}:${delegationId}`,
+    );
+    if (value && value !== this.#voicePendingResult)
+      return { state: "finished" as const, answer: value };
+    if (this.#voicePending.has(`voice-request:${callId}:${delegationId}`))
+      return { state: "running" as const, answer: null };
+    return {
+      state: "unknown" as const,
+      answer:
+        "The lookup's execution status is unconfirmed. Check chat for an existing result; do not claim it is still running.",
+    };
+  }
+
+  readonly #voicePendingResult =
+    "This lookup was already received. Check the chat for its result; it has not been run again.";
+
   async runVoiceTurn(
     callId: string,
     delegationId: string,
@@ -864,6 +882,12 @@ export class DownyAgent extends Think {
     this.#voicePending.add(id);
     try {
       return await this.#runVoiceTurnOnce(callId, delegationId, transcript, id);
+    } catch (error) {
+      await this.ctx.storage.put(
+        `voice-result:${callId}:${delegationId}`,
+        "Downy could not complete that lookup. Please check the chat and try again there.",
+      );
+      throw error;
     } finally {
       this.#voicePending.delete(id);
     }
@@ -880,10 +904,7 @@ export class DownyAgent extends Think {
     if (previous) return previous;
     // Mark BEFORE inference; a restarted or duplicated delegation never reruns
     // tools. Pending/unknown work can be inspected in the shared transcript.
-    await this.ctx.storage.put(
-      key,
-      "This lookup was already received. Check the chat for its result; it has not been run again.",
-    );
+    await this.ctx.storage.put(key, this.#voicePendingResult);
     const pilotAnswer = await handlePilotVoiceRequest(transcript, {
       latest: async () => {
         const latest = await this.ctx.storage.get<string>(
