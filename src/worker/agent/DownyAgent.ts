@@ -582,7 +582,7 @@ export class DownyAgent extends Think {
     if (airtableGrant)
       mcpTools.airtable_records = tool({
         description:
-          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. Use returned offset for pagination. For complete stage counts use pipeline_report after inspecting the schema; resume partial results with reportId. No create, update or delete operations are available.",
+          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. Use returned offset for pagination. For complete stage counts use pipeline_report after inspecting the schema; resume partial results with reportId. This tool only reads. To add records, dedupe here first, then propose them with stage_action kind airtable_create_records: the operator confirms the card and the records are created through the same Airtable connection. Updates and deletes are not available.",
         inputSchema: AirtableActionSchema,
         execute: async (input) => {
           try {
