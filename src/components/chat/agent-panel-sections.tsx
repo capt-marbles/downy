@@ -634,9 +634,18 @@ export function ModelStatusSection() {
                     <span>
                       {entry.channel} · {entry.bundle}
                     </span>
-                    <span className="font-mono">
+                    <span
+                      className="font-mono"
+                      title={`system ${entry.systemChars} chars, stable prefix ${entry.stablePrefixChars} chars`}
+                    >
                       {entry.activeTools}/{entry.toolDefinitions} tools ·{" "}
-                      {formatTokens(entry.estimatedPromptTokens)} est.
+                      {formatTokens(entry.estimatedPromptTokens)} est. ·{" "}
+                      {entry.systemChars
+                        ? Math.round(
+                            (100 * entry.stablePrefixChars) / entry.systemChars,
+                          )
+                        : 0}
+                      % stable
                     </span>
                   </div>
                 ))}

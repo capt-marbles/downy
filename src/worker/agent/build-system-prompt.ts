@@ -89,6 +89,7 @@ When a turn has three or more logical steps, call \`todo_write\` *before* you st
 - **\`find_tool_setup\`** — use this for requests such as "connect Gmail" or "connect Airtable". It resumes a saved setup runbook, checks existing access, and presents a secure card when authorization is needed. Follow its nextAction and distinguish discovered, awaiting authorization, and read-verified states. Load connecting-services for this procedure. Managed Composio OAuth and app authorization are separate from generic MCP servers: do not infer they are disconnected from an empty servers list, guess endpoints, or search workspace files for credentials. The operator authorizes with the card; check \`list_mcp_servers\` for the result. Never ask for passwords, API keys, or tokens in chat.
 - **\`connect_mcp_server\` / \`list_mcp_servers\` / \`disconnect_mcp_server\`** — attach hosted MCP servers at runtime. Credentials come only from \`request_credential\` secure entry or managed OAuth cards, never tool arguments or messages. Do not invent server URLs. Local stdio MCPs (npx / uvx) cannot run in the Worker. Connected tools appear as \`tool_<server>_<toolname>\`.
 - **\`read_peer_agent\`** — read another of the user's agents when they explicitly reference one. Slugs are listed in the \`## Peer agents\` section.
+- **Large results** — a tool result over about 16k characters is saved under \`workspace/tool-output/\` and returned as a stub with a 2k-character preview and the path. Work from the preview; \`read\` the file only when the preview does not answer the question, and never paste it back into chat.
 
 ## Honesty
 
@@ -104,7 +105,7 @@ When a skill's description matches the request, read its body via \`read_skill({
 
 const VOICE_RULES = `You are on a live voice call with the user through Downy. This is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. For facts not in the workspace, use web_search and web_scrape inline when one or two lookups will answer the question. For multi-source research, a comparison, or anything that should become a document the caller need not wait for, call spawn_background_task with a self-contained brief: it starts a read-only research worker whose findings are saved as a new workspace note and announced when finished; say it has started, not that it is done. The lead-sourcing runbook works from voice: load its skill, qualify candidates with qualify_leads, enrich through the Treg read endpoints (tool_treg_call with treg.people.search, treg.people.email.find, treg.companies.enrich; other endpoints are blocked in voice), and propose records or a Slack post with stage_action for the caller to confirm in chat. slack_channels lists channels only. For Airtable questions, use airtable_records directly when available; it needs no skill file or Boat filesystem access. Inspect the authorized base and actual table/field schema first. For pipeline counts, load reporting-crm-pipeline with read_skill and use airtable_records action pipeline_report with the selected base, table and stage field ID. Resume partial results using reportId. Counts are calculated in code, including records with a missing stage. If you cannot read all pages in this turn, label counts partial and state that the total is unknown. Never present a page count as a complete pipeline count. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn when the sources are already in the workspace; use spawn_background_task only when new research is needed first. To draft an email, use gmail_email create_draft with the exact final recipient, subject and body: the draft is saved in the caller's Gmail and is never sent; say it is saved as a draft for them to review and send, never that it was sent. If create_draft fails or times out, do not retry; the draft may exist, so tell the caller to check Drafts. To schedule a recurring task, create Airtable records or post to Slack, call stage_action with the exact final content: it puts a proposal card in chat and nothing runs until the caller taps Confirm there. Say the proposal is in chat awaiting their tap; never say it is scheduled, created or posted, and never treat a spoken yes as confirmation. Use list_staged_actions to answer whether a proposal was confirmed and what happened. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.
 
-Tools on this call: web_search and web_scrape take arrays of queries or URLs and run them in parallel; read, list, find and grep read the workspace; read_skill loads a skill's instructions once; read_user_profile reads the shared USER.md. Everything else you can see is described by its own schema. Hidden tools cannot run.`;
+Tools on this call: web_search and web_scrape take arrays of queries or URLs and run them in parallel; read, list, find and grep read the workspace; read_skill loads a skill's instructions once; read_user_profile reads the shared USER.md. Everything else you can see is described by its own schema. Hidden tools cannot run. A large tool result comes back as a stub with a preview and a saved file path; answer from the preview and read the file only if it is not enough.`;
 
 function metaFor(path: string) {
   const meta = coreFileMeta(path);
@@ -135,29 +136,50 @@ export async function buildVoiceSystemPrompt(
   workspace: Workspace,
   userFileContent: string,
   latestPlan: ActivePlan | null = null,
-): Promise<string> {
+): Promise<BuiltPrompt> {
   const [soul, identity, memory, skills] = await Promise.all([
     resolveCoreFile(workspace, metaFor(SOUL_PATH)),
     resolveCoreFile(workspace, metaFor(IDENTITY_PATH)),
     resolveCoreFile(workspace, metaFor(MEMORY_PATH)),
     listSkills(workspace),
   ]);
-  const sections = [
+  const stable = [
     VOICE_RULES,
     `## IDENTITY.md\n${identity.content.trim()}`,
     `## SOUL.md\n${soul.content.trim()}`,
+    buildSkillsPromptSection(skills),
+    renderConnectionsSection(),
+  ];
+  const volatile = [
     `## USER.md\n${userFileContent.trim()}`,
     `## MEMORY.md\n${memory.content.trim()}`,
-  ];
-  const skillsSection = buildSkillsPromptSection(skills);
-  if (skillsSection) sections.push(skillsSection);
-  sections.push(renderConnectionsSection());
-  const planSection = renderActivePlanSection(latestPlan);
-  if (planSection) sections.push(planSection);
-  sections.push(
+    renderActivePlanSection(latestPlan),
     `## Environment\nToday: ${new Date().toISOString().slice(0, 10)}`,
-  );
-  return sections.join("\n\n");
+  ];
+  return joinPrompt(stable, volatile);
+}
+
+type BuiltPrompt = {
+  system: string;
+  /**
+   * Length of the leading part that only changes when identity, skills or
+   * connections change. Providers with prefix caching reuse this part across
+   * turns and days; everything after it (memory, plan, date) may change per
+   * turn, so it goes last.
+   */
+  stablePrefixChars: number;
+};
+
+function joinPrompt(
+  stable: (string | null)[],
+  volatile: (string | null)[],
+): BuiltPrompt {
+  const head = stable.filter((s): s is string => s !== null).join("\n\n");
+  const tail = volatile.filter((s): s is string => s !== null).join("\n\n");
+  return {
+    system: tail ? `${head}\n\n${tail}` : head,
+    stablePrefixChars: head.length,
+  };
 }
 
 /**
@@ -174,7 +196,7 @@ export async function buildSystemPrompt(
   userFileContent: string,
   peers: readonly AgentRecord[] = [],
   latestPlan: ActivePlan | null = null,
-): Promise<string> {
+): Promise<BuiltPrompt> {
   const [soul, identity, memory, bootstrap, skills] = await Promise.all([
     resolveCoreFile(workspace, metaFor(SOUL_PATH)),
     resolveCoreFile(workspace, metaFor(IDENTITY_PATH)),
@@ -183,43 +205,36 @@ export async function buildSystemPrompt(
     listSkills(workspace),
   ]);
 
-  const sections = [
+  // Stable first: the preamble, the agent's identity, the skills catalog,
+  // peers and the code-owned connections section change rarely, so a
+  // prefix-caching provider reuses them across turns. Anything the agent or
+  // the day changes (memory, the user file, bootstrap, the plan, the date)
+  // goes after, so an edit to MEMORY.md cannot invalidate the whole prompt.
+  const stable = [
     PREAMBLE,
     `## IDENTITY.md\n${identity.content.trim()}`,
     `## SOUL.md\n${soul.content.trim()}`,
-    `## USER.md\n${userFileContent.trim()}`,
-    `## MEMORY.md\n${memory.content.trim()}`,
+    buildSkillsPromptSection(skills),
+    renderPeersSection(peers),
+    // Code-owned truth about which services can be connected and how, so the
+    // model never promises a flow that does not exist.
+    renderConnectionsSection(),
   ];
-
-  const skillsSection = buildSkillsPromptSection(skills);
-  if (skillsSection) sections.push(skillsSection);
-
-  const peersSection = renderPeersSection(peers);
-  if (peersSection) sections.push(peersSection);
-
-  // Code-owned truth about which services can be connected and how, so the
-  // model never promises a flow that does not exist.
-  sections.push(renderConnectionsSection());
-
-  if (bootstrap != null) {
-    sections.push(
-      `## BOOTSTRAP (first-run ritual — active)\nA \`BOOTSTRAP.md\` file is present in the workspace. Run its ritual before anything else, and don't reply normally until it's complete. Delete \`BOOTSTRAP.md\` when finished — that's the signal.\n\n---\n${bootstrap.trim()}`,
-    );
-  }
-
   // Per-turn ground truth. Today's date matters most: the model's training
   // cutoff is months stale, and a research agent without a current date will
   // confidently answer time-sensitive questions ("latest X", "what happened
   // this week") from out-of-date memory. UTC is fine — the model only needs
-  // a stable reference, not the user's local clock.
-  //
-  // The active-plan section sits next to the env block because both are
-  // freshly rebuilt every turn and represent canonical state the model
-  // should anchor on (vs. message history, which accumulates stale copies).
-  const planSection = renderActivePlanSection(latestPlan);
-  if (planSection) sections.push(planSection);
-  const today = new Date().toISOString().slice(0, 10);
-  sections.push(`## Environment\nToday: ${today}`);
-
-  return sections.join("\n\n");
+  // a stable reference, not the user's local clock. The active plan sits
+  // next to it because both are canonical state for this turn, unlike the
+  // message history, which accumulates stale copies.
+  const volatile = [
+    `## USER.md\n${userFileContent.trim()}`,
+    `## MEMORY.md\n${memory.content.trim()}`,
+    bootstrap == null
+      ? null
+      : `## BOOTSTRAP (first-run ritual — active)\nA \`BOOTSTRAP.md\` file is present in the workspace. Run its ritual before anything else, and don't reply normally until it's complete. Delete \`BOOTSTRAP.md\` when finished — that's the signal.\n\n---\n${bootstrap.trim()}`,
+    renderActivePlanSection(latestPlan),
+    `## Environment\nToday: ${new Date().toISOString().slice(0, 10)}`,
+  ];
+  return joinPrompt(stable, volatile);
 }

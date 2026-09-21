@@ -25,6 +25,7 @@ import {
 import type { ActivePlan } from "./tools/todo-write";
 import { readOnlyActiveTools, readOnlyToolSet } from "./read-only-tools";
 import { ledgerToolSet, recordRunEvent, type LedgerDeps } from "./run-ledger";
+import { externalizeToolResults } from "./externalize-results";
 import {
   chatGateNames,
   effectGateConfigFromEnv,
@@ -75,7 +76,7 @@ You may also have direct tools named \`tool_<server>_<name>\` — these are MCP 
 3. Call \`web_scrape\` once with that full list of URLs.
 4. Synthesize.
 
-Stop searching once you have enough to answer the brief; don't pad.
+Stop searching once you have enough to answer the brief; don't pad. A tool result over about 16k characters comes back as a stub with a 2k preview and a saved path under \`workspace/tool-output/\`; work from the preview and \`read\` the file only when needed.
 
 Your final assistant message (plain markdown, no tool calls) is saved as a file in the parent's workspace. The parent picks the directory; you pick the filename via a slug header. Even when you also use \`write\` / \`create_skill\` directly, still produce a final markdown message — that's how the parent knows the task is complete and gets a pointer it can show the user.
 
@@ -240,12 +241,15 @@ export class ChildAgent extends Think {
     if (!readOnly)
       return {
         system,
-        tools: ledgerToolSet(
-          gateToolSet(tools, {
-            ...gate("background"),
-            names: chatGateNames(tools),
-          }),
-          ledger,
+        tools: externalizeToolResults(
+          ledgerToolSet(
+            gateToolSet(tools, {
+              ...gate("background"),
+              names: chatGateNames(tools),
+            }),
+            ledger,
+          ),
+          { getWorkspace: () => this.workspace },
         ),
         model: getModelFor(this.env, aiProvider),
       };
@@ -258,12 +262,17 @@ export class ChildAgent extends Think {
     const activeTools = readOnlyActiveTools({ ...ctx.tools, ...tools });
     return {
       system,
-      tools: ledgerToolSet(
-        gateToolSet(readOnlyToolSet(tools), {
-          ...gate("background-read-only"),
-          names: activeTools,
-        }),
-        ledger,
+      // The save is system-owned and lands under workspace/tool-output/;
+      // the worker's own write tools stay blocked.
+      tools: externalizeToolResults(
+        ledgerToolSet(
+          gateToolSet(readOnlyToolSet(tools), {
+            ...gate("background-read-only"),
+            names: activeTools,
+          }),
+          ledger,
+        ),
+        { getWorkspace: () => this.workspace },
       ),
       // Think's auto-registered workspace tools (list/find/grep) live in
       // ctx.tools, not in the set built here.

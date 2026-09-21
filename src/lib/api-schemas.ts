@@ -175,6 +175,7 @@ const TurnInventorySchema = z.object({
   activeTools: z.number(),
   hiddenTools: z.number(),
   systemChars: z.number(),
+  stablePrefixChars: z.number().optional().default(0),
   toolDescriptionChars: z.number(),
   estimatedPromptTokens: z.number(),
   recordedAt: z.number(),

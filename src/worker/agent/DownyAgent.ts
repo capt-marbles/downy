@@ -124,6 +124,7 @@ import {
   type LedgerDeps,
   type RunKind,
 } from "./run-ledger";
+import { externalizeToolResults } from "./externalize-results";
 import {
   measureTurnInventory,
   TURN_INVENTORY_KEY,
@@ -598,7 +599,7 @@ export class DownyAgent extends Think {
     this.#runKind = isVoiceTurn ? "voice" : "chat";
     // Voice gets a compact prompt: identity, skills, connections and plan,
     // without the chat preamble, tool guide, peers or bootstrap.
-    const system = isVoiceTurn
+    const prompt = isVoiceTurn
       ? await buildVoiceSystemPrompt(
           this.workspace,
           userFile.content,
@@ -610,6 +611,7 @@ export class DownyAgent extends Think {
           peers,
           latestPlan,
         );
+    const system = prompt.system;
     // A direct request to create a named bot must execute the action, not just
     // produce plausible completion prose. One step gives us the tool result;
     // the server's persisted receipt supplies the verified chat link.
@@ -751,12 +753,18 @@ export class DownyAgent extends Think {
         voiceTurn.activeTools,
         bundle.hidden,
       );
-      voiceTurn.tools = ledgerToolSet(voiceTurn.tools, this.#ledgerDeps());
+      // Ledger inside so it sees the full result (cost); externalize outside
+      // so the transcript keeps a stub instead of a 30k-character dump.
+      voiceTurn.tools = externalizeToolResults(
+        ledgerToolSet(voiceTurn.tools, this.#ledgerDeps()),
+        { getWorkspace: () => this.workspace },
+      );
       await this.#recordTurnInventory(
         measureTurnInventory({
           channel: "voice",
           bundle: "voice",
           system,
+          stablePrefixChars: prompt.stablePrefixChars,
           tools: voiceTurn.tools,
           activeTools: voiceTurn.activeTools,
           hidden: bundle.hidden,
@@ -775,12 +783,15 @@ export class DownyAgent extends Think {
           : {}),
       };
     }
-    const chatTools = ledgerToolSet(
-      gateToolSet(bundle.tools, {
-        ...this.#effectGateDeps("chat"),
-        names: chatGateNames(bundle.tools),
-      }),
-      this.#ledgerDeps(),
+    const chatTools = externalizeToolResults(
+      ledgerToolSet(
+        gateToolSet(bundle.tools, {
+          ...this.#effectGateDeps("chat"),
+          names: chatGateNames(bundle.tools),
+        }),
+        this.#ledgerDeps(),
+      ),
+      { getWorkspace: () => this.workspace },
     );
     const chatActiveTools = withoutHidden(
       toolRegistry.activeToolsWithMcpWrappers(ctx.tools, mcpTools),
@@ -791,6 +802,7 @@ export class DownyAgent extends Think {
         channel: "chat",
         bundle: labEnabled ? "gtm+lab" : "gtm",
         system,
+        stablePrefixChars: prompt.stablePrefixChars,
         tools: chatTools,
         activeTools: chatActiveTools,
         hidden: bundle.hidden,

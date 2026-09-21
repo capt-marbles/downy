@@ -14,6 +14,8 @@ export type TurnInventory = {
   activeTools: number;
   hiddenTools: number;
   systemChars: number;
+  /** Leading prompt bytes that only change with identity, skills or connections. */
+  stablePrefixChars: number;
   toolDescriptionChars: number;
   estimatedPromptTokens: number;
   recordedAt: number;
@@ -32,6 +34,7 @@ export function measureTurnInventory(args: {
   channel: TurnInventory["channel"];
   bundle: TurnInventory["bundle"];
   system: string;
+  stablePrefixChars?: number;
   tools: ToolSet;
   activeTools: string[];
   hidden: string[];
@@ -48,6 +51,10 @@ export function measureTurnInventory(args: {
     activeTools: active.size,
     hiddenTools: args.hidden.length,
     systemChars: args.system.length,
+    stablePrefixChars: Math.min(
+      args.system.length,
+      args.stablePrefixChars ?? 0,
+    ),
     toolDescriptionChars,
     estimatedPromptTokens: Math.round(
       (args.system.length + toolDescriptionChars) / CHARS_PER_TOKEN,
