@@ -20,6 +20,14 @@ the card afterwards on the same device.
   `AIRTABLE_CREATE_RECORDS` once through the bot's Airtable grant; never
   retried. A timeout is recorded as `unknown` because the rows may exist. The
   chat tool `airtable_records` stays read-only; this card is the only write.
+- `airtable_update_records`: base, table, up to ten `{ id, fields }` patches
+  where `id` is a `rec…` id read from `airtable_records` and `fields` holds only
+  what changes (`null` clears a field), plus a `tableLabel` and one
+  `recordLabel` per record. Runs `AIRTABLE_UPDATE_MULTIPLE_RECORDS` once
+  through the bot's Airtable grant; never retried, and a timeout is `unknown`
+  because the patch may have applied. Unlisted fields are untouched. A
+  standing grant of the same kind covers it for scheduled runs; a create
+  grant does not.
 - `slack_post_message`: channel id or name, a `channelLabel` for the card, and
   the exact text. Runs `SLACKBOT_SEND_MESSAGE` once through the bot's Slack
   grant, posting as the Downy app; never retried, and a timeout is `unknown`.

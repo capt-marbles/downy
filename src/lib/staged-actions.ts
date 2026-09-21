@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { CreateScheduledTaskInputSchema } from "../worker/scheduled-tasks/types";
-import { AirtableCreateRecordsSchema } from "./airtable-connect";
+import {
+  AirtableCreateRecordsSchema,
+  AirtableUpdateRecordsSchema,
+} from "./airtable-connect";
 import { SlackPostMessageSchema } from "./slack-connect";
 import { describeGrant } from "./standing-grants";
 
@@ -41,6 +44,18 @@ const AirtableCreateRecordsPayloadSchema = AirtableCreateRecordsSchema.omit({
     message: "recordLabels must describe every record, one line each",
   });
 
+const AirtableUpdateRecordsPayloadSchema = AirtableUpdateRecordsSchema.omit({
+  action: true,
+})
+  .extend({
+    tableLabel: z.string().min(1).max(120),
+    recordLabels: z.array(z.string().min(1).max(300)).min(1).max(10),
+  })
+  .strict()
+  .refine((value) => value.recordLabels.length === value.records.length, {
+    message: "recordLabels must describe every record, one line each",
+  });
+
 export const StagedActionPayloadSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -58,6 +73,12 @@ export const StagedActionPayloadSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("airtable_create_records"),
       airtableCreateRecords: AirtableCreateRecordsPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("airtable_update_records"),
+      airtableUpdateRecords: AirtableUpdateRecordsPayloadSchema,
     })
     .strict(),
   z
@@ -132,6 +153,7 @@ export const STAGED_ACTION_LABELS: Record<StagedActionKind, string> = {
   gmail_draft: "Gmail draft",
   schedule_task: "Scheduled task",
   airtable_create_records: "Airtable records",
+  airtable_update_records: "Airtable update",
   slack_post_message: "Slack post",
 };
 
@@ -309,6 +331,31 @@ export function describeStagedAction(payload: StagedActionPayload): {
         `Table: ${write.tableId}`,
         `Records:\n${write.recordLabels.map((label) => `- ${label}`).join("\n")}`,
         `Fields per record: ${write.records.map((r) => Object.keys(r.fields).length).join(", ")}`,
+      ],
+    };
+  }
+  if (payload.kind === "airtable_update_records") {
+    const write = payload.airtableUpdateRecords;
+    const n = write.records.length;
+    return {
+      title: `Update ${n} record${n === 1 ? "" : "s"} in Airtable table ${write.tableLabel}`,
+      lines: [
+        `Base: ${write.baseId}`,
+        `Table: ${write.tableId}`,
+        `Records:\n${write.records
+          .map(
+            (record, i) =>
+              `- ${write.recordLabels[i]} (${record.id}): ${Object.entries(
+                record.fields,
+              )
+                .map(
+                  ([field, value]) =>
+                    `${field} → ${value === null ? "cleared" : Array.isArray(value) ? value.join(", ") : String(value)}`,
+                )
+                .join("; ")}`,
+          )
+          .join("\n")}`,
+        "Only the listed fields change; everything else on each record is untouched.",
       ],
     };
   }

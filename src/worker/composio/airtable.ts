@@ -7,10 +7,10 @@ import {
 } from "./airtable-diagnostics";
 import { z } from "zod";
 import {
-  AirtableCreateRecordsSchema,
+  AirtableWriteSchema,
   AirtableReadActionSchema,
-  type AirtableCreateRecords,
-  type AirtableCreateRecordsResult,
+  type AirtableWrite,
+  type AirtableWriteResult,
   type AirtableReadAction,
   type AirtableConnectStatus,
 } from "../../lib/airtable-connect";
@@ -320,18 +320,18 @@ export class AirtableConnection {
     }
   }
   /**
-   * Create up to ten records. Never retried: after a timeout the rows may
-   * exist, and the caller reports an unknown outcome instead of writing twice.
+   * Create or update up to ten records. Never retried: after a timeout the
+   * rows may exist or be changed, and the caller reports an unknown outcome
+   * instead of writing twice.
    */
-  async write(
-    input: AirtableCreateRecords,
-  ): Promise<AirtableCreateRecordsResult> {
-    const action = AirtableCreateRecordsSchema.parse(input);
+  async write(input: AirtableWrite): Promise<AirtableWriteResult> {
+    const action = AirtableWriteSchema.parse(input);
     const { state, sessionId } = await this.verifiedIdentity();
+    const update = action.action === "update_records";
     const raw = await this.execute(
       sessionId,
       state.accountId,
-      "AIRTABLE_CREATE_RECORDS",
+      update ? "AIRTABLE_UPDATE_MULTIPLE_RECORDS" : "AIRTABLE_CREATE_RECORDS",
       {
         baseId: action.baseId,
         tableIdOrName: action.tableId,
@@ -341,13 +341,13 @@ export class AirtableConnection {
     ).catch((error: unknown) => {
       throw airtableFailure(error, "provider_failure", "records_write");
     });
-    const created = z
+    const written = z
       .object({ records: z.array(z.object({ id: z.string().min(1) })) })
       .parse(raw);
     return {
-      state: "records_created",
+      state: update ? "records_updated" : "records_created",
       account: state.identity,
-      recordIds: created.records.map((record) => record.id),
+      recordIds: written.records.map((record) => record.id),
     };
   }
   private async verifiedIdentity() {

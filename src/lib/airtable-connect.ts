@@ -80,15 +80,53 @@ export const AirtableCreateRecordsSchema = z
     typecast: z.boolean().default(true),
   })
   .strict();
-export type AirtableCreateRecords = z.infer<typeof AirtableCreateRecordsSchema>;
 export const AirtableCreateRecordsResultSchema = z.object({
   state: z.literal("records_created"),
   account: z.string(),
   recordIds: z.array(z.string()),
 });
-export type AirtableCreateRecordsResult = z.infer<
-  typeof AirtableCreateRecordsResultSchema
->;
+// Updates patch only the listed fields of existing records; `null` clears a
+// field. Record ids come from list_records, never from memory.
+export const AirtableUpdateRecordsSchema = z
+  .object({
+    action: z.literal("update_records"),
+    baseId,
+    tableId: z
+      .string()
+      .regex(/^tbl[a-zA-Z0-9]+$/)
+      .max(100),
+    records: z
+      .array(
+        z
+          .object({
+            id: z.string().regex(/^rec[a-zA-Z0-9]{14}$/),
+            fields: z.record(
+              z.string().min(1).max(200),
+              z.union([fieldValue, z.null()]),
+            ),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10),
+    typecast: z.boolean().default(true),
+  })
+  .strict();
+export const AirtableUpdateRecordsResultSchema = z.object({
+  state: z.literal("records_updated"),
+  account: z.string(),
+  recordIds: z.array(z.string()),
+});
+export const AirtableWriteSchema = z.discriminatedUnion("action", [
+  AirtableCreateRecordsSchema,
+  AirtableUpdateRecordsSchema,
+]);
+export type AirtableWrite = z.infer<typeof AirtableWriteSchema>;
+export const AirtableWriteResultSchema = z.discriminatedUnion("state", [
+  AirtableCreateRecordsResultSchema,
+  AirtableUpdateRecordsResultSchema,
+]);
+export type AirtableWriteResult = z.infer<typeof AirtableWriteResultSchema>;
 export const AirtableActionSchema = z.union([
   AirtableReadActionSchema,
   PipelineReportInputSchema,

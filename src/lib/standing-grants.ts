@@ -10,7 +10,22 @@ import { z } from "zod";
  */
 const channel = z.string().min(1).max(100);
 
+const airtableScope = {
+  baseId: z
+    .string()
+    .regex(/^app[a-zA-Z0-9]+$/)
+    .max(100),
+  tableId: z
+    .string()
+    .regex(/^tbl[a-zA-Z0-9]+$/)
+    .max(100),
+  tableLabel: z.string().min(1).max(120),
+};
+
 export const StandingGrantSchema = z.discriminatedUnion("kind", [
+  z
+    .object({ kind: z.literal("airtable_update_records"), ...airtableScope })
+    .strict(),
   z
     .object({
       kind: z.literal("airtable_create_records"),
@@ -46,8 +61,14 @@ export function grantCovers(
   payload: { kind: string } & Record<string, unknown>,
 ): boolean {
   if (grant.kind !== payload.kind) return false;
-  if (grant.kind === "airtable_create_records") {
-    const write = payload.airtableCreateRecords;
+  if (
+    grant.kind === "airtable_create_records" ||
+    grant.kind === "airtable_update_records"
+  ) {
+    const write =
+      grant.kind === "airtable_create_records"
+        ? payload.airtableCreateRecords
+        : payload.airtableUpdateRecords;
     return (
       !!write &&
       typeof write === "object" &&
@@ -68,7 +89,13 @@ export function grantCovers(
 }
 
 export function describeGrant(grant: StandingGrant): string {
-  return grant.kind === "airtable_create_records"
-    ? `create records in Airtable table ${grant.tableLabel} (${grant.tableId})`
-    : `post to Slack ${grant.channelLabel} (${grant.channel}) as the Downy app`;
+  switch (grant.kind) {
+    case "airtable_create_records":
+      return `create records in Airtable table ${grant.tableLabel} (${grant.tableId})`;
+    case "airtable_update_records":
+      return `update records in Airtable table ${grant.tableLabel} (${grant.tableId})`;
+    case "slack_post_message":
+      return `post to Slack ${grant.channelLabel} (${grant.channel}) as the Downy app`;
+  }
+  return grant satisfies never;
 }

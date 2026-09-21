@@ -50,8 +50,9 @@ export const SERVICES: readonly ServiceSpec[] = [
       "list_records",
       "pipeline_report",
       "create_records (via a confirmed card)",
+      "update_records (via a confirmed card)",
     ],
-    note: "Connects through the secure Airtable card in chat. Reads and pipeline reports directly; new records only through an airtable_create_records card the operator confirms. Updates and deletes are not available.",
+    note: "Connects through the secure Airtable card in chat. Reads and pipeline reports directly; new records only through an airtable_create_records card and changes to existing records only through an airtable_update_records card, each confirmed by the operator. Deletes are not available.",
   },
   {
     id: "slack",

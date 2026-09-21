@@ -17,6 +17,12 @@ const grants = StandingGrantsSchema.parse([
     channel: "#agent-leads",
     channelLabel: "#agent-leads",
   },
+  {
+    kind: "airtable_update_records",
+    baseId: "appZgInlaiE12FCu7",
+    tableId: "tblqqYLjWgLj87m25",
+    tableLabel: "Leads",
+  },
 ]);
 
 it("covers only the exact base and table, or the exact channel", () => {
@@ -68,4 +74,26 @@ it("refuses more than five grants", () => {
     StandingGrantsSchema.safeParse(Array.from({ length: 6 }, () => grants[1]))
       .success,
   ).toBe(false);
+});
+
+it("keeps create and update grants separate even for the same table", () => {
+  const [create, , update] = grants;
+  const payload = {
+    kind: "airtable_update_records",
+    airtableUpdateRecords: {
+      baseId: "appZgInlaiE12FCu7",
+      tableId: "tblqqYLjWgLj87m25",
+    },
+  };
+  expect(grantCovers(update, payload)).toBe(true);
+  expect(grantCovers(create, payload)).toBe(false);
+  expect(
+    grantCovers(update, {
+      ...payload,
+      airtableUpdateRecords: { baseId: "appZgInlaiE12FCu7", tableId: "tblX" },
+    }),
+  ).toBe(false);
+  expect(describeGrant(update)).toContain(
+    "update records in Airtable table Leads",
+  );
 });

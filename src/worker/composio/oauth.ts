@@ -1,6 +1,6 @@
 import { AirtableConnection, AirtableStateSchema } from "./airtable";
 import type {
-  AirtableCreateRecords,
+  AirtableWrite,
   AirtableReadAction,
 } from "../../lib/airtable-connect";
 import {
@@ -576,7 +576,7 @@ export class ComposioOAuth {
   async airtableAction(input: AirtableReadAction) {
     return this.airtable().action(input);
   }
-  async airtableWrite(input: AirtableCreateRecords) {
+  async airtableWrite(input: AirtableWrite) {
     return this.airtable().write(input);
   }
   private gmail() {

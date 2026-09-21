@@ -287,3 +287,51 @@ it("shows the standing approvals on a schedule card and confirms scheduled propo
   const { confirmedBy: _omit, ...legacy } = post;
   expect(StagedActionSchema.parse(legacy).confirmedBy).toBeNull();
 });
+
+it("describes an Airtable update by record and changed field, and rejects bad ids or unlabelled records", () => {
+  const raw = {
+    kind: "airtable_update_records",
+    airtableUpdateRecords: {
+      baseId: "appZgInlaiE12FCu7",
+      tableId: "tblqqYLjWgLj87m25",
+      tableLabel: "Leads",
+      records: [
+        {
+          id: "recAAAAAAAAAAAAA1",
+          fields: { Stage: "Contacted", Notes: null },
+        },
+        { id: "recBBBBBBBBBBBBB2", fields: { Tags: ["hot", "multiplayer"] } },
+      ],
+      recordLabels: ["Studio A", "Studio B"],
+      typecast: true,
+    },
+  };
+  const payload = StagedActionPayloadSchema.parse(raw);
+  const action = newStagedAction(ID, REV, "voice", payload, 0);
+  const text = stagedActionChatText(action);
+  expect(text).toContain("Update 2 records in Airtable table Leads");
+  expect(text).toContain(
+    "Studio A (recAAAAAAAAAAAAA1): Stage → Contacted; Notes → cleared",
+  );
+  expect(text).toContain("Tags → hot, multiplayer");
+  expect(text).toContain("Only the listed fields change");
+  expect(
+    StagedActionPayloadSchema.safeParse({
+      ...raw,
+      airtableUpdateRecords: {
+        ...raw.airtableUpdateRecords,
+        records: [{ id: "not-a-record", fields: { Stage: "x" } }],
+        recordLabels: ["Studio A"],
+      },
+    }).success,
+  ).toBe(false);
+  expect(
+    StagedActionPayloadSchema.safeParse({
+      ...raw,
+      airtableUpdateRecords: {
+        ...raw.airtableUpdateRecords,
+        recordLabels: ["Studio A"],
+      },
+    }).success,
+  ).toBe(false);
+});

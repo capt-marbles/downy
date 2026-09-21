@@ -17,9 +17,10 @@ import {
 import {
   AirtableActionSchema,
   AirtableCreateRecordsResultSchema,
+  AirtableUpdateRecordsResultSchema,
   AirtableReadActionSchema,
   isAirtableConnectRequest,
-  type AirtableCreateRecords,
+  type AirtableWrite,
   type AirtableReadAction,
   type PipelineReportInput,
   type AirtableConnectStatus,
@@ -647,7 +648,7 @@ export class DownyAgent extends Think {
     if (airtableGrant)
       mcpTools.airtable_records = tool({
         description:
-          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. Use returned offset for pagination. For complete stage counts use pipeline_report after inspecting the schema; resume partial results with reportId. This tool only reads. To add records, dedupe here first, then propose them with stage_action kind airtable_create_records: the operator confirms the card and the records are created through the same Airtable connection. Updates and deletes are not available.",
+          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. Use returned offset for pagination. For complete stage counts use pipeline_report after inspecting the schema; resume partial results with reportId. This tool only reads. To add records, dedupe here first, then propose them with stage_action kind airtable_create_records; to change existing records, read them here to get their rec… ids and current values, then propose only the fields that change with stage_action kind airtable_update_records (null clears a field). The operator confirms the card and the write goes through the same Airtable connection. Deletes are not available.",
         inputSchema: AirtableActionSchema,
         execute: async (input) => {
           try {
@@ -1786,6 +1787,47 @@ export class DownyAgent extends Think {
         };
       }
     }
+    if (payload.kind === "airtable_update_records") {
+      const airtableGrant =
+        await this.ctx.storage.get<string>("airtable-owner");
+      if (!airtableGrant)
+        return {
+          state: "failed",
+          error:
+            "Airtable is not connected for this bot. Nothing was changed. Connect Airtable, then propose again.",
+        };
+      const write = payload.airtableUpdateRecords;
+      try {
+        const result = AirtableUpdateRecordsResultSchema.parse(
+          await (
+            await getAgentStub(this.env, airtableGrant)
+          ).executeComposioAirtableWrite({
+            action: "update_records",
+            baseId: write.baseId,
+            tableId: write.tableId,
+            records: write.records,
+            typecast: write.typecast,
+          }),
+        );
+        const n = result.recordIds.length;
+        return {
+          state: "succeeded",
+          result: {
+            receipt: `Updated ${n} record${n === 1 ? "" : "s"} in ${write.tableLabel} for ${result.account}.`,
+            url: `https://airtable.com/${write.baseId}/${write.tableId}`,
+            reference: result.recordIds.join(",").slice(0, 200),
+          },
+        };
+      } catch {
+        // A timeout after submission may have applied the patch. Never retry;
+        // the operator checks the records before proposing again.
+        return {
+          state: "unknown",
+          error:
+            "Airtable did not return a verified result. The records may or may not have changed: check them before proposing again.",
+        };
+      }
+    }
     try {
       const task = await createScheduledTask(this.env.DB, {
         ...payload.scheduleTask,
@@ -2871,7 +2913,7 @@ export class DownyAgent extends Think {
     return this.withComposioOAuth((oauth) => oauth.checkAirtableSchema(baseId));
   }
   /** Confirmed staged-action writes only; never exposed as a model tool. */
-  async executeComposioAirtableWrite(input: AirtableCreateRecords) {
+  async executeComposioAirtableWrite(input: AirtableWrite) {
     return this.withComposioOAuth((oauth) => oauth.airtableWrite(input));
   }
   async executeComposioAirtable(input: AirtableReadAction): Promise<string> {
