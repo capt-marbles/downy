@@ -132,10 +132,7 @@ it("allows an explicitly requested new discovery window after cooldown", async (
 });
 
 it("says plainly that a planned or CLI-only service cannot be connected, without discovery or a card", async () => {
-  for (const [query, label] of [
-    ["can you connect to Slack?", "Slack"],
-    ["connect TaskFuel", "TaskFuel"],
-  ]) {
+  for (const [query, label] of [["connect TaskFuel", "TaskFuel"]]) {
     const f = fixture();
     const result = await runServiceSetup(query, false, f.deps);
     expect(result.runbook.step).toBe("not_available");
@@ -192,4 +189,29 @@ it("tells the truth about unknown services instead of asking the user to pick a 
   );
   expect(result.nextAction).not.toContain("Ask the user to select");
   expect(f.deps.showCard).not.toHaveBeenCalled();
+});
+
+it("shows the Slack card like Gmail and Airtable instead of discovering", async () => {
+  const f = fixture();
+  f.deps.discover.mockResolvedValueOnce({
+    candidates: [
+      {
+        name: "Slackbot",
+        toolkit: "slackbot",
+        path: "composio",
+        confidence: "confirmed",
+      },
+    ],
+    warnings: [],
+  });
+  const result = await runServiceSetup(
+    "can you connect to Slack?",
+    false,
+    f.deps,
+  );
+  expect(result.runbook).toMatchObject({
+    service: "slack",
+    step: "awaiting_authorization",
+  });
+  expect(f.deps.showCard).toHaveBeenCalledWith("slack");
 });

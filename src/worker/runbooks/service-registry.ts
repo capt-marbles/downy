@@ -59,10 +59,10 @@ export const SERVICES: readonly ServiceSpec[] = [
     label: "Slack",
     match: /\bslack(bot)?\b/i,
     flow: "composio-managed",
-    status: "planned",
-    operations: ["post_message (via a confirmed card)", "list_channels"],
+    status: "available",
+    operations: ["list_channels", "post_message (via a confirmed card)"],
     channels: ["chat"],
-    note: "Not connectable yet. Posting lead-sourcing digests to a channel is planned; until then the summary in chat is the record.",
+    note: "Connects through the secure Slack card in chat and installs Downy as a Slack app. Lists channels directly; posts only through a slack_post_message card the operator confirms. Downy never reads messages, and the app must be invited to a channel before it can post there.",
   },
   {
     id: "treg",

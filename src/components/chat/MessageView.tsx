@@ -2,6 +2,7 @@ import ComposioConnectCard from "./ComposioConnectCard";
 import { ComposioOAuthPartSchema } from "../../lib/composio-oauth";
 import GmailConnectCard from "./GmailConnectCard";
 import AirtableConnectCard from "./AirtableConnectCard";
+import SlackConnectCard from "./SlackConnectCard";
 import { ComposioCardPartSchema } from "../../lib/composio";
 import type { UIMessage } from "ai";
 import {
@@ -450,6 +451,8 @@ function MessageViewImpl({
           if (managedCard?.success)
             return managedCard.data.data.toolkit === "airtable" ? (
               <AirtableConnectCard key={idx} />
+            ) : managedCard.data.data.toolkit === "slack" ? (
+              <SlackConnectCard key={idx} />
             ) : (
               <GmailConnectCard key={idx} />
             );

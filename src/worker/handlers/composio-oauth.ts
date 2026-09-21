@@ -51,6 +51,8 @@ export async function handleComposioOAuthRequest(
     }
     if (path.startsWith("/api/composio/oauth/airtable"))
       return await handleAirtableOAuth(request, env, vault, owner);
+    if (path.startsWith("/api/composio/oauth/slack"))
+      return await handleSlackOAuth(request, env, vault, owner);
     if (request.method === "GET" && path === "/api/composio/oauth/gmail") {
       const agent = await getActiveAgentStub(request, env);
       const composio = await vault.getComposioOAuthStatus();
@@ -270,6 +272,68 @@ async function handleAirtableOAuth(
     if (airtable.state === "ready" && airtable.identity)
       await agent.notifyAirtableReady(airtable.identity);
     return Response.json({ ...airtable, authorized: true }, { headers });
+  }
+  return Response.json({ error: "Not found" }, { status: 404, headers });
+}
+
+async function handleSlackOAuth(
+  request: Request,
+  env: Cloudflare.Env,
+  vault: Awaited<ReturnType<typeof getAgentStub>>,
+  owner: string,
+): Promise<Response> {
+  const path = new URL(request.url).pathname;
+  if (path === "/api/composio/oauth/slack" && request.method === "GET") {
+    const agent = await getActiveAgentStub(request, env);
+    const composio = await vault.getComposioOAuthStatus();
+    const slack = await vault.getComposioSlackStatus(true);
+    const authorized = await agent.isSlackOwner(owner);
+    await agent.recordManagedStatus({
+      composio,
+      slack: { ...slack, authorized },
+    });
+    if (authorized && slack.state === "ready" && slack.identity)
+      await agent.notifySlackReady(slack.identity);
+    return Response.json({ ...slack, authorized }, { headers });
+  }
+  if (path === "/api/composio/oauth/slack/start" && request.method === "POST") {
+    const agent = await getActiveAgentStub(request, env);
+    await agent.authorizeSlackOwner(owner);
+    const result = await vault.startComposioSlack();
+    return redirect(
+      result.redirectUrl ??
+        `/agent/${encodeURIComponent(slugFromRequest(request))}`,
+    );
+  }
+  if (
+    path === "/api/composio/oauth/slack/select" &&
+    request.method === "POST"
+  ) {
+    const agent = await getActiveAgentStub(request, env);
+    if (!(await agent.isSlackOwner(owner)))
+      return Response.json(
+        { error: "Connect Slack for this bot first." },
+        { status: 403, headers },
+      );
+    const input = z
+      .object({ accountId: z.string().min(1).max(200) })
+      .strict()
+      .safeParse(await request.json());
+    if (!input.success)
+      return Response.json(
+        { error: "Choose a Slack workspace connection." },
+        { status: 400, headers },
+      );
+    await vault.selectComposioSlack(input.data.accountId);
+    const slack = await vault.getComposioSlackStatus();
+    const composio = await vault.getComposioOAuthStatus();
+    await agent.recordManagedStatus({
+      composio,
+      slack: { ...slack, authorized: true },
+    });
+    if (slack.state === "ready" && slack.identity)
+      await agent.notifySlackReady(slack.identity);
+    return Response.json({ ...slack, authorized: true }, { headers });
   }
   return Response.json({ error: "Not found" }, { status: 404, headers });
 }

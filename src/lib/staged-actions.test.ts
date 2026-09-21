@@ -194,3 +194,20 @@ it("rejects Airtable proposals whose labels do not match the records, or that ex
     }).success,
   ).toBe(false);
 });
+
+it("describes a Slack post by channel label and shows the exact text", () => {
+  const payload = StagedActionPayloadSchema.parse({
+    kind: "slack_post_message",
+    slackPostMessage: {
+      channel: "C0A1NHZ5QF2",
+      channelLabel: "#agent-leads",
+      text: "Gameye lead sourcing · batch downy-exa-2026-09-20 · 3 new leads",
+    },
+  });
+  const text = stagedActionChatText(
+    newStagedAction(ID, REV, "chat", payload, 1_000),
+  );
+  expect(text).toContain("Slack post to #agent-leads");
+  expect(text).toContain("batch downy-exa-2026-09-20");
+  expect(text).toContain("not yet run");
+});

@@ -10,7 +10,10 @@ permissions and verification remain enforced in Worker code.
 
 Which services can be connected, and how, is code-owned in
 `src/worker/runbooks/service-registry.ts` and rendered into every system prompt
-as a `## Connections` section. Gmail and Airtable are Composio-managed cards.
+as a `## Connections` section. Gmail, Airtable and Slack are Composio-managed
+cards; Slack installs Downy as a Slack app (`slackbot` toolkit) so digests post
+under the app's name, exposes `slack_channels` for reads, and posts only through
+a `slack_post_message` card.
 Treg is an MCP server the runbook tells the model to attach with
 `connect_mcp_server`. Slack is listed as planned and TaskFuel as not
 connectable (CLI only, no MCP); for both, and for any service outside the
@@ -129,6 +132,7 @@ The effect gate classifies those calls `metered_read` and lets them run; a Treg
 call that would post, publish or generate is `external_effect` and blocked.
 Apollo is not used.
 
-Not yet available from Downy: the Slack digest (no Slack connection type
-exists; the chat summary is the record) and unattended scheduled runs
-(background workers hold no Composio grants).
+With Slack connected, the skill proposes the digest as a `slack_post_message`
+card after the Airtable card is confirmed. Not yet available: unattended
+scheduled runs (background workers hold no Composio grants), so the daily
+cadence still needs a per-task grant model.

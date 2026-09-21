@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CreateScheduledTaskInputSchema } from "../worker/scheduled-tasks/types";
 import { AirtableCreateRecordsSchema } from "./airtable-connect";
+import { SlackPostMessageSchema } from "./slack-connect";
 
 // A staged action is a proposal the agent (chat or voice) puts in chat as a
 // card. Nothing runs until the operator taps Confirm on that card. Approval is
@@ -58,6 +59,14 @@ export const StagedActionPayloadSchema = z.discriminatedUnion("kind", [
       airtableCreateRecords: AirtableCreateRecordsPayloadSchema,
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("slack_post_message"),
+      slackPostMessage: SlackPostMessageSchema.omit({ action: true })
+        .extend({ channelLabel: z.string().min(1).max(120) })
+        .strict(),
+    })
+    .strict(),
 ]);
 export type StagedActionPayload = z.infer<typeof StagedActionPayloadSchema>;
 type StagedActionKind = StagedActionPayload["kind"];
@@ -109,6 +118,7 @@ export const STAGED_ACTION_LABELS: Record<StagedActionKind, string> = {
   gmail_draft: "Gmail draft",
   schedule_task: "Scheduled task",
   airtable_create_records: "Airtable records",
+  slack_post_message: "Slack post",
 };
 
 export function newStagedAction(
@@ -238,6 +248,13 @@ export function describeStagedAction(payload: StagedActionPayload): {
         ...(draft.threadId ? [`Reply in thread ${draft.threadId}`] : []),
         `Body:\n${draft.body}`,
       ],
+    };
+  }
+  if (payload.kind === "slack_post_message") {
+    const post = payload.slackPostMessage;
+    return {
+      title: `Slack post to ${post.channelLabel}`,
+      lines: [`Channel: ${post.channel}`, `Message:\n${post.text}`],
     };
   }
   if (payload.kind === "airtable_create_records") {

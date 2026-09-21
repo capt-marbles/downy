@@ -111,6 +111,7 @@ const READ_ORIENTED_TOOL_NAMES: ReadonlySet<string> = new Set([
 const CONNECTED_SERVICE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "gmail_email",
   "airtable_records",
+  "slack_channels",
 ]);
 
 /**

@@ -10,6 +10,11 @@ import {
 } from "./managed-protocol";
 import type { GmailAction } from "../../lib/gmail-connect";
 import { GmailConnection, GmailStateSchema, type GmailState } from "./gmail";
+import { SlackConnection, SlackStateSchema, type SlackState } from "./slack";
+import type {
+  SlackPostMessage,
+  SlackReadAction,
+} from "../../lib/slack-connect";
 import { z } from "zod";
 import {
   encryptHeaders,
@@ -47,6 +52,7 @@ const OAuthSchema = z.object({
     .optional(),
   gmail: GmailStateSchema.optional(),
   airtable: AirtableStateSchema.optional(),
+  slack: SlackStateSchema.optional(),
   status: z.enum([
     "disconnected",
     "authorizing",
@@ -605,5 +611,41 @@ export class ComposioOAuth {
   }
   async gmailAction(input: GmailAction) {
     return this.gmail().action(input);
+  }
+  private slack() {
+    return new SlackConnection(
+      (name, args) => this.callManaged(name, args),
+      async () => (await this.load())?.slack,
+      async (slack: SlackState) => {
+        const stored = await this.load();
+        if (!stored) throw new Error("Connect Composio first");
+        stored.slack = slack;
+        await this.save(stored);
+      },
+      this.now,
+    );
+  }
+  async slackStatus(refresh = false) {
+    if ((await this.status()).state !== "connected")
+      return {
+        state: "needs_composio" as const,
+        identity: null,
+        checkedAt: null,
+        error: null,
+        authorized: false,
+      };
+    return this.slack().status(refresh);
+  }
+  async startSlack() {
+    return this.slack().start();
+  }
+  async selectSlack(accountId: string) {
+    return this.slack().select(accountId);
+  }
+  async slackAction(input: SlackReadAction) {
+    return this.slack().action(input);
+  }
+  async slackPost(input: SlackPostMessage) {
+    return this.slack().post(input);
   }
 }

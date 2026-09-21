@@ -29,6 +29,14 @@ import {
   type GmailAction,
   type GmailConnectStatus,
 } from "../../lib/gmail-connect";
+import {
+  SlackPostResultSchema,
+  SlackReadActionSchema,
+  isSlackConnectRequest,
+  type SlackConnectStatus,
+  type SlackPostMessage,
+  type SlackReadAction,
+} from "../../lib/slack-connect";
 import type { ComposioOAuthStatus } from "../../lib/composio-oauth";
 import { tool } from "ai";
 import { z } from "zod";
@@ -564,7 +572,11 @@ export class DownyAgent extends Think {
       );
     const forceManagedSetup =
       !ctx.continuation &&
-      [isGmailConnectRequest, isAirtableConnectRequest].some((matches) =>
+      [
+        isGmailConnectRequest,
+        isAirtableConnectRequest,
+        isSlackConnectRequest,
+      ].some((matches) =>
         matches(
           latestUser?.parts
             .filter((part) => part.type === "text")
@@ -629,6 +641,26 @@ export class DownyAgent extends Think {
               state: "failed",
               error:
                 "Gmail action did not return a verified result. Check the connection card. If creating a draft, check Drafts before retrying; it may already exist.",
+            };
+          }
+        },
+      });
+    const slackGrant = await this.ctx.storage.get<string>("slack-owner");
+    if (slackGrant)
+      mcpTools.slack_channels = tool({
+        description:
+          "List channels in the Slack workspace connected to this bot (id, name, private, member). Read-only. To post a message, propose it with stage_action kind slack_post_message; the operator confirms the card and Downy posts as its app. Downy never reads messages.",
+        inputSchema: SlackReadActionSchema,
+        execute: async (input) => {
+          try {
+            return await (
+              await getAgentStub(this.env, slackGrant)
+            ).executeComposioSlack(input);
+          } catch {
+            return {
+              state: "failed",
+              error:
+                "Slack did not return a verified result. Check the connection card; nothing was posted.",
             };
           }
         },
@@ -1528,6 +1560,42 @@ export class DownyAgent extends Think {
           state: "unknown",
           error:
             "Gmail did not return a verified result. The draft may or may not exist: check Gmail Drafts before proposing again. Nothing was sent.",
+        };
+      }
+    }
+    if (payload.kind === "slack_post_message") {
+      const slackGrant = await this.ctx.storage.get<string>("slack-owner");
+      if (!slackGrant)
+        return {
+          state: "failed",
+          error:
+            "Slack is not connected for this bot. Nothing was posted. Connect Slack, then propose again.",
+        };
+      const post = payload.slackPostMessage;
+      try {
+        const result = SlackPostResultSchema.parse(
+          await (
+            await getAgentStub(this.env, slackGrant)
+          ).executeComposioSlackPost({
+            action: "post_message",
+            channel: post.channel,
+            text: post.text,
+          }),
+        );
+        return {
+          state: "succeeded",
+          result: {
+            receipt: `Posted to ${post.channelLabel} in Slack (${result.account}).`,
+            reference: `${result.channel}:${result.ts}`,
+          },
+        };
+      } catch {
+        // A timeout after submission may have posted. Never retry: the
+        // operator checks the channel before proposing again.
+        return {
+          state: "unknown",
+          error:
+            "Slack did not return a verified result. The message may or may not have posted: check the channel before proposing again.",
         };
       }
     }
@@ -2672,7 +2740,9 @@ export class DownyAgent extends Think {
             ? this.showAirtableConnectCard()
             : service === "gmail"
               ? this.showGmailConnectCard()
-              : this.showComposioConnectCard(),
+              : service === "slack"
+                ? this.showSlackConnectCard()
+                : this.showComposioConnectCard(),
       }),
     );
     this.#setupQueue = run.catch(() => undefined);
@@ -2689,7 +2759,7 @@ export class DownyAgent extends Think {
         ["awaiting_authorization", "verification_failed"].includes(
           entry.step,
         ) &&
-        ["gmail", "airtable"].includes(entry.service)
+        ["gmail", "airtable", "slack"].includes(entry.service)
       )
         results.push((await this.runServiceSetup(entry.query)).runbook);
       else results.push(entry);
@@ -2699,6 +2769,7 @@ export class DownyAgent extends Think {
   private async verifyServiceSetup(
     service: string,
   ): Promise<SetupVerification | null> {
+    if (service === "slack") return this.verifySlackSetup();
     if (!["gmail", "airtable"].includes(service)) {
       const current = this.getMcpServers();
       const matching = Object.entries(current.servers).find(
@@ -2764,6 +2835,29 @@ export class DownyAgent extends Think {
     }
     return result;
   }
+  private async verifySlackSetup(): Promise<SetupVerification | null> {
+    const owner = await this.ctx.storage.get<string>("slack-owner");
+    if (!owner) return null;
+    const account = await getAgentStub(this.env, owner);
+    const status = await account.getComposioSlackStatus(true);
+    const result: SetupVerification = {
+      state: status.state,
+      authorized: true,
+      identity: status.identity,
+      readVerified: false,
+      operations: ["list_channels", "post_message (via a confirmed card)"],
+      channels: ["chat"],
+      checkedAt: Date.now(),
+    };
+    if (status.state !== "ready") return result;
+    try {
+      await account.executeComposioSlack({ action: "list_channels", limit: 1 });
+      result.readVerified = true;
+    } catch {
+      result.state = "verification_failed";
+    }
+    return result;
+  }
   async discoverComposioSetup(query: string) {
     return this.withComposioOAuth((oauth) => oauth.discoverSetup(query));
   }
@@ -2777,7 +2871,8 @@ export class DownyAgent extends Think {
     const owner =
       (await this.ctx.storage.get<string>("composio-owner")) ??
       (await this.ctx.storage.get<string>("gmail-owner")) ??
-      (await this.ctx.storage.get<string>("airtable-owner"));
+      (await this.ctx.storage.get<string>("airtable-owner")) ??
+      (await this.ctx.storage.get<string>("slack-owner"));
     if (!owner) throw new Error("Connect Composio first");
     return (await getAgentStub(this.env, owner)).discoverComposioSetup(query);
   }
@@ -2840,10 +2935,77 @@ export class DownyAgent extends Think {
   async executeComposioGmail(input: GmailAction) {
     return this.withComposioOAuth((oauth) => oauth.gmailAction(input));
   }
+  async getComposioSlackStatus(refresh = false) {
+    return this.withComposioOAuth((oauth) => oauth.slackStatus(refresh));
+  }
+  async startComposioSlack() {
+    return this.withComposioOAuth((oauth) => oauth.startSlack());
+  }
+  async selectComposioSlack(accountId: string) {
+    return this.withComposioOAuth((oauth) => oauth.selectSlack(accountId));
+  }
+  async executeComposioSlack(input: SlackReadAction) {
+    return this.withComposioOAuth((oauth) => oauth.slackAction(input));
+  }
+  /** Confirmed staged-action posts only; never exposed as a model tool. */
+  async executeComposioSlackPost(input: SlackPostMessage) {
+    return this.withComposioOAuth((oauth) => oauth.slackPost(input));
+  }
+  async authorizeSlackOwner(owner: string) {
+    const previous = await this.ctx.storage.get<string>("slack-owner");
+    if (previous && previous !== owner)
+      throw new Error("This bot already has a different Slack owner");
+    await this.ctx.storage.put("slack-owner", owner);
+  }
+  async isSlackOwner(owner: string) {
+    return (await this.ctx.storage.get<string>("slack-owner")) === owner;
+  }
+  async notifySlackReady(identity: string) {
+    const id = `slack-ready:${identity}`;
+    if (!this.session.getMessage(id))
+      await this.session.appendMessage({
+        id,
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: `Slack connected (${identity}). I can list channels and propose posts as the Downy app; each post is a card you confirm. Invite the app to a channel before it can post there.`,
+          },
+        ],
+      });
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+  }
+  async showSlackConnectCard(): Promise<void> {
+    const id = "composio-setup:slack";
+    const message: UIMessage = {
+      id,
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: "Use Connect Slack in the card below to install Downy as a Slack app for this bot. Posting always goes through a card you confirm. Authorization happens outside chat; I will wait for the card to confirm the connection.",
+        },
+        { type: "data-composio-setup", data: { toolkit: "slack" } },
+      ],
+    };
+    if (!this.session.getMessage(id)) await this.session.appendMessage(message);
+    this.broadcast(
+      JSON.stringify({
+        type: CHAT_MESSAGE_TYPES.CHAT_MESSAGES,
+        messages: this.messages,
+      }),
+    );
+  }
   async recordManagedStatus(status: {
     composio: ComposioOAuthStatus;
     gmail?: GmailConnectStatus;
     airtable?: AirtableConnectStatus;
+    slack?: SlackConnectStatus;
   }) {
     await this.ctx.storage.transaction(async (txn) => {
       const existing = await txn.get<typeof status>("managed-connections");
@@ -2856,6 +3018,7 @@ export class DownyAgent extends Think {
         composio: ComposioOAuthStatus;
         gmail?: GmailConnectStatus;
         airtable?: AirtableConnectStatus;
+        slack?: SlackConnectStatus;
       }>("managed-connections")) ?? null
     );
   }

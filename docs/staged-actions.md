@@ -20,6 +20,10 @@ the card afterwards on the same device.
   `AIRTABLE_CREATE_RECORDS` once through the bot's Airtable grant; never
   retried. A timeout is recorded as `unknown` because the rows may exist. The
   chat tool `airtable_records` stays read-only; this card is the only write.
+- `slack_post_message`: channel id or name, a `channelLabel` for the card, and
+  the exact text. Runs `SLACKBOT_SEND_MESSAGE` once through the bot's Slack
+  grant, posting as the Downy app; never retried, and a timeout is `unknown`.
+  The chat tool `slack_channels` only lists channels.
 
 Payloads are strict; unknown fields are rejected so a proposal cannot smuggle a
 wider action than the card shows.
