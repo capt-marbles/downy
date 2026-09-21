@@ -127,6 +127,11 @@ import {
 } from "./run-ledger";
 import { externalizeToolResults } from "./externalize-results";
 import {
+  verifyAirtableRecords,
+  verifyAirtableTable,
+  verifySlackChannel,
+} from "./staged-verification";
+import {
   measureTurnInventory,
   TURN_INVENTORY_KEY,
   type TurnInventory,
@@ -1733,6 +1738,18 @@ export class DownyAgent extends Think {
             "Slack is not connected for this bot. Nothing was posted. Connect Slack, then propose again.",
         };
       const post = payload.slackPostMessage;
+      // Fresh verification: the channel must still resolve and the app must
+      // still be a member, read through the grant right now.
+      const slackStub = await getAgentStub(this.env, slackGrant);
+      const channelCheck = await verifySlackChannel(
+        (input) => slackStub.executeComposioSlack(input),
+        post.channel,
+      );
+      if (!channelCheck.ok)
+        return {
+          state: "failed",
+          error: `Verification before posting failed: ${channelCheck.reason}. Nothing was posted.`,
+        };
       try {
         const result = SlackPostResultSchema.parse(
           await (
@@ -1770,6 +1787,21 @@ export class DownyAgent extends Think {
             "Airtable is not connected for this bot. Nothing was written. Connect Airtable, then propose again.",
         };
       const write = payload.airtableCreateRecords;
+      const airtableStub = await getAgentStub(this.env, airtableGrant);
+      const tableCheck = await verifyAirtableTable(
+        async (input) =>
+          z
+            .object({ account: z.string(), data: z.unknown() })
+            .parse(
+              JSON.parse(await airtableStub.executeComposioAirtable(input)),
+            ),
+        { baseId: write.baseId, tableId: write.tableId },
+      );
+      if (!tableCheck.ok)
+        return {
+          state: "failed",
+          error: `Verification before writing failed: ${tableCheck.reason}. Nothing was created.`,
+        };
       try {
         const result = AirtableCreateRecordsResultSchema.parse(
           await (
@@ -1811,6 +1843,25 @@ export class DownyAgent extends Think {
             "Airtable is not connected for this bot. Nothing was changed. Connect Airtable, then propose again.",
         };
       const write = payload.airtableUpdateRecords;
+      const airtableStub = await getAgentStub(this.env, airtableGrant);
+      const recordCheck = await verifyAirtableRecords(
+        async (input) =>
+          z
+            .object({ account: z.string(), data: z.unknown() })
+            .parse(
+              JSON.parse(await airtableStub.executeComposioAirtable(input)),
+            ),
+        {
+          baseId: write.baseId,
+          tableId: write.tableId,
+          recordIds: write.records.map((record) => record.id),
+        },
+      );
+      if (!recordCheck.ok)
+        return {
+          state: "failed",
+          error: `Verification before writing failed: ${recordCheck.reason}. Nothing was changed.`,
+        };
       try {
         const result = AirtableUpdateRecordsResultSchema.parse(
           await (

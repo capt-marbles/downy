@@ -46,6 +46,14 @@ wider action than the card shows.
 - Confirmation runs in a storage transaction and fixes one `operationId`
   before the executor starts. A repeated tap or retried request observes the
   same single-flight run; it never issues a second operation.
+- Fresh verification runs immediately before the connector call, through the
+  same grant and never from the card's text: a Slack post requires the channel
+  to still resolve and the app to still be a member; creating records requires
+  the table to still be in the base schema; updating records requires every
+  target `rec…` id to still exist in that table. A verification failure is
+  recorded as `failed` with the reason, because nothing ran, and is distinct
+  from `unknown`. Gmail's wrapper already re-checks the granted account before
+  every action.
 - A Gmail error after submission is recorded as `unknown`, because Composio
   does not distinguish a rejected request from a lost acknowledgement. The
   card and receipt tell the operator to check Drafts before proposing again.
