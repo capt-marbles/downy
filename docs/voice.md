@@ -81,6 +81,14 @@ Disabling voice on a subsequent deploy should follow ending any open calls.
 
 ## Call behavior and retention
 
+- Before each lookup runs, one Jev request parses the transcript: which of
+  the caller's recent turns are still outstanding (one yes/no per turn,
+  against the backend answers already given on the call), the likely kind of
+  work, and how many items were asked for. Code renders that as a checklist
+  in the lookup message; the transcript remains the source of truth, hints
+  below the confidence floor are withheld, and a slow or failed parse leaves
+  the message as before. Each parse is recorded in the run ledger as
+  `voice_request_parse` with its answers and latency.
 - Calls listen while speaking. Interrupt naturally. Lookups run through Downy's
   existing inference queue, with at most twelve model steps per lookup and thirty
   delegations per call. Completion receipts identify their original request,

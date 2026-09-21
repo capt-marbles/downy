@@ -1146,6 +1146,24 @@ export class DownyAgent extends Think {
     };
   }
 
+  // Backend answers already given on this call, oldest first, so the parse
+  // can tell an answered ask from an outstanding one.
+  async #voiceAnswersForCall(
+    callId: string,
+    delegationId: string,
+  ): Promise<string[]> {
+    const stored = await this.ctx.storage.list<string>({
+      prefix: `voice-result:${callId}:`,
+    });
+    return [...stored.entries()]
+      .filter(
+        ([key, value]) =>
+          key !== `voice-result:${callId}:${delegationId}` &&
+          value !== this.#voicePendingResult,
+      )
+      .map(([, value]) => value);
+  }
+
   readonly #voicePendingResult =
     "This lookup was already received. Check the chat for its result; it has not been run again.";
 
@@ -1199,6 +1217,32 @@ export class DownyAgent extends Think {
       await this.ctx.storage.put(key, pilotAnswer);
       return pilotAnswer;
     }
+    // Typed parse first: which caller turns are still outstanding, what kind
+    // of work and how many items. Code renders it as a checklist; a failed
+    // or slow parse simply leaves the message as before.
+    const parseStarted = Date.now();
+    const parse = await parseVoiceRequest(
+      (request) => runJev(this.env.AI, request),
+      {
+        transcript,
+        previousAnswers: await this.#voiceAnswersForCall(callId, delegationId),
+      },
+    );
+    recordRunEvent(this.env.DB, {
+      agentSlug: this.name,
+      runId: id,
+      runKind: "voice",
+      event: "tool_call",
+      name: "voice_request_parse",
+      state: parse.skipped ? "failed" : "ok",
+      costUsd: null,
+      replayed: false,
+      elapsedMs: Date.now() - parseStarted,
+      summary: parse.skipped
+        ? parse.skipped
+        : `outstanding=${parse.outstanding.length} runbook=${parse.runbook ?? "-"}(${parse.runbookConfidence?.toFixed(2) ?? "-"}) scope=${parse.scope ?? "-"}(${parse.scopeConfidence?.toFixed(2) ?? "-"}) model=${parse.model ?? "-"}`,
+    });
+    const checklist = renderVoiceRequestParse(parse);
     const submitted = await this.saveMessages([
       {
         id,
@@ -1206,7 +1250,7 @@ export class DownyAgent extends Think {
         parts: [
           {
             type: "text",
-            text: `Voice lookup — answer the latest question in this approximate call transcript:\n${transcript.slice(-8000)}`,
+            text: `Voice lookup — answer every outstanding request in this approximate call transcript:\n${transcript.slice(-8000)}${checklist ? `\n\n${checklist}` : ""}`,
           },
         ],
       },
@@ -3803,6 +3847,10 @@ import {
   type PilotOptionId,
 } from "../../lib/pilot-choices";
 import { handlePilotVoiceRequest } from "../pilot-choices/voice";
+import {
+  parseVoiceRequest,
+  renderVoiceRequestParse,
+} from "../voice/request-parse";
 import {
   cancelledStagedAction,
   confirmedStagedAction,
