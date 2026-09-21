@@ -1,4 +1,5 @@
 import type { ToolCallOptions, ToolSet } from "ai";
+import { redactToolInput } from "./effect-gate";
 
 /**
  * Per-run ledger: every tool call and every settled staged action, with
@@ -132,13 +133,14 @@ export function ledgerToolSet(tools: ToolSet, deps: LedgerDeps): ToolSet {
             try {
               const result: unknown = await execute(input, options);
               const cost = extractCost(result);
+              const failure = failedResult(result);
               deps.record({
                 ...base,
-                state: failedResult(result) ? "failed" : "ok",
+                state: failure ? "failed" : "ok",
                 costUsd: cost.costUsd,
                 replayed: cost.replayed,
                 elapsedMs: Date.now() - started,
-                summary: failedResult(result),
+                summary: failure ? withInput(failure, input) : null,
               });
               return result;
             } catch (error) {
@@ -148,7 +150,10 @@ export function ledgerToolSet(tools: ToolSet, deps: LedgerDeps): ToolSet {
                 costUsd: null,
                 replayed: false,
                 elapsedMs: Date.now() - started,
-                summary: error instanceof Error ? error.message : String(error),
+                summary: withInput(
+                  error instanceof Error ? error.message : String(error),
+                  input,
+                ),
               });
               throw error;
             }
@@ -157,6 +162,20 @@ export function ledgerToolSet(tools: ToolSet, deps: LedgerDeps): ToolSet {
       ];
     }),
   );
+}
+
+// A failure is only diagnosable with its arguments. Keep a short, redacted
+// rendering (keys, tokens and secrets masked by the gate's redactor) on
+// failed rows only; successful rows never carry inputs.
+function withInput(message: string, input: unknown): string {
+  let rendered = "";
+  try {
+    rendered = JSON.stringify(redactToolInput(input)) ?? "";
+  } catch {
+    rendered = "";
+  }
+  const head = message.slice(0, 300);
+  return rendered ? `${head} | input: ${rendered.slice(0, 180)}` : head;
 }
 
 // Connected-service wrappers return `{ state: "failed", error }` instead of

@@ -7,6 +7,8 @@ Gameye sells dedicated game-server hosting and orchestration. This runbook turns
 
 Two modes. **Outreach** for a lead that has not been contacted. **Follow-up** for a lead the operator already emailed. Decide from the Lead's Status and from Gmail, never from memory.
 
+Scope: ONE lead per request. If the operator names no lead ("pick an old one"), choose one, the oldest Qualified lead with no drafts, say which one you chose, and draft only that one. Draft a batch only when the operator explicitly asks for several, at most five, and even then finish each lead (draft, cards) before starting the next. Search Gmail Drafts and Sent only for the chosen lead's address; never sweep addresses across leads. A voice lookup has a small step budget, so one lead at a time is also what fits.
+
 ## 1. Read the lead, exactly
 
 Base `appZgInlaiE12FCu7`, Leads table `tblqqYLjWgLj87m25`, Contacts table `tblXVK9F4tZfvy4jj`. Find the Lead with `airtable_records` `list_records` and one formula on a distinctive token, lowercase: `FIND("distinctive studio name", LOWER({Lead Name}))` or on `{Domain}`. Read these fields: Lead Name, Company, Domain, Tier, Fit Score, Status, Contact Email, Outreach Angles, Notes, Contacts. If the Lead links a Contact, read it too: Contact Name, Email, Job Title, LinkedIn Profile, X/Twitter, Contact Stage, Outreach Drafts. Keep the `rec…` ids; every write below needs them.

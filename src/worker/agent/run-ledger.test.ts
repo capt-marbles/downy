@@ -72,7 +72,10 @@ it("records each call's outcome, cost and elapsed time and rethrows failures", a
   expect(await tools.tool_treg_call.execute?.({}, options)).toMatchObject({
     cost_usd: 0.003,
   });
-  await tools.gmail_email.execute?.({}, options);
+  await tools.gmail_email.execute?.(
+    { action: "search", query: "in:drafts to:lead@example.com" },
+    options,
+  );
   await expect(tools.write.execute?.({}, options)).rejects.toThrow(
     "Voice only permits reads.",
   );
@@ -90,10 +93,16 @@ it("records each call's outcome, cost and elapsed time and rethrows failures", a
       name: "gmail_email",
       state: "failed",
       costUsd: null,
-      summary: "Gmail action did not return a verified result.",
     },
-    { name: "write", state: "failed", summary: "Voice only permits reads." },
+    { name: "write", state: "failed" },
   ]);
+  // Failed rows carry a short redacted rendering of the arguments.
+  expect(events[0].summary).toBeNull();
+  expect(events[1].summary).toContain(
+    "Gmail action did not return a verified result.",
+  );
+  expect(events[1].summary).toContain("input:");
+  expect(events[2].summary).toContain("Voice only permits reads.");
   for (const event of events) expect(event.elapsedMs).toBeGreaterThanOrEqual(0);
 });
 
