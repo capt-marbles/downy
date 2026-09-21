@@ -123,6 +123,24 @@ export default function McpServersCard() {
               {server.url}
             </div>
 
+            {server.state === "authenticating" && server.authUrl ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 pl-5">
+                <a
+                  href={server.authUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-primary btn-xs"
+                  data-testid="mcp-authorize"
+                >
+                  Authorize {server.name}
+                </a>
+                <span className="text-xs text-base-content/60">
+                  Opens the provider's sign-in. The connection verifies here
+                  once you finish.
+                </span>
+              </div>
+            ) : null}
+
             {server.error ? (
               <div className="mt-2 pl-5 text-xs text-error/85">
                 {server.error}

@@ -194,7 +194,7 @@ export async function connectWithStaticHeaders(
 export function createConnectMcpServerTool(args: { agent: DownyAgent }) {
   return tool({
     description:
-      "Connect a hosted MCP endpoint. Returns state, discovered tool names, diagnostics, and failure guidance when needed. Credentials come only from the secure credential card, never from the model or chat. Flag unverified endpoint URLs as guesses.",
+      'Connect a hosted MCP endpoint. Returns state, discovered tool names, diagnostics, and failure guidance when needed. When state is authenticating the result carries authUrl: give the user that link in chat as a markdown link labelled Authorize <server> and say the same button is on the agent\'s MCP page; the connection verifies after they finish in the browser. Never call this again to "retrigger" a pending authorization. Credentials come only from the secure credential card, never from the model or chat. Flag unverified endpoint URLs as guesses.',
     inputSchema: connectInputSchema,
     execute: async (input) => {
       const host = new URL(input.url).hostname;
@@ -241,6 +241,7 @@ export function createListMcpServersTool(args: { agent: DownyAgent }) {
         url: s.server_url,
         state: s.state,
         error: s.error,
+        authUrl: s.state === "authenticating" ? (s.auth_url ?? null) : null,
         toolNames: state.tools
           .filter((t) => t.serverId === id)
           .map((t) => t.name),

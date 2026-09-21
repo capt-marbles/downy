@@ -1,6 +1,12 @@
 import { expect, it, vi } from "vitest";
 import { connectWithTriage, type McpAttempt } from "./mcp-triage";
-const failure = {
+const failure: {
+  id: string;
+  state: string;
+  error: string | null;
+  toolNames: string[];
+  authUrl?: string | null;
+} = {
   id: "server",
   state: "failed",
   error: "Connection failed",
@@ -145,4 +151,23 @@ it("honors the wall-clock budget and times out a hanging attempt", async () => {
   await vi.advanceTimersByTimeAsync(20_001);
   expect((await pending).state).toBe("failed");
   vi.useRealTimers();
+});
+
+it("passes an OAuth authorization link through an authenticating result untouched", async () => {
+  const deps = fixture("unknown");
+  deps.initial.oauth = true;
+  deps.connect.mockResolvedValueOnce({
+    id: "server",
+    state: "authenticating",
+    error: null,
+    toolNames: [],
+    authUrl: "https://treg.to/oauth/authorize?client_id=abc&state=SECRET",
+  });
+  const result = await connectWithTriage(deps);
+  expect(result.state).toBe("authenticating");
+  expect(result.authUrl).toBe(
+    "https://treg.to/oauth/authorize?client_id=abc&state=SECRET",
+  );
+  expect(deps.connect).toHaveBeenCalledTimes(1);
+  expect(deps.requestCredential).not.toHaveBeenCalled();
 });

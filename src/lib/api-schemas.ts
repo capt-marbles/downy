@@ -80,6 +80,7 @@ export const McpServerSummarySchema = z.object({
   url: z.string(),
   state: z.string(),
   error: z.string().nullable(),
+  authUrl: z.string().nullable().optional(),
   toolNames: z.array(z.string()),
 });
 export type McpServerSummary = z.infer<typeof McpServerSummarySchema>;

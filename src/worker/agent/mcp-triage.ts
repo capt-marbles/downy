@@ -12,6 +12,8 @@ type ConnectAttemptResult = {
   state: string;
   error: string | null;
   toolNames: string[];
+  /** OAuth authorization link when the server is waiting on the user. */
+  authUrl?: string | null;
 };
 type McpProbe = {
   status: number | null;

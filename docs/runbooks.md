@@ -36,6 +36,14 @@ a one-message search without returning message contents in setup results.
 Verification does not test draft creation or assert access to a particular CRM
 base/table. Those permissions are checked when used.
 
+An OAuth MCP server (Treg, for example) answers the connect with state
+`authenticating` and an authorization link. The link is returned to the model,
+which puts it in chat as **Authorize <server>**, and it is also shown as an
+Authorize button on the agent's MCP page next to the pending server, read from
+the same server row, so a pending authorization can be finished later without
+re-running the connect. Re-running the connect does not nudge a pending
+authorization and the runbook says not to.
+
 Generic MCP connections are marked `awaiting_read_verification` when attached.
 Downy must select and execute an appropriate minimal read before claiming that
 an intended task works; the generic checkpoint does not auto-certify an arbitrary

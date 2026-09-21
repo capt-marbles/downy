@@ -3577,6 +3577,7 @@ export class DownyAgent extends Think {
       url: string;
       state: string;
       error: string | null;
+      authUrl: string | null;
       toolNames: string[];
     }>
   > {
@@ -3587,6 +3588,7 @@ export class DownyAgent extends Think {
       url: s.server_url,
       state: s.state,
       error: s.error,
+      authUrl: s.state === "authenticating" ? (s.auth_url ?? null) : null,
       toolNames: state.tools
         .filter((t) => t.serverId === id)
         .map((t) => t.name),

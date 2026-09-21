@@ -70,6 +70,14 @@ export async function connectMcpWithTriage(
         await agent.mcp.waitForConnections({ timeout: 1500 });
         state = agent.getMcpServers().servers[connected.id]?.state ?? "failed";
       }
+      // The SDK hands back the OAuth link on an authenticating connect and
+      // keeps it on the server row. Without it the user has nothing to open.
+      const authUrl =
+        state === "authenticating"
+          ? (("authUrl" in connected ? connected.authUrl : undefined) ??
+            agent.getMcpServers().servers[connected.id]?.auth_url ??
+            null)
+          : null;
       if (signal.aborted) {
         await agent.mcp.removeServer(connected.id).catch(() => undefined);
         throw new Error("Connection deadline exceeded");
@@ -80,6 +88,7 @@ export async function connectMcpWithTriage(
         id: connected.id,
         state,
         error: state === "failed" ? "MCP connection failed" : null,
+        authUrl,
         toolNames: agent.mcp
           .listTools()
           .filter((t) => t.serverId === connected.id)

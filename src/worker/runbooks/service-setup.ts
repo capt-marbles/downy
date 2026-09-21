@@ -119,7 +119,7 @@ export async function runServiceSetup(
   if (spec?.flow === "mcp" && spec.mcp)
     return finish(
       "connect_mcp",
-      `${spec.label} connects as an MCP server. Call connect_mcp_server with name "${spec.id}", url ${spec.mcp.url} and transport ${spec.mcp.transport}; authorization happens in the browser and no key is typed in chat. After it connects, run one minimal read (${spec.operations[0] ?? "a listed read tool"}) before claiming access. ${spec.note}`,
+      `${spec.label} connects as an MCP server. Call connect_mcp_server with name "${spec.id}", url ${spec.mcp.url} and transport ${spec.mcp.transport}; authorization happens in the browser and no key is typed in chat: when the result is authenticating, put its authUrl in chat as a link labelled Authorize ${spec.label} and say the same button is on the agent's MCP page; do not call connect_mcp_server again while it is pending. After it connects, run one minimal read (${spec.operations[0] ?? "a listed read tool"}) before claiming access. ${spec.note}`,
     );
   const managedCard =
     service === "composio" ||
