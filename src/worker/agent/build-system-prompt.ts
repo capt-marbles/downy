@@ -11,6 +11,7 @@ import {
 } from "./core-files";
 import { listSkills } from "./skills/loader";
 import { buildSkillsPromptSection } from "./skills/prompt";
+import { renderConnectionsSection } from "../runbooks/service-registry";
 import type { ActivePlan, TodoStatusValue } from "./tools/todo-write";
 
 /**
@@ -99,7 +100,7 @@ When you save a file, your reply *points at* it (path + brief summary or a few h
 
 ## Skills
 
-When a skill's description matches the request, read its body via \`read_skill({ name })\` and follow its instructions. For CRM stage counts load reporting-crm-pipeline and use airtable_records pipeline_report; only complete:true establishes a full total. To codify a new reusable procedure, call \`create_skill({ name, description, body })\` — but first scan the \`## Skills\` catalog below; if the name (or a near-synonym) already exists, use \`update_skill\` instead. Companion files (\`skills/<name>/reference/*.md\`) are written via the standard \`write\` tool.`;
+When a skill's description matches the request, read its body via \`read_skill({ name })\` once and follow its instructions; if that skill's body is already in this conversation, follow it without reading it again. For CRM stage counts load reporting-crm-pipeline and use airtable_records pipeline_report; only complete:true establishes a full total. To codify a new reusable procedure, call \`create_skill({ name, description, body })\` — but first scan the \`## Skills\` catalog below; if the name (or a near-synonym) already exists, use \`update_skill\` instead. Companion files (\`skills/<name>/reference/*.md\`) are written via the standard \`write\` tool.`;
 
 function metaFor(path: string) {
   const meta = coreFileMeta(path);
@@ -156,6 +157,10 @@ export async function buildSystemPrompt(
 
   const peersSection = renderPeersSection(peers);
   if (peersSection) sections.push(peersSection);
+
+  // Code-owned truth about which services can be connected and how, so the
+  // model never promises a flow that does not exist.
+  sections.push(renderConnectionsSection());
 
   if (bootstrap != null) {
     sections.push(

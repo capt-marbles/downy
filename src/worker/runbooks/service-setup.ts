@@ -1,4 +1,5 @@
 import type { findToolSetup } from "../composio/discovery";
+import { resolveService, SERVICES } from "./service-registry";
 type Discovery = Awaited<ReturnType<typeof findToolSetup>>;
 export type SetupVerification = {
   state: string;
@@ -30,8 +31,8 @@ type Deps = {
   now?: () => number;
 };
 function serviceName(query: string) {
-  if (/\bairtable\b/i.test(query)) return "airtable";
-  if (/\b(gmail|google mail)\b/i.test(query)) return "gmail";
+  const known = resolveService(query);
+  if (known) return known.id;
   if (/^(connect\s+)?composio$/i.test(query.trim())) return "composio";
   return query
     .trim()
@@ -105,8 +106,26 @@ export async function runServiceSetup(
       "Connection status could not be verified. Retry later; do not claim disconnection or request credentials.",
     );
   }
+  const spec = SERVICES.find((entry) => entry.id === service) ?? null;
+  const connectable = [
+    "Gmail and Airtable connect through secure cards in chat",
+    "Treg connects as an MCP server",
+  ].join("; ");
+  if (spec && (spec.flow === "not-connectable" || spec.status === "planned"))
+    return finish(
+      "not_available",
+      `${spec.label} cannot be connected from Downy yet. ${spec.note} Tell the user this plainly in one or two sentences and mention what can be connected (${connectable}). Do not present candidates, do not ask which option they want, and do not call find_tool_setup again for ${spec.label} in this conversation.`,
+    );
+  if (spec?.flow === "mcp" && spec.mcp)
+    return finish(
+      "connect_mcp",
+      `${spec.label} connects as an MCP server. Call connect_mcp_server with name "${spec.id}", url ${spec.mcp.url} and transport ${spec.mcp.transport}; authorization happens in the browser and no key is typed in chat. After it connects, run one minimal read (${spec.operations[0] ?? "a listed read tool"}) before claiming access. ${spec.note}`,
+    );
+  const managedCard =
+    service === "composio" ||
+    (spec?.flow === "composio-managed" && spec.status === "available");
   if (previous && !retry && checkpoint.discovery) {
-    if (["gmail", "airtable", "composio"].includes(service)) {
+    if (managedCard) {
       await deps.showCard(service);
       return finish(
         "awaiting_authorization",
@@ -145,10 +164,7 @@ export async function runServiceSetup(
       warnings: ["Setup discovery unavailable"],
     };
   }
-  if (
-    ["gmail", "airtable", "composio"].includes(service) &&
-    checkpoint.discovery.candidates.length
-  ) {
+  if (managedCard && checkpoint.discovery.candidates.length) {
     await deps.showCard(service);
     return finish(
       "awaiting_authorization",
@@ -158,7 +174,7 @@ export async function runServiceSetup(
   if (checkpoint.discovery.candidates.length)
     return finish(
       "candidate_found",
-      "Present the documented candidates and confidence. Ask the user to select the intended service and operations. A candidate is not a connection. Use the existing MCP or managed setup card; never guess an endpoint or request secrets in chat.",
+      `Downy has no connection flow for this service yet; the candidates below are documentation, not something you can connect. Tell the user it cannot be connected from chat today and what can be (${connectable}). Do not ask them to pick a candidate, never guess an endpoint or request secrets, and do not call find_tool_setup again for it in this conversation.`,
     );
   return finish(
     checkpoint.discovery.warnings.length

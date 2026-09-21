@@ -8,6 +8,16 @@ permissions and verification remain enforced in Worker code.
 
 ## Connect a service
 
+Which services can be connected, and how, is code-owned in
+`src/worker/runbooks/service-registry.ts` and rendered into every system prompt
+as a `## Connections` section. Gmail and Airtable are Composio-managed cards.
+Treg is an MCP server the runbook tells the model to attach with
+`connect_mcp_server`. Slack is listed as planned and TaskFuel as not
+connectable (CLI only, no MCP); for both, and for any service outside the
+registry, `find_tool_setup` returns a `not_available` or honest
+`candidate_found` step whose `nextAction` tells the model to say so plainly and
+not to ask the user to choose between candidates it cannot act on.
+
 `find_tool_setup` resumes a per-bot Durable Object checkpoint. It checks existing
 managed authorization or attached MCP servers before discovery. Discovery uses
 Composio, known documented MCP endpoints, then vendor-documentation search.
