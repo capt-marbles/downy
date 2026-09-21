@@ -2,7 +2,7 @@ import CriteriaSettings from "../components/chat/CriteriaSettings";
 import CorpusPanel from "../components/chat/CorpusPanel";
 import LocalHandsPanel from "../components/chat/LocalHandsPanel";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Archive, Lock } from "lucide-react";
+import { Archive, FlaskConical, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import BackLink from "../components/ui/BackLink";
@@ -14,6 +14,7 @@ import {
   useAgents,
   useArchiveAgent,
   useRenameAgent,
+  useSetAgentLabTools,
   useSetAgentPrivate,
 } from "../lib/agents";
 
@@ -27,6 +28,7 @@ function AgentSettingsPage() {
   const currentAgent = agents.find((a) => a.slug === slug) ?? null;
   const navigate = useNavigate();
   const setPrivateMut = useSetAgentPrivate();
+  const setLabToolsMut = useSetAgentLabTools();
   const archiveMut = useArchiveAgent();
   const renameMut = useRenameAgent();
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +128,38 @@ function AgentSettingsPage() {
                   await setPrivateMut.mutateAsync({
                     slug,
                     isPrivate: e.target.checked,
+                  });
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err));
+                }
+              }}
+            />
+          </label>
+
+          <p className="mb-3 mt-12 text-xs font-bold uppercase tracking-widest text-base-content/55">
+            Lab tools
+          </p>
+          <label className="flex cursor-pointer items-start justify-between gap-6 border-t border-base-300/70 py-5">
+            <div className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <FlaskConical size={14} className="text-base-content/60" />
+                Show lab tools to this agent
+              </span>
+              <span className="mt-1 block text-sm text-base-content/65">
+                Campaign Room, Buildroom and local hands. Off by default so
+                every turn carries only the GTM tools; hidden tools cannot run.
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              className="toggle toggle-primary mt-0.5 flex-shrink-0"
+              checked={currentAgent.labToolsEnabled}
+              disabled={setLabToolsMut.isPending}
+              onChange={async (e) => {
+                try {
+                  await setLabToolsMut.mutateAsync({
+                    slug,
+                    labToolsEnabled: e.target.checked,
                   });
                 } catch (err) {
                   setError(err instanceof Error ? err.message : String(err));

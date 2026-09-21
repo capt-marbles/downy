@@ -1,0 +1,1 @@
+ALTER TABLE agents ADD COLUMN lab_tools_enabled INTEGER NOT NULL DEFAULT 0;

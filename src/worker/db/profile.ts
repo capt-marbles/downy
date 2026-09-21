@@ -5,6 +5,8 @@ export type AgentRecord = {
   slug: string;
   displayName: string;
   isPrivate: boolean;
+  /** Campaign Room, Buildroom and local-hands tools are shown only when on. */
+  labToolsEnabled: boolean;
   archivedAt: number | null;
   createdAt: number;
 };
@@ -15,6 +17,7 @@ type AgentRow = {
   slug: string;
   display_name: string;
   is_private: number;
+  lab_tools_enabled: number;
   archived_at: number | null;
   created_at: number;
 };
@@ -24,6 +27,7 @@ function rowToRecord(row: AgentRow): AgentRecord {
     slug: row.slug,
     displayName: row.display_name,
     isPrivate: row.is_private !== 0,
+    labToolsEnabled: row.lab_tools_enabled !== 0,
     archivedAt: row.archived_at,
     createdAt: row.created_at,
   };
@@ -93,6 +97,23 @@ export async function renameAgent(
   const result = await db
     .prepare("UPDATE agents SET display_name = ? WHERE slug = ?")
     .bind(trimmed, slug)
+    .run();
+  if ((result.meta?.changes ?? 0) === 0) {
+    throw new Error(`Unknown agent: ${slug}`);
+  }
+  const updated = await getAgent(db, slug);
+  if (!updated) throw new Error(`Unknown agent: ${slug}`);
+  return updated;
+}
+
+export async function setAgentLabTools(
+  db: D1Database,
+  slug: string,
+  enabled: boolean,
+): Promise<AgentRecord> {
+  const result = await db
+    .prepare("UPDATE agents SET lab_tools_enabled = ? WHERE slug = ?")
+    .bind(enabled ? 1 : 0, slug)
     .run();
   if ((result.meta?.changes ?? 0) === 0) {
     throw new Error(`Unknown agent: ${slug}`);
@@ -189,6 +210,7 @@ const PREF_KEYS = [
   "color_scheme",
   "show_thinking",
   "ai_provider",
+  "voice_ai_provider",
 ] as const;
 type PrefKey = (typeof PREF_KEYS)[number];
 

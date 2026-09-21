@@ -110,6 +110,7 @@ export const AgentRecordSchema = z.object({
   slug: z.string(),
   displayName: z.string(),
   isPrivate: z.boolean(),
+  labToolsEnabled: z.boolean(),
   archivedAt: z.number().nullable(),
   createdAt: z.number(),
 });
@@ -131,6 +132,7 @@ export const CreateAgentResponseSchema = z.object({
 export const UpdateAgentRequestBodySchema = z.object({
   displayName: z.string().optional(),
   isPrivate: z.boolean().optional(),
+  labToolsEnabled: z.boolean().optional(),
 });
 
 export const UpdateAgentResponseSchema = z.object({
@@ -166,6 +168,18 @@ export const SystemStatusResponseSchema = z.object({
 });
 export type SystemStatus = z.infer<typeof SystemStatusResponseSchema>;
 
+const TurnInventorySchema = z.object({
+  channel: z.enum(["chat", "voice"]),
+  bundle: z.enum(["gtm", "gtm+lab", "voice"]),
+  toolDefinitions: z.number(),
+  activeTools: z.number(),
+  hiddenTools: z.number(),
+  systemChars: z.number(),
+  toolDescriptionChars: z.number(),
+  estimatedPromptTokens: z.number(),
+  recordedAt: z.number(),
+});
+
 export const ModelStatusSchema = z.object({
   provider: z.enum([
     "kimi",
@@ -179,6 +193,18 @@ export const ModelStatusSchema = z.object({
   model: z.string(),
   contextWindowTokens: z.number().nullable(),
   compactionThresholdTokens: z.number(),
+  voiceProvider: z.enum([
+    "kimi",
+    "pi-local",
+    "pi-prod",
+    "openrouter",
+    "cloud-computer",
+    "boat-computer",
+  ]),
+  inventory: z.object({
+    chat: TurnInventorySchema.nullable(),
+    voice: TurnInventorySchema.nullable(),
+  }),
   lastTurn: z
     .object({
       requestId: z.string(),

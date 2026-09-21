@@ -71,7 +71,11 @@ async function postAgent(input: {
 
 async function patchAgent(
   slug: string,
-  body: { displayName?: string; isPrivate?: boolean },
+  body: {
+    displayName?: string;
+    isPrivate?: boolean;
+    labToolsEnabled?: boolean;
+  },
 ): Promise<AgentRecord> {
   const res = await fetch(`/api/agents/${encodeURIComponent(slug)}`, {
     method: "PATCH",
@@ -162,6 +166,15 @@ export function useSetAgentPrivate() {
   return useMutation({
     mutationFn: (vars: { slug: string; isPrivate: boolean }) =>
       patchAgent(vars.slug, { isPrivate: vars.isPrivate }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetAgentLabTools() {
+  const invalidate = useInvalidateAgents();
+  return useMutation({
+    mutationFn: (vars: { slug: string; labToolsEnabled: boolean }) =>
+      patchAgent(vars.slug, { labToolsEnabled: vars.labToolsEnabled }),
     onSuccess: invalidate,
   });
 }

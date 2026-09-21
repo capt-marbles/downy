@@ -1,5 +1,6 @@
-import { readAiProvider } from "./get-model";
+import { readAiProvider, readVoiceAiProvider } from "./get-model";
 import type { AiProvider } from "../../lib/ai-providers";
+import type { TurnInventoryRecord } from "./turn-inventory";
 
 export type ModelTokenUsage = {
   inputTokens: number;
@@ -15,6 +16,9 @@ export type ModelStatus = {
   contextWindowTokens: number | null;
   compactionThresholdTokens: number;
   lastTurn: ModelTurnDiagnostic | null;
+  voiceProvider: AiProvider;
+  /** Last measured turn per channel: tool schemas and prompt size. */
+  inventory: TurnInventoryRecord;
   session: ModelTokenUsage & {
     estimatedCostUsd: number | null;
     costNote: string;
@@ -92,8 +96,12 @@ export async function buildModelStatus(args: {
   env: Env;
   lastTurn: ModelTurnDiagnostic | null | undefined;
   usage: ModelTokenUsage | null | undefined;
+  inventory?: TurnInventoryRecord | null;
 }): Promise<ModelStatus> {
-  const provider = await readAiProvider(args.db);
+  const [provider, voiceProvider] = await Promise.all([
+    readAiProvider(args.db),
+    readVoiceAiProvider(args.db),
+  ]);
   const usage = args.usage ?? EMPTY_MODEL_USAGE;
   const pricing = estimateCost(provider, args.env, usage);
   return {
@@ -103,6 +111,8 @@ export async function buildModelStatus(args: {
     contextWindowTokens: contextWindow(provider),
     compactionThresholdTokens: COMPACTION_THRESHOLD_TOKENS,
     lastTurn: args.lastTurn ?? null,
+    voiceProvider,
+    inventory: args.inventory ?? { chat: null, voice: null },
     session: {
       ...usage,
       estimatedCostUsd: pricing.cost,

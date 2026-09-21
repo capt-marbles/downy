@@ -199,3 +199,15 @@ export async function readAiProvider(db: D1Database): Promise<AiProvider> {
     ? prefs.ai_provider
     : DEFAULT_AI_PROVIDER;
 }
+
+/**
+ * Provider for voice turns. Unset (or "") means the chat provider, so
+ * choosing a fast model for calls never changes chat, and vice versa.
+ */
+export async function readVoiceAiProvider(db: D1Database): Promise<AiProvider> {
+  const prefs = await readPreferences(db);
+  if (isAiProvider(prefs.voice_ai_provider)) return prefs.voice_ai_provider;
+  return isAiProvider(prefs.ai_provider)
+    ? prefs.ai_provider
+    : DEFAULT_AI_PROVIDER;
+}

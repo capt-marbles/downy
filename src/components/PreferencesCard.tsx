@@ -3,7 +3,12 @@ import {
   isAiProvider,
   type AiProvider,
 } from "../lib/ai-providers";
-import { useAiProvider, useShowThinking } from "../lib/preferences";
+import {
+  useAiProvider,
+  useShowThinking,
+  useVoiceAiProvider,
+  VOICE_PROVIDER_SAME_AS_CHAT,
+} from "../lib/preferences";
 
 const PROVIDER_LABELS: Record<AiProvider, string> = {
   "cloud-computer": "Cloudflare computer (ChatGPT subscription)",
@@ -17,6 +22,7 @@ const PROVIDER_LABELS: Record<AiProvider, string> = {
 export default function PreferencesCard() {
   const [showThinking, setShowThinking] = useShowThinking();
   const [aiProvider, setAiProvider] = useAiProvider();
+  const [voiceProvider, setVoiceProvider] = useVoiceAiProvider();
 
   return (
     <section className="card card-compact border border-base-300 bg-base-100 shadow-sm">
@@ -50,6 +56,30 @@ export default function PreferencesCard() {
               if (isAiProvider(next)) setAiProvider(next);
             }}
           >
+            {AI_PROVIDERS.map((p) => (
+              <option key={p} value={p}>
+                {PROVIDER_LABELS[p]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-2">
+          <span className="block text-sm font-medium">Voice model</span>
+          <span className="block text-xs text-base-content/70">
+            Model for lookups during a call. Pick a fast one so a call never
+            waits on a slower chat provider.
+          </span>
+          <select
+            className="select select-bordered select-sm"
+            value={voiceProvider}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next === VOICE_PROVIDER_SAME_AS_CHAT || isAiProvider(next))
+                setVoiceProvider(next);
+            }}
+          >
+            <option value={VOICE_PROVIDER_SAME_AS_CHAT}>Same as chat</option>
             {AI_PROVIDERS.map((p) => (
               <option key={p} value={p}>
                 {PROVIDER_LABELS[p]}

@@ -24,6 +24,9 @@ import { persistPreference } from "./preferences-sync";
 // via the Settings toggle, which writes to the v2 key.
 const SHOW_THINKING_KEY = "downy:show-thinking-v2";
 const AI_PROVIDER_KEY = "downy:ai-provider";
+const VOICE_AI_PROVIDER_KEY = "downy:voice-ai-provider";
+/** Stored value meaning "use the chat model for voice too". */
+export const VOICE_PROVIDER_SAME_AS_CHAT = "";
 const CHANGE_EVENT = "downy:preference-change";
 
 function readBool(key: string): boolean {
@@ -62,6 +65,32 @@ function readAiProvider(): AiProvider {
   if (typeof window === "undefined") return DEFAULT_AI_PROVIDER;
   const stored = window.localStorage.getItem(AI_PROVIDER_KEY);
   return isAiProvider(stored) ? stored : DEFAULT_AI_PROVIDER;
+}
+
+type VoiceAiProviderChoice = AiProvider | typeof VOICE_PROVIDER_SAME_AS_CHAT;
+
+function readVoiceAiProvider(): VoiceAiProviderChoice {
+  if (typeof window === "undefined") return VOICE_PROVIDER_SAME_AS_CHAT;
+  const stored = window.localStorage.getItem(VOICE_AI_PROVIDER_KEY);
+  return isAiProvider(stored) ? stored : VOICE_PROVIDER_SAME_AS_CHAT;
+}
+
+export function useVoiceAiProvider(): [
+  VoiceAiProviderChoice,
+  (value: VoiceAiProviderChoice) => void,
+] {
+  const value = useSyncExternalStore(
+    subscribe,
+    readVoiceAiProvider,
+    (): VoiceAiProviderChoice => VOICE_PROVIDER_SAME_AS_CHAT,
+  );
+  const set = (next: VoiceAiProviderChoice) => {
+    if (next !== VOICE_PROVIDER_SAME_AS_CHAT && !isAiProvider(next)) return;
+    window.localStorage.setItem(VOICE_AI_PROVIDER_KEY, next);
+    window.dispatchEvent(new Event(CHANGE_EVENT));
+    persistPreference("voice_ai_provider", next);
+  };
+  return [value, set];
 }
 
 export function useAiProvider(): [AiProvider, (value: AiProvider) => void] {

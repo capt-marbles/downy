@@ -148,6 +148,8 @@ it("loads skills, model status and servers for the active agent when headers are
     model: "test",
     contextWindowTokens: null,
     compactionThresholdTokens: 1000,
+    voiceProvider: "kimi",
+    inventory: { chat: null, voice: null },
     lastTurn: null,
     session: {
       inputTokens: 0,

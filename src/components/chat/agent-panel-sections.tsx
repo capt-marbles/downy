@@ -622,6 +622,26 @@ export function ModelStatusSection() {
               </div>
             </div>
           </div>
+          {status.inventory.chat || status.inventory.voice ? (
+            <div className="mt-2 border-t border-base-300/60 pt-1.5 text-[10px] text-base-content/45">
+              {[status.inventory.chat, status.inventory.voice]
+                .filter((entry) => entry !== null)
+                .map((entry) => (
+                  <div
+                    key={entry.channel}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span>
+                      {entry.channel} · {entry.bundle}
+                    </span>
+                    <span className="font-mono">
+                      {entry.activeTools}/{entry.toolDefinitions} tools ·{" "}
+                      {formatTokens(entry.estimatedPromptTokens)} est.
+                    </span>
+                  </div>
+                ))}
+            </div>
+          ) : null}
           {status.lastTurn ? (
             <div className="mt-2 border-t border-base-300/60 pt-1.5 text-[10px]">
               <div className="flex items-center justify-between gap-2">

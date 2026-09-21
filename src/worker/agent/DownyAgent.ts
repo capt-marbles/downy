@@ -112,7 +112,18 @@ import {
 import type { Session } from "agents/experimental/memory/session";
 import { createCompactFunction } from "agents/experimental/memory/utils";
 
-import { ACTIVE_PLAN_KEY, buildSystemPrompt } from "./build-system-prompt";
+import {
+  ACTIVE_PLAN_KEY,
+  buildSystemPrompt,
+  buildVoiceSystemPrompt,
+} from "./build-system-prompt";
+import { bundleToolSet, withoutHidden } from "./tool-bundles";
+import {
+  measureTurnInventory,
+  TURN_INVENTORY_KEY,
+  type TurnInventory,
+  type TurnInventoryRecord,
+} from "./turn-inventory";
 import {
   isSyntheticUserMessage,
   parseSlugHeader,
@@ -122,7 +133,12 @@ import {
   normalizeWorkspacePath,
 } from "./child-workspace-rpc";
 import type { ActivePlan } from "./tools/todo-write";
-import { DEFAULT_AI_PROVIDER, getModelFor, readAiProvider } from "./get-model";
+import {
+  DEFAULT_AI_PROVIDER,
+  getModelFor,
+  readAiProvider,
+  readVoiceAiProvider,
+} from "./get-model";
 import {
   AGENT_CORE_FILES,
   BOOTSTRAP_PATH,
@@ -549,23 +565,40 @@ export class DownyAgent extends Think {
       continuation: ctx.continuation,
       startedAt: this.#turnStartedAt,
     });
-    const [userFile, allAgents, aiProvider, latestPlan] = await Promise.all([
-      readUserFile(this.env.DB),
-      listAgents(this.env.DB),
-      readAiProvider(this.env.DB),
-      this.ctx.storage.get<ActivePlan>(ACTIVE_PLAN_KEY).then((v) => v ?? null),
-    ]);
+    const [userFile, allAgents, aiProvider, voiceProvider, latestPlan] =
+      await Promise.all([
+        readUserFile(this.env.DB),
+        listAgents(this.env.DB),
+        readAiProvider(this.env.DB),
+        readVoiceAiProvider(this.env.DB),
+        this.ctx.storage
+          .get<ActivePlan>(ACTIVE_PLAN_KEY)
+          .then((v) => v ?? null),
+      ]);
     const peers = allAgents.filter((a) => a.slug !== this.name);
-    const system = await buildSystemPrompt(
-      this.workspace,
-      userFile.content,
-      peers,
-      latestPlan,
-    );
+    // Lab tools (Campaign Room, Buildroom, local hands) are a per-agent
+    // setting; the default GTM bundle hides and blocks them.
+    const labEnabled =
+      allAgents.find((a) => a.slug === this.name)?.labToolsEnabled ?? false;
     const latestUser = this.messages.reduce<UIMessage | undefined>(
       (latest, message) => (message.role === "user" ? message : latest),
       undefined,
     );
+    const isVoiceTurn = latestUser?.id.startsWith("voice-request:") ?? false;
+    // Voice gets a compact prompt: identity, skills, connections and plan,
+    // without the chat preamble, tool guide, peers or bootstrap.
+    const system = isVoiceTurn
+      ? await buildVoiceSystemPrompt(
+          this.workspace,
+          userFile.content,
+          latestPlan,
+        )
+      : await buildSystemPrompt(
+          this.workspace,
+          userFile.content,
+          peers,
+          latestPlan,
+        );
     // A direct request to create a named bot must execute the action, not just
     // produce plausible completion prose. One step gives us the tool result;
     // the server's persisted receipt supplies the verified chat link.
@@ -675,53 +708,85 @@ export class DownyAgent extends Think {
     // Resolve authorized integrations before applying channel permissions.
     // Voice must see the same inventory as chat, including restored grants.
     const availableTools = { ...ctx.tools, ...mcpTools };
-    if (latestUser?.id.startsWith("voice-request:")) {
+    if (isVoiceTurn)
       availableTools.stage_action = createStageActionTool({
         stage: (payload) => this.createStagedAction(payload, "voice"),
       });
+    const bundle = bundleToolSet(availableTools, labEnabled);
+    if (isVoiceTurn) {
+      const voiceTurn = gateVoiceTurn(
+        voiceTurnTools(
+          bundle.tools,
+          (path, content) =>
+            this.ctx.blockConcurrencyWhile(async () => {
+              if (await this.workspace.exists(path))
+                throw new Error(
+                  "Report already exists. Choose a new filename; voice cannot overwrite files.",
+                );
+              await this.workspace.writeFile(path, content);
+              if ((await this.workspace.readFile(path)) !== content)
+                throw new Error("Report save could not be verified.");
+            }),
+          (brief) =>
+            dispatchBackgroundTask(this.#backgroundTaskDispatchDeps(), {
+              kind: "voice-research",
+              brief,
+              access: "read-only",
+            }),
+        ),
+        this.#effectGateDeps("voice"),
+      );
+      voiceTurn.activeTools = withoutHidden(
+        voiceTurn.activeTools,
+        bundle.hidden,
+      );
+      await this.#recordTurnInventory(
+        measureTurnInventory({
+          channel: "voice",
+          bundle: "voice",
+          system,
+          tools: voiceTurn.tools,
+          activeTools: voiceTurn.activeTools,
+          hidden: bundle.hidden,
+        }),
+      );
       return {
-        system: `${system}\n\nThis is a voice request. Answer the caller's latest request, accounting for corrections in the approximate transcript. Earlier requests are context, not instructions to repeat. Use workspace reads for evidence. For facts not in the workspace, use web_search and web_scrape inline when one or two lookups will answer the question. For multi-source research, a comparison, or anything that should become a document the caller need not wait for, call spawn_background_task with a self-contained brief: it starts a read-only research worker whose findings are saved as a new workspace note and announced when finished; say it has started, not that it is done. The lead-sourcing runbook works from voice: load its skill, qualify candidates with qualify_leads, enrich through the Treg read endpoints (tool_treg_call with treg.people.search, treg.people.email.find, treg.companies.enrich; other endpoints are blocked in voice), and propose records or a Slack post with stage_action for the caller to confirm in chat. slack_channels lists channels only. For Airtable questions, use airtable_records directly when available; it needs no skill file or Boat filesystem access. Inspect the authorized base and actual table/field schema first. For pipeline counts, load reporting-crm-pipeline with read_skill and use airtable_records action pipeline_report with the selected base, table and stage field ID. Resume partial results using reportId. Counts are calculated in code, including records with a missing stage. If you cannot read all pages in this turn, label counts partial and state that the total is unknown. Never present a page count as a complete pipeline count. When explicitly asked for a summary document or report, read its sources and use write to save a NEW Markdown file directly in workspace/research/, workspace/reports/ or workspace/drafts/. Do this in this turn when the sources are already in the workspace; use spawn_background_task only when new research is needed first. To draft an email, use gmail_email create_draft with the exact final recipient, subject and body: the draft is saved in the caller's Gmail and is never sent; say it is saved as a draft for them to review and send, never that it was sent. If create_draft fails or times out, do not retry; the draft may exist, so tell the caller to check Drafts. To schedule a recurring task, create Airtable records or post to Slack, call stage_action with the exact final content: it puts a proposal card in chat and nothing runs until the caller taps Confirm there. Say the proposal is in chat awaiting their tap; never say it is scheduled, created or posted, and never treat a spoken yes as confirmation. Use list_staged_actions to answer whether a proposal was confirmed and what happened. You may also use create_bot when the caller explicitly asks to create a named bot; it creates an empty bot and no task starts. Return its chat link in chat, never speak the URL. Never overwrite a file. A report is saved only when write returns saved:true. A failed tool call means the action did not happen: repair the input and retry only if the action is allowed; otherwise explain the failure. Never end with a promise to continue when no work is running. Do not send, publish, approve, schedule, edit existing files, connect services, or invoke other actions; direct those requests to chat controls. Never ask for or repeat credentials. Keep the spoken answer short. Refer to files by their human-readable title; never spell out a workspace path, filename or URL. Verified file links are added to chat automatically after successful reads or saves.`,
-        model: getModelFor(this.env, aiProvider),
+        system,
+        model: getModelFor(this.env, voiceProvider),
         // Voice gates the same set as chat: read-oriented tools and MCP
         // proxies. stage_action, create_bot, spawn_background_task and the
         // new-file write carry their own guardrails and are not second-guessed.
-        ...gateVoiceTurn(
-          voiceTurnTools(
-            availableTools,
-            (path, content) =>
-              this.ctx.blockConcurrencyWhile(async () => {
-                if (await this.workspace.exists(path))
-                  throw new Error(
-                    "Report already exists. Choose a new filename; voice cannot overwrite files.",
-                  );
-                await this.workspace.writeFile(path, content);
-                if ((await this.workspace.readFile(path)) !== content)
-                  throw new Error("Report save could not be verified.");
-              }),
-            (brief) =>
-              dispatchBackgroundTask(this.#backgroundTaskDispatchDeps(), {
-                kind: "voice-research",
-                brief,
-                access: "read-only",
-              }),
-          ),
-          this.#effectGateDeps("voice"),
-        ),
+        ...voiceTurn,
         maxSteps: forceBotCreation ? 1 : 12,
         ...(forceBotCreation
           ? { toolChoice: { type: "tool" as const, toolName: "create_bot" } }
           : {}),
       };
     }
+    const chatTools = gateToolSet(bundle.tools, {
+      ...this.#effectGateDeps("chat"),
+      names: chatGateNames(bundle.tools),
+    });
+    const chatActiveTools = withoutHidden(
+      toolRegistry.activeToolsWithMcpWrappers(ctx.tools, mcpTools),
+      bundle.hidden,
+    );
+    await this.#recordTurnInventory(
+      measureTurnInventory({
+        channel: "chat",
+        bundle: labEnabled ? "gtm+lab" : "gtm",
+        system,
+        tools: chatTools,
+        activeTools: chatActiveTools,
+        hidden: bundle.hidden,
+      }),
+    );
     return {
       system,
       model: getModelFor(this.env, aiProvider),
       // Argument-level side-effect check on read-oriented and MCP tools; the
       // existing confirmation paths still own every declared-effect tool.
-      tools: gateToolSet(availableTools, {
-        ...this.#effectGateDeps("chat"),
-        names: chatGateNames(availableTools),
-      }),
+      tools: chatTools,
       ...(forceManagedSetup
         ? {
             toolChoice: { type: "tool" as const, toolName: "find_tool_setup" },
@@ -734,8 +799,22 @@ export class DownyAgent extends Think {
             maxSteps: 1,
           }
         : {}),
-      activeTools: toolRegistry.activeToolsWithMcpWrappers(ctx.tools, mcpTools),
+      activeTools: chatActiveTools,
     };
+  }
+
+  // Keep the latest measurement per channel so the model status panel can
+  // show what a turn hands the model, and a bundle or prompt change can be
+  // compared against the previous number.
+  async #recordTurnInventory(inventory: TurnInventory): Promise<void> {
+    const current = (await this.ctx.storage.get<TurnInventoryRecord>(
+      TURN_INVENTORY_KEY,
+    )) ?? { chat: null, voice: null };
+    await this.ctx.storage.put(TURN_INVENTORY_KEY, {
+      ...current,
+      [inventory.channel]: inventory,
+    } satisfies TurnInventoryRecord);
+    console.log("[agent] turn inventory", inventory);
   }
 
   #effectGateDeps(context: EffectGateContext): EffectGateDeps {
@@ -3424,15 +3503,17 @@ export class DownyAgent extends Think {
   }
 
   async getModelStatus(): Promise<ModelStatus> {
-    const [usage, lastTurn] = await Promise.all([
+    const [usage, lastTurn, inventory] = await Promise.all([
       this.ctx.storage.get<ModelTokenUsage>(MODEL_USAGE_KEY),
       this.ctx.storage.get<ModelTurnDiagnostic>(MODEL_TURN_DIAGNOSTIC_KEY),
+      this.ctx.storage.get<TurnInventoryRecord>(TURN_INVENTORY_KEY),
     ]);
     return buildModelStatus({
       db: this.env.DB,
       env: this.env,
       lastTurn,
       usage,
+      inventory,
     });
   }
 

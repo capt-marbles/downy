@@ -8,6 +8,7 @@ import {
   getAgent,
   listAgents,
   renameAgent,
+  setAgentLabTools,
   setAgentPrivate,
   unarchiveAgent,
 } from "../db/profile";
@@ -71,7 +72,10 @@ export async function handleAgentsRequest(
         const parsed = UpdateAgentRequestBodySchema.safeParse(raw);
         if (!parsed.success) {
           return json(
-            { error: "Body must be { displayName?, isPrivate? }" },
+            {
+              error:
+                "Body must be { displayName?, isPrivate?, labToolsEnabled? }",
+            },
             400,
           );
         }
@@ -82,6 +86,13 @@ export async function handleAgentsRequest(
         }
         if (parsed.data.isPrivate !== undefined) {
           agent = await setAgentPrivate(env.DB, slug, parsed.data.isPrivate);
+        }
+        if (parsed.data.labToolsEnabled !== undefined) {
+          agent = await setAgentLabTools(
+            env.DB,
+            slug,
+            parsed.data.labToolsEnabled,
+          );
         }
         return json({ agent });
       }

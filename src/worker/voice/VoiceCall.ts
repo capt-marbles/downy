@@ -1,4 +1,4 @@
-import { readAiProvider } from "../agent/get-model";
+import { readVoiceAiProvider } from "../agent/get-model";
 import { computerStub } from "../cloud-computer/stub";
 import { DurableObject } from "cloudflare:workers";
 import {
@@ -122,7 +122,7 @@ export class VoiceCall extends DurableObject {
     // Warm the optional reasoning runtime while GPT-Live starts independently.
     // A wake failure never tears down the audio call or changes its billing.
     this.ctx.waitUntil(
-      readAiProvider(this.env.DB)
+      readVoiceAiProvider(this.env.DB)
         .then(async (provider) => {
           if (provider === "cloud-computer" || provider === "boat-computer") {
             const response = await computerStub(this.env, provider).fetch(

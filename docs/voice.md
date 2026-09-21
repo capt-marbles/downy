@@ -3,8 +3,11 @@
 Use **Start a call** above the chat composer to talk with Downy. The preview uses
 GPT-Live 1 over browser WebRTC: microphone and speaker audio travel directly
 between the browser and OpenAI. A separate authenticated server connection passes
-lookups to the existing Downy agent. Kimi, Jev, workspace storage, and chat remain
-the existing backend; the Mac Studio does not need to be awake.
+lookups to the existing Downy agent. Jev, workspace storage, and chat remain
+the existing backend; the Mac Studio does not need to be awake. Lookups run on
+the **Voice model** chosen in Preferences (default: the chat model) with a
+compact voice prompt and the GTM tool bundle; see
+[tool bundles](tool-bundles.md).
 
 Voice can discuss and read existing workspace material, search and read the
 web inline (`web_search`, `web_scrape`, `read_peer_agent`), run the

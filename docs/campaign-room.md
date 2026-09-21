@@ -5,6 +5,10 @@ For operator setup and day-to-day usage, start with [`docs/campaign-room-user-ma
 Proposed improvements to evaluation, repeatable work, and outcome feedback are
 tracked in the [Downy backlog](./backlog.md).
 
+Campaign Room is a lab feature: its tools are hidden from an agent until **Lab
+tools** is switched on in that agent's settings (see
+[tool bundles](tool-bundles.md)).
+
 Campaign Room is the GTM workflow pack layered on top of the Buildroom workflow engine. It keeps the Buildroom investment useful while avoiding the heavy engineering workflow for content, lead sourcing, and outbound drafting.
 
 ## Phase 1 templates

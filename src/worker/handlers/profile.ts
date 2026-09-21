@@ -77,6 +77,16 @@ export async function handleProfileRequest(
         if (key === "ai_provider" && !isAiProvider(value)) {
           return json({ error: `Invalid ai_provider value: ${value}` }, 400);
         }
+        if (
+          key === "voice_ai_provider" &&
+          value !== "" &&
+          !isAiProvider(value)
+        ) {
+          return json(
+            { error: `Invalid voice_ai_provider value: ${value}` },
+            400,
+          );
+        }
         await writePreference(env.DB, key, value);
         return json({ ok: true });
       }

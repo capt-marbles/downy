@@ -8,7 +8,12 @@
 
 const PREF_API = "/api/profile/preferences";
 
-type PrefKey = "theme_id" | "color_scheme" | "show_thinking" | "ai_provider";
+type PrefKey =
+  | "theme_id"
+  | "color_scheme"
+  | "show_thinking"
+  | "ai_provider"
+  | "voice_ai_provider";
 
 const PREF_TO_LOCAL_KEY: Record<PrefKey, string> = {
   theme_id: "downy:theme-id",
@@ -17,6 +22,7 @@ const PREF_TO_LOCAL_KEY: Record<PrefKey, string> = {
   // previously-persisted `"true"` values; default is now OFF.
   show_thinking: "downy:show-thinking-v2",
   ai_provider: "downy:ai-provider",
+  voice_ai_provider: "downy:voice-ai-provider",
 };
 
 const PREF_KEYS = new Set<string>(Object.keys(PREF_TO_LOCAL_KEY));
