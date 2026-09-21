@@ -1,6 +1,8 @@
 import { readAiProvider, readVoiceAiProvider } from "./get-model";
 import type { AiProvider } from "../../lib/ai-providers";
 import type { TurnInventoryRecord } from "./turn-inventory";
+import { effectGateConfigFromEnv } from "./effect-gate";
+import { readEffectGateStats, type EffectGateStats } from "./effect-gate-stats";
 
 export type ModelTokenUsage = {
   inputTokens: number;
@@ -19,6 +21,8 @@ export type ModelStatus = {
   voiceProvider: AiProvider;
   /** Last measured turn per channel: tool schemas and prompt size. */
   inventory: TurnInventoryRecord;
+  /** What the Jev effect gate cost and decided for this agent recently. */
+  effectGate: EffectGateStats & { enabled: boolean; confidenceFloor: number };
   session: ModelTokenUsage & {
     estimatedCostUsd: number | null;
     costNote: string;
@@ -97,11 +101,20 @@ export async function buildModelStatus(args: {
   lastTurn: ModelTurnDiagnostic | null | undefined;
   usage: ModelTokenUsage | null | undefined;
   inventory?: TurnInventoryRecord | null;
+  agentSlug: string;
 }): Promise<ModelStatus> {
-  const [provider, voiceProvider] = await Promise.all([
+  const [provider, voiceProvider, gateStats] = await Promise.all([
     readAiProvider(args.db),
     readVoiceAiProvider(args.db),
+    readEffectGateStats(args.db, args.agentSlug).catch(
+      (): EffectGateStats => ({
+        windowHours: 24,
+        sampled: 0,
+        contexts: [],
+      }),
+    ),
   ]);
+  const gateConfig = effectGateConfigFromEnv(args.env);
   const usage = args.usage ?? EMPTY_MODEL_USAGE;
   const pricing = estimateCost(provider, args.env, usage);
   return {
@@ -113,6 +126,7 @@ export async function buildModelStatus(args: {
     lastTurn: args.lastTurn ?? null,
     voiceProvider,
     inventory: args.inventory ?? { chat: null, voice: null },
+    effectGate: { ...gateStats, ...gateConfig },
     session: {
       ...usage,
       estimatedCostUsd: pricing.cost,

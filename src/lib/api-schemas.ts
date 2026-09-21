@@ -205,6 +205,34 @@ export const ModelStatusSchema = z.object({
     chat: TurnInventorySchema.nullable(),
     voice: TurnInventorySchema.nullable(),
   }),
+  effectGate: z.object({
+    enabled: z.boolean(),
+    confidenceFloor: z.number(),
+    windowHours: z.number(),
+    sampled: z.number(),
+    contexts: z.array(
+      z.object({
+        context: z.enum([
+          "chat",
+          "voice",
+          "background",
+          "background-read-only",
+        ]),
+        decisions: z.number(),
+        allowed: z.number(),
+        blocked: z.number(),
+        unavailable: z.number(),
+        uncertain: z.number(),
+        p50Ms: z.number(),
+        p95Ms: z.number(),
+        maxMs: z.number(),
+        lastAt: z.number(),
+        blockedTools: z.array(
+          z.object({ tool: z.string(), count: z.number() }),
+        ),
+      }),
+    ),
+  }),
   lastTurn: z
     .object({
       requestId: z.string(),

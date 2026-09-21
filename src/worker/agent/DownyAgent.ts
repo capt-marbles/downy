@@ -3514,6 +3514,7 @@ export class DownyAgent extends Think {
       lastTurn,
       usage,
       inventory,
+      agentSlug: this.name,
     });
   }
 

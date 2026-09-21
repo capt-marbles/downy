@@ -642,6 +642,41 @@ export function ModelStatusSection() {
                 ))}
             </div>
           ) : null}
+          <div className="mt-2 border-t border-base-300/60 pt-1.5 text-[10px] text-base-content/45">
+            {!status.effectGate.enabled ? (
+              <div>Effect gate off</div>
+            ) : status.effectGate.contexts.length === 0 ? (
+              <div>
+                Effect gate: no decisions in {status.effectGate.windowHours}h
+              </div>
+            ) : (
+              status.effectGate.contexts.map((entry) => (
+                <div
+                  key={entry.context}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span
+                    className={entry.blocked ? "text-warning" : undefined}
+                    title={
+                      entry.blockedTools.length
+                        ? `Blocked: ${entry.blockedTools.map((b) => `${b.tool} ×${b.count}`).join(", ")}`
+                        : undefined
+                    }
+                  >
+                    gate {entry.context}: {entry.decisions} checks
+                    {entry.blocked ? ` · ${entry.blocked} blocked` : ""}
+                    {entry.unavailable
+                      ? ` · ${entry.unavailable} unavailable`
+                      : ""}
+                  </span>
+                  <span className="font-mono">
+                    p50 {formatDuration(entry.p50Ms)} · p95{" "}
+                    {formatDuration(entry.p95Ms)}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
           {status.lastTurn ? (
             <div className="mt-2 border-t border-base-300/60 pt-1.5 text-[10px]">
               <div className="flex items-center justify-between gap-2">

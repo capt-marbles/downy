@@ -48,6 +48,15 @@ shown in the model status panel as `chat · gtm 14/46 tools · 9.2k est.`.
 Compare the numbers before and after toggling Lab tools or changing a prompt;
 they are the evidence that a change helped.
 
+The same panel shows what the Jev effect gate has cost and decided for the
+agent in the last 24 hours, per context (chat, voice, background,
+background-read-only): checks, blocked and unavailable counts, and p50/p95
+classification latency, with the most-blocked tools on hover. It is read from
+the existing `tool_effect_decisions` table (capped at 2,000 rows) by
+`src/worker/agent/effect-gate-stats.ts`. A voice p95 near a second means the
+gate, not the model, is the next latency target; a rising blocked count on one
+tool means its arguments or the rubric need a look.
+
 ## Not covered
 
 - Per-intent bundles within GTM (research vs CRM vs outreach). The lab split

@@ -150,6 +150,13 @@ it("loads skills, model status and servers for the active agent when headers are
     compactionThresholdTokens: 1000,
     voiceProvider: "kimi",
     inventory: { chat: null, voice: null },
+    effectGate: {
+      enabled: true,
+      confidenceFloor: 0.6,
+      windowHours: 24,
+      sampled: 0,
+      contexts: [],
+    },
     lastTurn: null,
     session: {
       inputTokens: 0,
