@@ -93,12 +93,18 @@ Disabling voice on a subsequent deploy should follow ending any open calls.
   unconfirmed, never invented progress. At most sixty receipts are retained;
   completed receipts are evicted first. Only bounded request/result text is saved.
 - One call per agent. There is no automatic reconnect or replay of a paid
-  creation request. Delegation IDs are recorded before dispatch; duplicates or
+  creation request. After an interruption (network loss, provider close, the
+  cap, a heartbeat failure) the panel offers **Reconnect**: a deliberate tap
+  that starts a new call with a new id and a new paid session. Lookups still
+  running from the interrupted call finish into the new one through the
+  usual receipts. A hangup or leaving the screen does not offer it. Delegation IDs are recorded before dispatch; duplicates or
   worker recovery do not repeat the lookup.
 - **Mute** disables the microphone track immediately. **End call**, navigation,
   tab backgrounding, and unmount release media tracks. Background/lock-screen
   listening is intentionally unsupported in this preview.
-- Maximum call length: 15 minutes. Inactivity: two minutes without input
+- Maximum call length: 15 minutes by default; the operator can set
+  `DOWNY_VOICE_MAX_MINUTES` (5–120) at deploy time, and the panel shows the
+  cap next to the clock. Inactivity: two minutes without input
   transcript activity. Browser heartbeats renew a 60-second lease. A dedicated
   DO alarm closes abandoned calls independently of the agent's task scheduler.
 - Hangup sends `session.close`; the server waits for `session.closed`, retains

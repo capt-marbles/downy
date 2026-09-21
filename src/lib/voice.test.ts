@@ -108,6 +108,18 @@ it("expires on the earliest of heartbeat, inactivity, provider expiry, and maxim
     voiceDeadline({ ...call, heartbeatAt: 900_000, activityAt: 900_000 }),
   ).toBe(900_000);
   expect(voiceDeadline({ ...call, expiresAt: 10_000 })).toBe(10_000);
+  // A longer operator cap only matters when nothing else expires sooner.
+  expect(
+    voiceDeadline(
+      {
+        ...call,
+        heartbeatAt: 3_000_000,
+        activityAt: 3_000_000,
+        expiresAt: 3_000_000,
+      },
+      45 * 60_000,
+    ),
+  ).toBe(2_700_000);
 });
 
 it("rejects attempts to inject provider settings, arbitrary events, or oversized SDP", () => {

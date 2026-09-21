@@ -1,7 +1,12 @@
-import { Mic, MicOff, Phone, PhoneOff, Volume2 } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff, RotateCcw, Volume2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
+import { agentFetch } from "../../lib/agent-request";
 import { VoiceClient, type CallView } from "../../lib/voice-client";
 import StatusDot from "../ui/StatusDot";
+
+const VoiceConfigSchema = z.object({ maxMinutes: z.number() });
 
 export default function VoiceCallPanel({
   slug,
@@ -22,8 +27,21 @@ export default function VoiceCallPanel({
     startedAt: null,
     captions: [],
     error: null,
+    maxMinutes: null,
+    canReconnect: false,
   });
   const [now, setNow] = useState(Date.now());
+  const config = useQuery({
+    queryKey: ["voice-config", slug],
+    queryFn: async () => {
+      const response = await agentFetch(slug, "/api/voice");
+      if (!response.ok) return null;
+      const parsed = VoiceConfigSchema.safeParse(await response.json());
+      return parsed.success ? parsed.data : null;
+    },
+    staleTime: 5 * 60_000,
+  });
+  const maxMinutes = view.maxMinutes ?? config.data?.maxMinutes ?? null;
   const active = ["connecting", "live", "ending"].includes(view.state);
 
   useEffect(() => {
@@ -47,7 +65,7 @@ export default function VoiceCallPanel({
   const seconds = view.startedAt
     ? Math.max(0, Math.floor((now - view.startedAt) / 1000))
     : 0;
-  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}${maxMinutes ? ` / ${maxMinutes}:00` : ""}`;
   return (
     <section
       aria-label="Voice call"
@@ -94,16 +112,29 @@ export default function VoiceCallPanel({
           </>
         ) : (
           <>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              disabled={disabled}
-              onClick={() => void client.current?.start()}
-            >
-              <Phone size={16} /> Start a call
-            </button>
+            {view.state === "ended" && view.canReconnect ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={disabled}
+                onClick={() => void client.current?.start()}
+              >
+                <RotateCcw size={16} /> Reconnect
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={disabled}
+                onClick={() => void client.current?.start()}
+              >
+                <Phone size={16} /> Start a call
+              </button>
+            )}
             <span className="text-xs text-base-content/50">
-              Voice · read & draft reports · 15 min limit
+              {view.state === "ended" && view.canReconnect
+                ? "Starts a new call; work from the last one carries over."
+                : `Voice · research, drafts & proposals${maxMinutes ? ` · ${maxMinutes} min limit` : ""}`}
             </span>
           </>
         )}

@@ -108,6 +108,9 @@ export const worker = await TanStackStart("downy", {
     DOWNY_CODEX_MODEL: process.env.DOWNY_CODEX_MODEL ?? "gpt-5.5",
     ...(cloudComputer ? { CloudComputer: cloudComputer } : {}),
     DOWNY_VOICE_ENABLED: process.env.DOWNY_VOICE_ENABLED ?? "false",
+    // Maximum call length in minutes (5–120, default 15). Mute does not
+    // pause billing; the cap bounds a forgotten call.
+    DOWNY_VOICE_MAX_MINUTES: process.env.DOWNY_VOICE_MAX_MINUTES ?? "15",
     // Provision this secret out of band; never accept an API key in chat.
     ...(process.env.DOWNY_VOICE_ENABLED === "true"
       ? { OPENAI_API_KEY: await SecretRef({ name: "DOWNY_OPENAI_API_KEY" }) }

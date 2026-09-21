@@ -1,4 +1,5 @@
-import { VoiceCommandSchema, VOICE_MODEL, VOICE_MAX_MS } from "../../lib/voice";
+import { VoiceCommandSchema, VOICE_MODEL } from "../../lib/voice";
+import { voiceMaxMs } from "../voice/limits";
 import { getActiveAgentStub } from "../lib/active-agent";
 import { AgentSlugError, slugFromRequest } from "../lib/get-agent";
 import { readSecret } from "../credentials/crypto";
@@ -17,7 +18,11 @@ export async function handleVoiceRequest(
         env.DOWNY_VOICE_ENABLED === "true" &&
         Boolean(await readSecret(env.OPENAI_API_KEY).catch(() => ""));
       return Response.json(
-        { configured, model: VOICE_MODEL, maxMinutes: VOICE_MAX_MS / 60_000 },
+        {
+          configured,
+          model: VOICE_MODEL,
+          maxMinutes: voiceMaxMs(env) / 60_000,
+        },
         { headers },
       );
     }

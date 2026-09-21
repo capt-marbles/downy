@@ -14,6 +14,10 @@ export interface CallView {
   startedAt: number | null;
   captions: VoiceCaption[];
   error: string | null;
+  /** Server-reported cap for this deployment, known after setup is read. */
+  maxMinutes: number | null;
+  /** The last call ended by an interruption; a tap may start a new one. */
+  canReconnect: boolean;
 }
 
 const initialView = (): CallView => ({
@@ -24,6 +28,8 @@ const initialView = (): CallView => ({
   startedAt: null,
   captions: [],
   error: null,
+  maxMinutes: null,
+  canReconnect: false,
 });
 
 // Own all browser resources in one disposable object. React unmount, pagehide,
@@ -93,7 +99,11 @@ export class VoiceClient {
     const generation = ++this.generation;
     this.abort = new AbortController();
     this.providerClosed = false;
-    this.update({ ...initialView(), state: "connecting" });
+    this.update({
+      ...initialView(),
+      state: "connecting",
+      maxMinutes: this.view.maxMinutes,
+    });
     this.setupTimer = setTimeout(() => {
       void this.end("Voice connection timed out. Please try again.");
     }, 45_000);
@@ -123,6 +133,8 @@ export class VoiceClient {
           "Voice needs server setup: enable GPT-Live and add the OpenAI key to Cloudflare Secrets Store. Never paste a key into chat.",
         );
       if (generation !== this.generation) return;
+      if ("maxMinutes" in body && typeof body.maxMinutes === "number")
+        this.update({ maxMinutes: body.maxMinutes });
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -151,8 +163,8 @@ export class VoiceClient {
           pc.connectionState === "failed" ||
           pc.connectionState === "disconnected"
         )
-          void this.end(
-            "Connection interrupted. Start a new call when connected.",
+          void this.interrupt(
+            "Connection interrupted. Reconnect to start a new call.",
           );
       });
       for (const track of stream.getTracks()) pc.addTrack(track, stream);
@@ -167,7 +179,10 @@ export class VoiceClient {
           if (data.type === "session.closed") {
             this.providerClosed = true;
             this.closeReceived?.();
-            if (generation === this.generation) void this.end();
+            // A close we did not ask for (provider expiry, server cap) is an
+            // interruption; a close after our own hangup is already handled.
+            if (generation === this.generation)
+              void this.interrupt("The call ended. Reconnect to continue.");
             return;
           }
           if (generation !== this.generation) return;
@@ -182,7 +197,7 @@ export class VoiceClient {
             this.update({ state: "live" });
           }
           if (data.type === "error") {
-            void this.end(
+            void this.interrupt(
               "The voice service interrupted the call. Please check the chat.",
             );
             return;
@@ -194,7 +209,7 @@ export class VoiceClient {
       });
       channel.addEventListener("close", () => {
         if (generation === this.generation)
-          void this.end("Voice connection closed.");
+          void this.interrupt("Voice connection closed.");
       });
       await pc.setLocalDescription(await pc.createOffer());
       await waitForIce(pc, this.abort.signal);
@@ -237,13 +252,13 @@ export class VoiceClient {
       );
       if (generation !== this.generation) return;
       if (result.state !== "active") {
-        await this.end(result.reason ?? "Call ended");
+        await this.interrupt(result.reason ?? "Call ended");
         return;
       }
       this.update({ working: result.working });
     } catch {
       if (generation === this.generation)
-        await this.end(
+        await this.interrupt(
           "Connection lost. The call is ending; text chat is still available.",
         );
     } finally {
@@ -278,9 +293,16 @@ export class VoiceClient {
     }
   }
 
-  async end(error: string | null = null) {
+  // An interruption ends the call exactly like a hangup, then offers a new
+  // call. Nothing reconnects on its own: a new call is a new paid session
+  // and a deliberate tap, and lookups still running finish into it.
+  private interrupt(error: string) {
+    return this.end(error, true);
+  }
+
+  async end(error: string | null = null, interrupted = false) {
     if (["ending", "ended", "idle"].includes(this.view.state)) return;
-    this.update({ state: "ending", error });
+    this.update({ state: "ending", error, canReconnect: false });
     ++this.generation;
     const callId = this.callId;
     this.callId = undefined;
@@ -330,7 +352,12 @@ export class VoiceClient {
     this.pc?.close();
     this.pc = undefined;
     this.channel = undefined;
-    this.update({ state: "ended", working: false, error: finalError });
+    this.update({
+      state: "ended",
+      working: false,
+      error: finalError,
+      canReconnect: interrupted && !this.disposed,
+    });
   }
 
   dispose() {

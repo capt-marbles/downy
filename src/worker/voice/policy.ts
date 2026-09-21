@@ -182,14 +182,17 @@ export function voiceToolSet(
   return restricted;
 }
 
-export function voiceDeadline(state: {
-  startedAt: number;
-  heartbeatAt: number;
-  activityAt: number;
-  expiresAt: number;
-}): number {
+export function voiceDeadline(
+  state: {
+    startedAt: number;
+    heartbeatAt: number;
+    activityAt: number;
+    expiresAt: number;
+  },
+  maxMs = VOICE_MAX_MS,
+): number {
   return Math.min(
-    state.startedAt + VOICE_MAX_MS,
+    state.startedAt + maxMs,
     state.expiresAt,
     state.heartbeatAt + VOICE_LEASE_MS,
     state.activityAt + VOICE_IDLE_MS,

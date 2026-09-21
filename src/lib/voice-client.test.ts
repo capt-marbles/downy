@@ -220,3 +220,50 @@ it("bounds the graceful-close wait and reports incomplete finalization", async (
   expect(view.error).toContain("still confirming hangup");
   expect(Peer.instances[0].close).toHaveBeenCalled();
 });
+
+it("offers an explicit reconnect after an interruption, never after hangup, and never on its own", async () => {
+  await client.start();
+  expect(view.state).toBe("live");
+  expect(view.maxMinutes).toBeNull();
+  const peer = Peer.instances[0];
+  peer.connectionState = "failed";
+  peer.dispatchEvent(new Event("connectionstatechange"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(view.state).toBe("ended");
+  expect(view.canReconnect).toBe(true);
+  expect(view.error).toContain("Reconnect");
+  expect(track.stop).toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(Peer.instances).toHaveLength(1);
+  // The tap starts a fresh call with a fresh id.
+  await client.start();
+  expect(view.state).toBe("live");
+  expect(view.canReconnect).toBe(false);
+  expect(Peer.instances).toHaveLength(2);
+  const calls: unknown[][] = fetcher.mock.calls;
+  const startIds = new Set<string>();
+  for (const call of calls) {
+    const options: unknown = call[1];
+    if (
+      options &&
+      typeof options === "object" &&
+      "body" in options &&
+      typeof options.body === "string"
+    ) {
+      const body = VoiceCommandSchema.parse(JSON.parse(options.body));
+      if (body.command === "start") startIds.add(body.callId);
+    }
+  }
+  expect(startIds.size).toBe(2);
+  await client.end();
+  expect(view.state).toBe("ended");
+  expect(view.canReconnect).toBe(false);
+});
+
+it("shows the server's call cap once setup is read", async () => {
+  fetcher.mockImplementationOnce(async () =>
+    Response.json({ configured: true, maxMinutes: 45 }),
+  );
+  await client.start();
+  expect(view.maxMinutes).toBe(45);
+});

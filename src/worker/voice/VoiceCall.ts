@@ -5,7 +5,6 @@ import {
   appendCaption,
   captionText,
   LiveEventSchema,
-  VOICE_MAX_MS,
   VOICE_MODEL,
   voiceChunks,
   type VoiceCaption,
@@ -18,6 +17,7 @@ import {
   VoiceProviderError,
 } from "./provider";
 import { voiceDeadline } from "./policy";
+import { voiceMaxMs } from "./limits";
 
 const LOOKUP_PREFIX = "voice-lookup:";
 const MAX_LOOKUPS = 60;
@@ -139,7 +139,7 @@ export class VoiceCall extends DurableObject {
       slug,
       state: "starting",
       startedAt: now,
-      expiresAt: now + VOICE_MAX_MS,
+      expiresAt: now + voiceMaxMs(this.env),
       heartbeatAt: now,
       activityAt: now,
       reason: null,
@@ -190,7 +190,9 @@ export class VoiceCall extends DurableObject {
       this.call.state = "active";
       await this.publishLookups();
       await this.persist();
-      await this.ctx.storage.setAlarm(voiceDeadline(this.call));
+      await this.ctx.storage.setAlarm(
+        voiceDeadline(this.call, voiceMaxMs(this.env)),
+      );
       return this.status(created.transport.sdp);
     } catch (error) {
       this.call.reason =
@@ -218,14 +220,19 @@ export class VoiceCall extends DurableObject {
     if (this.call.state === "active") {
       // Check the OLD lease before extending it. Returning from a suspended
       // browser must not resurrect an expired call.
-      if (Date.now() >= voiceDeadline(this.call) || !this.socket)
+      if (
+        Date.now() >= voiceDeadline(this.call, voiceMaxMs(this.env)) ||
+        !this.socket
+      )
         await this.end(callId);
       else {
         this.call.heartbeatAt = Date.now();
         await this.refreshLookups();
         await this.publishLookups();
         await this.persist();
-        await this.ctx.storage.setAlarm(voiceDeadline(this.call));
+        await this.ctx.storage.setAlarm(
+          voiceDeadline(this.call, voiceMaxMs(this.env)),
+        );
       }
     }
     return this.status();
@@ -671,9 +678,11 @@ export class VoiceCall extends DurableObject {
     if (
       call.state === "active" &&
       this.socket &&
-      Date.now() < voiceDeadline(call)
+      Date.now() < voiceDeadline(call, voiceMaxMs(this.env))
     ) {
-      await this.ctx.storage.setAlarm(voiceDeadline(call));
+      await this.ctx.storage.setAlarm(
+        voiceDeadline(call, voiceMaxMs(this.env)),
+      );
       return;
     }
     call.reason ??= "Call timed out or disconnected";
