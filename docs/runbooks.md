@@ -46,9 +46,9 @@ Secrets remain in OAuth or secure credential entry, outside chat and checkpoints
 Chat shows a timestamped setup checkpoint separately from the live authorization
 card. A service's channels are derived from its tools' voice access in
 `src/worker/agent/tool-channels.ts`: Airtable reads and pipeline reports, Slack
-channel listing and Treg read lookups work in chat and voice; Gmail's combined
-read/draft tool remains chat-only, and drafts from voice go through a staged
-card. Background agents are not granted new access.
+channel listing, Treg read lookups and Gmail search, read and draft creation
+work in chat and voice. Gmail never sends. Background agents are not granted
+new access.
 
 ## Report CRM pipeline
 

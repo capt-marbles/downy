@@ -329,3 +329,62 @@ it("speaks a staged proposal as awaiting a tap, never as done", () => {
   expect(result.text).toContain("Nothing has run");
   expect(result.text).not.toContain("drafted");
 });
+
+it("speaks a Gmail draft as saved and unsent from the receipt, and links Drafts in chat", () => {
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-gmail_email",
+          toolCallId: "draft",
+          state: "output-available",
+          input: { action: "create_draft" },
+          output: {
+            state: "draft_created",
+            account: "andrew@example.com",
+            draftId: "r-1",
+            url: "https://mail.google.com/mail/u/0/#drafts",
+            sent: false,
+          },
+        },
+        { type: "text", text: "Done, I sent the email to the lead." },
+      ],
+    },
+  ]);
+  expect(result.draftUrls).toEqual([
+    "https://mail.google.com/mail/u/0/#drafts",
+  ]);
+  expect(result.corrected).toBe(true);
+  expect(result.text).toContain("Nothing has been sent");
+  expect(result.text).not.toContain("I sent");
+  expect(voiceOutcomeChatText(result, "sales")).toContain(
+    "[Open Gmail Drafts](https://mail.google.com/mail/u/0/#drafts)",
+  );
+});
+
+it("treats a failed Gmail draft as unverified and tells the caller to check Drafts", () => {
+  const result = voiceTurnOutcome([
+    {
+      id: "reply",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-gmail_email",
+          toolCallId: "draft",
+          state: "output-available",
+          input: { action: "create_draft" },
+          output: {
+            state: "failed",
+            error: "Gmail action did not return a verified result.",
+          },
+        },
+        { type: "text", text: "The draft is ready." },
+      ],
+    },
+  ]);
+  expect(result.draftUrls).toEqual([]);
+  expect(result.text).toContain("check Gmail Drafts");
+  expect(result.text).not.toContain("draft is ready");
+});

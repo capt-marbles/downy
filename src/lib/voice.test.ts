@@ -221,7 +221,7 @@ it("advertises and executes authorized Airtable reads from the resolved turn inv
     request_credential: connected,
     connect_mcp_server: connected,
   });
-  expect(turn.activeTools).toEqual(["read", "airtable_records"]);
+  expect(turn.activeTools).toEqual(["read", "airtable_records", "gmail_email"]);
   const options = { toolCallId: "voice-airtable", messages: [] };
   for (const input of [
     { action: "list_bases" },
@@ -251,7 +251,6 @@ it("advertises and executes authorized Airtable reads from the resolved turn inv
   }
   expect(execute).toHaveBeenCalledTimes(4);
   for (const name of [
-    "gmail_email",
     "tool_airtable_update",
     "request_credential",
     "connect_mcp_server",
@@ -373,7 +372,6 @@ it("lets voice stage and list proposals but never confirm one", () => {
       "stage_action",
       "list_staged_actions",
       "confirm_staged_action",
-      "gmail_email",
       "schedule_task",
     ]),
   ).toEqual(["stage_action", "list_staged_actions"]);
@@ -401,6 +399,7 @@ it("lets voice run the lead-sourcing runbook: qualify, Slack channel reads and T
     "slack_channels",
     "tool_treg_call",
     "tool_treg_catalog_get",
+    "gmail_email",
   ]);
   const options = { toolCallId: "treg", messages: [] };
   expect(
@@ -429,9 +428,6 @@ it("lets voice run the lead-sourcing runbook: qualify, Slack channel reads and T
   await expect(
     turn.tools.tool_treg_my_tools.execute?.({}, options),
   ).rejects.toThrow("This action did not run");
-  await expect(
-    turn.tools.gmail_email.execute?.({ action: "search" }, options),
-  ).rejects.toThrow("This action did not run");
   expect(calls).toEqual([
     {
       endpoint_id: "treg.people.search",
@@ -439,4 +435,58 @@ it("lets voice run the lead-sourcing runbook: qualify, Slack channel reads and T
       idempotency_key: "lead-1",
     },
   ]);
+});
+
+it("lets voice create Gmail drafts, re-validated strictly, but never send", async () => {
+  const calls: unknown[] = [];
+  const gmail = tool({
+    inputSchema: z.unknown(),
+    execute: async (input: unknown) => {
+      calls.push(input);
+      return {
+        state: "draft_created",
+        url: "https://mail.google.com/mail/u/0/#drafts",
+        sent: false,
+      };
+    },
+  });
+  const turn = voiceTurnTools({ gmail_email: gmail });
+  expect(turn.activeTools).toEqual(["gmail_email"]);
+  const options = { toolCallId: "gmail", messages: [] };
+  const draft = {
+    action: "create_draft",
+    recipientEmail: "lead@example.com",
+    subject: "Following up",
+    body: "Hi, following up on our call.",
+  };
+  expect(await turn.tools.gmail_email.execute?.(draft, options)).toMatchObject({
+    state: "draft_created",
+    sent: false,
+  });
+  expect(
+    await turn.tools.gmail_email.execute?.(
+      { action: "search", query: "from:lead@example.com", limit: 5 },
+      options,
+    ),
+  ).toMatchObject({ state: "draft_created" });
+  for (const input of [
+    {
+      action: "send",
+      recipientEmail: "lead@example.com",
+      subject: "s",
+      body: "b",
+    },
+    { action: "forward", messageId: "m1" },
+    { ...draft, send: true },
+    {
+      action: "create_draft",
+      recipientEmail: "not-an-email",
+      subject: "s",
+      body: "b",
+    },
+  ])
+    await expect(
+      turn.tools.gmail_email.execute?.(input, options),
+    ).rejects.toThrow();
+  expect(calls).toHaveLength(2);
 });

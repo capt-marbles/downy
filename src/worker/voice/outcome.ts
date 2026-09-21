@@ -11,6 +11,12 @@ const SavedReportSchema = z.object({
 
 const ReadFileSchema = z.object({ path: z.string(), content: z.string() });
 
+const GmailDraftSchema = z.object({
+  state: z.literal("draft_created"),
+  url: z.string().url(),
+  sent: z.literal(false).optional(),
+});
+
 const StagedProposalSchema = z.object({
   stagedActionId: z.string().min(1),
   state: z.literal("proposed"),
@@ -59,29 +65,25 @@ function spokenText(text: string, paths: Set<string>): string {
     .replace(/https?:\/\/[^\s<>]+|\/agent\/[^\s<>]+/g, "the link");
 }
 
-export function voiceTurnOutcome(messages: UIMessage[]): {
-  text: string;
-  corrected: boolean;
-  savedPaths: string[];
-  filePaths: string[];
-  /** Read-only research workers started this turn; dispatched, not done. */
-  dispatchedTaskIds: string[];
-  /** Proposal cards staged this turn; awaiting a tap, never run. */
-  stagedActionIds: string[];
-  unverifiedFileClaim?: boolean;
-} {
-  const parts = messages
-    .filter(
-      (message) =>
-        message.role === "assistant" &&
-        !message.id.startsWith("voice-transcript:"),
-    )
-    .flatMap((message) => message.parts);
+type ToolReceipts = {
+  failures: Set<string>;
+  savedPaths: Set<string>;
+  readPaths: Set<string>;
+  dispatchedTaskIds: Set<string>;
+  stagedActionIds: Set<string>;
+  draftUrls: Set<string>;
+};
+
+// Every verified outcome comes from a tool receipt, never from prose. A tool
+// that later succeeded clears its earlier failure; a malformed success output
+// counts as a failure for the tools whose receipts are checked.
+function collectToolReceipts(parts: UIMessage["parts"]): ToolReceipts {
   const failures = new Set<string>();
   const savedPaths = new Set<string>();
   const readPaths = new Set<string>();
   const dispatchedTaskIds = new Set<string>();
   const stagedActionIds = new Set<string>();
+  const draftUrls = new Set<string>();
   for (const part of parts) {
     if (!isToolUIPart(part)) continue;
     const name = getToolName(part);
@@ -109,9 +111,58 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       if (staged.success) stagedActionIds.add(staged.data.stagedActionId);
       else failures.add(name);
     }
+    if (name === "gmail_email") {
+      // Only a draft receipt is an outcome. Searches and reads pass through;
+      // a failed state from the wrapper counts as a failure.
+      const draft = GmailDraftSchema.safeParse(part.output);
+      if (draft.success) draftUrls.add(draft.data.url);
+      else if (
+        z.object({ state: z.literal("failed") }).safeParse(part.output).success
+      )
+        failures.add(name);
+    }
   }
+  return {
+    failures,
+    savedPaths,
+    readPaths,
+    dispatchedTaskIds,
+    stagedActionIds,
+    draftUrls,
+  };
+}
+
+export function voiceTurnOutcome(messages: UIMessage[]): {
+  text: string;
+  corrected: boolean;
+  savedPaths: string[];
+  filePaths: string[];
+  /** Read-only research workers started this turn; dispatched, not done. */
+  dispatchedTaskIds: string[];
+  /** Proposal cards staged this turn; awaiting a tap, never run. */
+  stagedActionIds: string[];
+  /** Gmail draft URLs verified from tool receipts this turn; never sent. */
+  draftUrls: string[];
+  unverifiedFileClaim?: boolean;
+} {
+  const parts = messages
+    .filter(
+      (message) =>
+        message.role === "assistant" &&
+        !message.id.startsWith("voice-transcript:"),
+    )
+    .flatMap((message) => message.parts);
+  const {
+    failures,
+    savedPaths,
+    readPaths,
+    dispatchedTaskIds,
+    stagedActionIds,
+    draftUrls,
+  } = collectToolReceipts(parts);
   const dispatched = [...dispatchedTaskIds];
   const staged = [...stagedActionIds];
+  const drafts = [...draftUrls];
   const finalText =
     parts.filter((part) => part.type === "text").at(-1)?.text ??
     "No completed answer was returned. Please check the chat and retry.";
@@ -130,6 +181,20 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       filePaths: [...readPaths],
       dispatchedTaskIds: dispatched,
       stagedActionIds: staged,
+      draftUrls: drafts,
+      ...(unverifiedFileClaim ? { unverifiedFileClaim } : {}),
+    };
+  if (drafts.length && !failures.size && !savedPaths.size && !staged.length)
+    // The draft exists in Gmail and was not sent. Speak the receipt, not
+    // the model's wording, so "sent" can never be spoken.
+    return {
+      text: `I've saved ${drafts.length === 1 ? "the draft" : `${drafts.length} drafts`} in Gmail. Nothing has been sent; the link to Drafts is in chat.`,
+      corrected: true,
+      savedPaths: [],
+      filePaths: [...readPaths],
+      dispatchedTaskIds: dispatched,
+      stagedActionIds: staged,
+      draftUrls: drafts,
       ...(unverifiedFileClaim ? { unverifiedFileClaim } : {}),
     };
   if (staged.length && !failures.size && !savedPaths.size)
@@ -142,6 +207,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       filePaths: [...readPaths],
       dispatchedTaskIds: dispatched,
       stagedActionIds: staged,
+      draftUrls: drafts,
       ...(unverifiedFileClaim ? { unverifiedFileClaim } : {}),
     };
   if (unverifiedFileClaim)
@@ -152,6 +218,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       filePaths: [...savedPaths],
       dispatchedTaskIds: dispatched,
       stagedActionIds: staged,
+      draftUrls: drafts,
       unverifiedFileClaim: true,
     };
   if (savedPaths.size)
@@ -162,17 +229,21 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
       filePaths: [...savedPaths],
       dispatchedTaskIds: dispatched,
       stagedActionIds: staged,
+      draftUrls: drafts,
     };
   if (failures.size)
     return {
       text: failures.has("spawn_background_task")
         ? "The background task did not start. No report was saved. Please retry the request; nothing is running in the background."
-        : "I couldn't complete that request because a tool failed or was blocked. No report was saved. Please check the chat and retry.",
+        : failures.has("gmail_email")
+          ? "The Gmail step did not return a verified result. If it was a draft, check Gmail Drafts before asking again; it may already exist. Nothing was sent."
+          : "I couldn't complete that request because a tool failed or was blocked. No report was saved. Please check the chat and retry.",
       corrected: true,
       savedPaths: [],
       filePaths: [],
       dispatchedTaskIds: dispatched,
       stagedActionIds: staged,
+      draftUrls: drafts,
     };
   // Intermediate promises are not outcomes. Speak only the final text part.
   return {
@@ -184,6 +255,7 @@ export function voiceTurnOutcome(messages: UIMessage[]): {
     filePaths: [...readPaths],
     dispatchedTaskIds: [],
     stagedActionIds: [],
+    draftUrls: [],
   };
 }
 
@@ -203,5 +275,6 @@ export function voiceOutcomeChatText(
       const destination = path.split("/").map(encodeURIComponent).join("/");
       return `[Open ${label}](/agent/${encodeURIComponent(agentSlug)}/workspace/${destination})`;
     }),
+    ...outcome.draftUrls.map((url) => `[Open Gmail Drafts](${url})`),
   ].join("\n\n");
 }

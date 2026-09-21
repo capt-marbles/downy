@@ -10,8 +10,11 @@ Voice can discuss and read existing workspace material, search and read the
 web inline (`web_search`, `web_scrape`, `read_peer_agent`), run the
 lead-sourcing runbook (`qualify_leads`, `slack_channels`, and the Treg proxy
 tools, with `tool_treg_call` pinned in code to the people-search, work-email
-and company-enrichment read endpoints and to `params` only), and save a **new
-Markdown report** when explicitly requested. Which tools each channel may call
+and company-enrichment read endpoints and to `params` only), search and read
+Gmail and **create Gmail drafts** (`gmail_email`, re-validated in the voice
+policy against the strict search/read/create_draft schema; a draft is saved
+for the caller to review and is never sent), and save a **new Markdown
+report** when explicitly requested. Which tools each channel may call
 is one table, `src/worker/agent/tool-channels.ts`; the voice allowlist, the
 effect gate's name sets and the connection registry's channel lists are all
 derived from it. It uses the existing `write` tool
@@ -34,10 +37,13 @@ The call hears one acknowledgement that the task started; the lookup stays open
 and the finish is announced from the durable task record, including on a later
 call. "Started" is never spoken as "done".
 
-To draft an email or schedule a recurring task from a call, voice uses
-`stage_action`, which puts a proposal card in chat. Nothing runs until the
-caller taps **Confirm and run** on that card; a spoken yes never confirms it.
-See [staged actions](staged-actions.md).
+A spoken draft request creates the draft directly; the spoken outcome comes
+from the tool receipt ("saved, not sent", with a Drafts link in chat), and a
+failed or timed-out draft is reported as unverified with no automatic retry.
+To schedule a recurring task, create Airtable records or post to Slack from a
+call, voice uses `stage_action`, which puts a proposal card in chat. Nothing
+runs until the caller taps **Confirm and run** on that card; a spoken yes never
+confirms it. See [staged actions](staged-actions.md).
 
 Report writes check that the destination is new and read the saved content back
 before returning `saved:true`. The voice handoff derives save/failure status from

@@ -1,4 +1,5 @@
 import { AirtableActionSchema } from "../../lib/airtable-connect";
+import { GmailActionSchema } from "../../lib/gmail-connect";
 import { VOICE_IDLE_MS, VOICE_LEASE_MS, VOICE_MAX_MS } from "../../lib/voice";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
@@ -77,6 +78,26 @@ export function voiceToolSet(
           },
     ]),
   );
+  const gmail = tools.gmail_email;
+  if (gmail?.execute) {
+    const execute = gmail.execute;
+    // Search, read and create_draft only, re-parsed strictly here so a hidden
+    // send/forward/delete action can never reach the executor from voice even
+    // if the chat wrapper is widened later. A draft is saved, never sent.
+    restricted.gmail_email = tool({
+      description: gmail.description,
+      inputSchema: GmailActionSchema,
+      execute: async (input, options) => {
+        const action = GmailActionSchema.parse(input);
+        if (!["search", "read", "create_draft"].includes(action.action))
+          throw new Error(
+            "Voice only permits Gmail search, read and draft creation.",
+          );
+        const result: unknown = await execute(action, options);
+        return result;
+      },
+    });
+  }
   const tregCall = tools.tool_treg_call;
   if (tregCall?.execute) {
     const execute = tregCall.execute;

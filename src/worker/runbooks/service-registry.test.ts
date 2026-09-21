@@ -17,7 +17,7 @@ it("renders code-owned truth about what can be connected", () => {
     "**Slack**: secure card in chat via find_tool_setup. Usable from chat and voice.",
   );
   expect(section).toContain(
-    "**Gmail**: secure card in chat via find_tool_setup. Usable from chat.",
+    "**Gmail**: secure card in chat via find_tool_setup. Usable from chat and voice.",
   );
   expect(section).not.toContain("**TaskFuel**: cannot be connected. Usable");
   expect(section).toContain("**TaskFuel**: cannot be connected");

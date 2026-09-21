@@ -26,9 +26,10 @@ const TOOL_CHANNELS: Readonly<Record<string, ToolChannelSpec>> = {
   list_skills: { voice: true, gate: "read" },
   list_skill_files: { voice: true, gate: "read" },
   read_user_profile: { voice: true },
-  // Connected services (Composio wrappers). Gmail's wrapper can create
-  // drafts, so it stays chat-only; drafts from voice go through stage_action.
-  gmail_email: { voice: false, gate: "connected" },
+  // Connected services (Composio wrappers). Gmail's wrapper searches, reads
+  // and creates drafts; a draft is never sent, so voice may create one. The
+  // voice policy re-validates every call against the strict action schema.
+  gmail_email: { voice: true, gate: "connected" },
   airtable_records: { voice: true, gate: "connected" },
   slack_channels: { voice: true, gate: "connected" },
   // Runbook judgment and proposals

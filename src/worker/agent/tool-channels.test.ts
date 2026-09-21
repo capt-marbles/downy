@@ -12,6 +12,7 @@ it("derives the voice allowlist, including only the named Treg proxy tools", () 
     "web_search",
     "airtable_records",
     "slack_channels",
+    "gmail_email",
     "qualify_leads",
     "stage_action",
     "tool_treg_call",
@@ -20,7 +21,6 @@ it("derives the voice allowlist, including only the named Treg proxy tools", () 
   ])
     expect(isVoiceTool(name), name).toBe(true);
   for (const name of [
-    "gmail_email",
     "write",
     "schedule_task",
     "connect_mcp_server",
@@ -56,7 +56,7 @@ it("keeps the effect gate's name sets in step with the channel table", () => {
 });
 
 it("reports a service as voice-capable only when one of its tools is", () => {
-  expect(serviceChannels("gmail")).toEqual(["chat"]);
+  expect(serviceChannels("gmail")).toEqual(["chat", "voice"]);
   expect(serviceChannels("airtable")).toEqual(["chat", "voice"]);
   expect(serviceChannels("slack")).toEqual(["chat", "voice"]);
   expect(serviceChannels("treg")).toEqual(["chat", "voice"]);

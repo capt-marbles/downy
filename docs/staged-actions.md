@@ -61,8 +61,11 @@ conversation.
 
 ## Voice
 
-`stage_action` and `list_staged_actions` are in the voice allowlist. The voice
-turn is told to say the proposal is in chat awaiting a tap, and the spoken
+`stage_action` and `list_staged_actions` are in the voice allowlist. Gmail
+drafts from voice are created directly through `gmail_email`, because a draft
+is never sent; the `gmail_draft` kind remains for chat when the user wants to
+review before the draft exists. The voice turn is told to say a proposal is in
+chat awaiting a tap, and the spoken
 outcome is derived from the tool receipt, not from the model's prose: "drafted"
 or "scheduled" in the reply is replaced by "Nothing has run". The live
 instructions repeat that a spoken yes does not confirm.
