@@ -50,6 +50,21 @@ channel listing, Treg read lookups and Gmail search, read and draft creation
 work in chat and voice. Gmail never sends. Background agents are not granted
 new access.
 
+## Draft outreach and follow-ups
+
+`gameye-outreach` is the third bundled skill, ported from the Hyperagent
+cold-email module. It reads one Lead (and its linked Contact) from the Video
+Games CRM with exact-formula lookups, drafts two email variants plus DM copy in
+Andrew's voice, and delivers them the Downy way: the Gmail draft is created
+directly (`gmail_email` create_draft, never sent, after searching Drafts and
+Sent for that address), while the CRM change (`airtable_update_records` on the
+Contact or the Lead) and the `#agent-leads` alert (`slack_post_message`) are
+cards the operator confirms. Leads already at Draft Ready or later are not
+re-drafted. Follow-up mode checks Gmail's Sent folder for the first email,
+drafts one reply in the same thread, and proposes the stage change. Everything
+in it is available from a voice call; the spoken outcome is "saved for review",
+never "sent".
+
 ## Report CRM pipeline
 
 `airtable_records` adds `pipeline_report` with `baseId`, `tableId`, and
