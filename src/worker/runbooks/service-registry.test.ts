@@ -13,6 +13,13 @@ it("resolves the services the runbook knows and nothing else", () => {
 it("renders code-owned truth about what can be connected", () => {
   const section = renderConnectionsSection();
   expect(section).toContain("**Slack**: secure card in chat");
+  expect(section).toContain(
+    "**Slack**: secure card in chat via find_tool_setup. Usable from chat and voice.",
+  );
+  expect(section).toContain(
+    "**Gmail**: secure card in chat via find_tool_setup. Usable from chat.",
+  );
+  expect(section).not.toContain("**TaskFuel**: cannot be connected. Usable");
   expect(section).toContain("**TaskFuel**: cannot be connected");
   expect(section).toContain("connect_mcp_server (https://treg.to/mcp/)");
   expect(section).toContain("standing approvals");

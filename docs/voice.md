@@ -7,8 +7,14 @@ lookups to the existing Downy agent. Kimi, Jev, workspace storage, and chat rema
 the existing backend; the Mac Studio does not need to be awake.
 
 Voice can discuss and read existing workspace material, search and read the
-web inline (`web_search`, `web_scrape`, `read_peer_agent`), and save a **new
-Markdown report** when explicitly requested. It uses the existing `write` tool
+web inline (`web_search`, `web_scrape`, `read_peer_agent`), run the
+lead-sourcing runbook (`qualify_leads`, `slack_channels`, and the Treg proxy
+tools, with `tool_treg_call` pinned in code to the people-search, work-email
+and company-enrichment read endpoints and to `params` only), and save a **new
+Markdown report** when explicitly requested. Which tools each channel may call
+is one table, `src/worker/agent/tool-channels.ts`; the voice allowlist, the
+effect gate's name sets and the connection registry's channel lists are all
+derived from it. It uses the existing `write` tool
 with a voice-specific executor: a single `.md` filename directly under
 `workspace/research/`, `workspace/reports/` or `workspace/drafts/`, up to 100,000
 characters. It cannot overwrite files, alter raw browser captures, publish,

@@ -378,3 +378,65 @@ it("lets voice stage and list proposals but never confirm one", () => {
     ]),
   ).toEqual(["stage_action", "list_staged_actions"]);
 });
+
+it("lets voice run the lead-sourcing runbook: qualify, Slack channel reads and Treg read endpoints only", async () => {
+  const calls: unknown[] = [];
+  const passthrough = tool({
+    inputSchema: z.unknown(),
+    execute: async (input: unknown) => {
+      calls.push(input);
+      return { ok: true };
+    },
+  });
+  const turn = voiceTurnTools({
+    qualify_leads: passthrough,
+    slack_channels: passthrough,
+    tool_treg_call: passthrough,
+    tool_treg_catalog_get: passthrough,
+    tool_treg_my_tools: passthrough,
+    gmail_email: passthrough,
+  });
+  expect(turn.activeTools).toEqual([
+    "qualify_leads",
+    "slack_channels",
+    "tool_treg_call",
+    "tool_treg_catalog_get",
+  ]);
+  const options = { toolCallId: "treg", messages: [] };
+  expect(
+    await turn.tools.tool_treg_call.execute?.(
+      {
+        endpoint_id: "treg.people.search",
+        params: { company_domain: "studio.example", limit: 3 },
+        idempotency_key: "lead-1",
+      },
+      options,
+    ),
+  ).toEqual({ ok: true });
+  for (const input of [
+    { endpoint_id: "treg.social.post", params: { text: "hi" } },
+    { endpoint_id: "seedance.video.generate", params: {} },
+    {
+      endpoint_id: "treg.people.search",
+      body: { company_domain: "studio.example" },
+    },
+    { endpoint_id: "treg.people.search", method: "DELETE" },
+    { endpoint_id: "treg.people.search", headers: { "x-api-key": "k" } },
+  ])
+    await expect(
+      turn.tools.tool_treg_call.execute?.(input, options),
+    ).rejects.toThrow();
+  await expect(
+    turn.tools.tool_treg_my_tools.execute?.({}, options),
+  ).rejects.toThrow("This action did not run");
+  await expect(
+    turn.tools.gmail_email.execute?.({ action: "search" }, options),
+  ).rejects.toThrow("This action did not run");
+  expect(calls).toEqual([
+    {
+      endpoint_id: "treg.people.search",
+      params: { company_domain: "studio.example", limit: 3 },
+      idempotency_key: "lead-1",
+    },
+  ]);
+});

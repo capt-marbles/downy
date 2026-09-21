@@ -3,34 +3,21 @@ import { VOICE_IDLE_MS, VOICE_LEASE_MS, VOICE_MAX_MS } from "../../lib/voice";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { normalizeWorkspacePath } from "../agent/child-workspace-rpc";
+import { isVoiceTool, TREG_VOICE_ENDPOINTS } from "../agent/tool-channels";
 
-// Positive allowlist: new tools and MCP tools never acquire voice permissions
-// implicitly. Spoken approval never grants external actions. The only write
-// exceptions are a constrained new Markdown report, explicit creation of an
-// empty bot, dispatch of a read-only research worker, and staging a proposal
-// card that only a tap in chat can confirm.
-const VOICE_READ_TOOLS = new Set([
-  "create_bot",
-  "stage_action",
-  "list_staged_actions",
-  "airtable_records",
-  "web_search",
-  "web_scrape",
-  "read_peer_agent",
-  "read",
-  "list_skill_files",
-  "read_skill",
-  "list_skills",
-  "list_mcp_servers",
-  "list",
-  "find",
-  "grep",
-  "read_user_profile",
-  "read_campaign_artifact",
-  "list_buildroom_jobs",
-  "get_buildroom_workflow",
-  "list_scheduled_tasks",
-]);
+// Positive allowlist from the shared channel table: new tools and MCP tools
+// never acquire voice permissions implicitly. Spoken approval never grants
+// external actions. The only write exceptions are a constrained new Markdown
+// report, explicit creation of an empty bot, dispatch of a read-only research
+// worker, and staging a proposal card that only a tap in chat can confirm.
+
+const TregVoiceCallSchema = z
+  .object({
+    endpoint_id: z.string().min(1).max(200),
+    params: z.record(z.string(), z.unknown()).optional(),
+    idempotency_key: z.string().max(200).optional(),
+  })
+  .strict();
 
 type VoiceResearchDispatch = (
   brief: string,
@@ -43,7 +30,7 @@ export function voiceReadTools(
 ): string[] {
   return names.filter(
     (name) =>
-      VOICE_READ_TOOLS.has(name) ||
+      isVoiceTool(name) ||
       (reportsEnabled && name === "write") ||
       (researchEnabled && name === "spawn_background_task"),
   );
@@ -77,19 +64,39 @@ export function voiceToolSet(
   const restricted = Object.fromEntries(
     Object.entries(tools).map(([name, definition]) => [
       name,
-      VOICE_READ_TOOLS.has(name)
+      isVoiceTool(name)
         ? definition
         : {
             ...definition,
             needsApproval: false,
             execute: async () => {
               throw new Error(
-                "Voice only permits reads, new workspace reports, and explicitly requested empty bots. This action did not run. Use the chat controls for other actions.",
+                "Voice only permits reads, metered read lookups, new workspace reports, read-only research workers, proposal cards, and explicitly requested empty bots. This action did not run. Use the chat controls for other actions.",
               );
             },
           },
     ]),
   );
+  const tregCall = tools.tool_treg_call;
+  if (tregCall?.execute) {
+    const execute = tregCall.execute;
+    // Treg's `call` reaches any catalog endpoint, including ones that post or
+    // generate. Voice pins it to the runbook's read endpoints and to `params`
+    // only: no raw body, method, headers or query, whatever the gate decides.
+    restricted.tool_treg_call = tool({
+      description: `${tregCall.description ?? "Treg call"}\n\nVoice: only these read endpoints, with params only: ${[...TREG_VOICE_ENDPOINTS].join(", ")}.`,
+      inputSchema: TregVoiceCallSchema,
+      execute: async (input, options) => {
+        const call = TregVoiceCallSchema.parse(input);
+        if (!TREG_VOICE_ENDPOINTS.has(call.endpoint_id))
+          throw new Error(
+            "Voice only permits Treg read endpoints: people search, work email lookup and company enrichment. This call did not run.",
+          );
+        const result: unknown = await execute(call, options);
+        return result;
+      },
+    });
+  }
   const airtable = tools.airtable_records;
   if (airtable?.execute) {
     const execute = airtable.execute;

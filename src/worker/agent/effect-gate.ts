@@ -8,6 +8,10 @@ import {
   type JevRunner,
 } from "../jev/client";
 import { DESTRUCTIVE_MCP_CONFIRMATION } from "./mcp-proxy";
+import {
+  connectedServiceToolNames,
+  readOrientedToolNames,
+} from "./tool-channels";
 
 /**
  * Pre-execution side-effect gate.
@@ -90,29 +94,15 @@ const STATE_NOTES = [
 ];
 
 /** Chat tools whose declared purpose is to read; the gate checks their arguments. */
-const READ_ORIENTED_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "web_search",
-  "web_scrape",
-  "read",
-  "list",
-  "find",
-  "grep",
-  "read_skill",
-  "list_skills",
-  "list_skill_files",
-  "read_peer_agent",
-]);
+const READ_ORIENTED_TOOL_NAMES = readOrientedToolNames();
 
 /**
  * Composio-backed wrappers registered by name in DownyAgent. They reach the
  * user's accounts exactly as an MCP proxy does, so they are gated the same
  * way: Jev judges the action and arguments, and the decision is recorded.
+ * Both sets come from the shared channel table in tool-channels.ts.
  */
-const CONNECTED_SERVICE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "gmail_email",
-  "airtable_records",
-  "slack_channels",
-]);
+const CONNECTED_SERVICE_TOOL_NAMES = connectedServiceToolNames();
 
 /**
  * In chat and full-access workers, gate the read-oriented tools, every MCP
