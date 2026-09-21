@@ -34,6 +34,7 @@ const TOOL_CHANNELS: Readonly<Record<string, ToolChannelSpec>> = {
   slack_channels: { voice: true, gate: "connected" },
   // Runbook judgment and proposals
   qualify_leads: { voice: true },
+  check_outreach_draft: { voice: true },
   stage_action: { voice: true },
   list_staged_actions: { voice: true },
   create_bot: { voice: true },

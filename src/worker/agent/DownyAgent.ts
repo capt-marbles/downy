@@ -369,6 +369,11 @@ export class DownyAgent extends Think {
       stage_action: createStageActionTool({
         stage: (payload) => this.createStagedAction(payload, "chat"),
       }),
+      check_outreach_draft: createCheckOutreachDraftTool({
+        run: (request) => runJev(this.env.AI, request),
+        remember: (digest) =>
+          this.ctx.storage.put(`outreach-qa:${digest}`, Date.now()),
+      }),
       list_staged_actions: createListStagedActionsTool({
         list: () => this.listStagedActions(),
       }),
@@ -699,6 +704,18 @@ export class DownyAgent extends Think {
           "Search/read the Gmail account authorized for this bot, or create a Gmail draft when requested. Drafts are saved for the user to send. Sending, forwarding, deleting and mailbox changes are unavailable. A draft timeout has unknown outcome: search Drafts before retrying.",
         inputSchema: GmailActionSchema,
         execute: async (input) => {
+          // A template outreach draft must carry the body the QA tool
+          // assembled; anything else did not pass the check.
+          if (
+            input.action === "create_draft" &&
+            isOutreachTemplate(input.body) &&
+            !(await this.#outreachQaPassed(input.body))
+          )
+            return {
+              state: "failed",
+              error:
+                "This outreach draft did not pass check_outreach_draft, or its body differs from the body that tool returned. Run check_outreach_draft with the lead's evidence and both variants, then create the draft with the exact body it returns. Nothing was drafted.",
+            };
           try {
             return await (
               await getAgentStub(this.env, gmailGrant)
@@ -1144,6 +1161,13 @@ export class DownyAgent extends Think {
       answer:
         "The lookup's execution status is unconfirmed. Check chat for an existing result; do not claim it is still running.",
     };
+  }
+
+  async #outreachQaPassed(body: string): Promise<boolean> {
+    const passedAt = await this.ctx.storage.get<number>(
+      `outreach-qa:${await outreachBodyDigest(body)}`,
+    );
+    return typeof passedAt === "number" && Date.now() - passedAt < 30 * 60_000;
   }
 
   // Backend answers already given on this call, oldest first, so the parse
@@ -3851,6 +3875,11 @@ import {
   parseVoiceRequest,
   renderVoiceRequestParse,
 } from "../voice/request-parse";
+import { createCheckOutreachDraftTool } from "./tools/check-outreach-draft";
+import {
+  isOutreachTemplate,
+  outreachBodyDigest,
+} from "../runbooks/outreach-qa";
 import {
   cancelledStagedAction,
   confirmedStagedAction,

@@ -68,7 +68,17 @@ directly (`gmail_email` create_draft, never sent, after searching Drafts and
 Sent for that address), while the CRM change (`airtable_update_records` on the
 Contact or the Lead) and the `#agent-leads` alert (`slack_post_message`) are
 cards the operator confirms. Leads already at Draft Ready or later are not
-re-drafted. Follow-up mode checks Gmail's Sent folder for the first email,
+re-drafted. Before the Gmail draft exists, `check_outreach_draft` runs mechanical
+rules in code (55 to 75 words, no em dashes, no "ace", signed Andrew,
+lowercase subject) and one Jev request per check: factual opener, flattery,
+the forbidden lock-in angle, the tier hook, and a citation-style choice on
+whether the opening claim is supported by, contradicted by, or absent from
+the lead's evidence. Contradicted or confidently invented openers, flattery,
+the lock-in angle, em dashes and the banned word block; the rest are warnings
+for one revision. On pass the tool assembles the exact draft body and the
+Gmail wrapper refuses a template draft whose body was not returned by a
+passing check in the last thirty minutes. An evaluator outage is a warning,
+never a pass. Follow-up mode checks Gmail's Sent folder for the first email,
 drafts one reply in the same thread, and proposes the stage change. Everything
 in it is available from a voice call; the spoken outcome is "saved for review",
 never "sent".

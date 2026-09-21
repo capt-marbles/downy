@@ -34,7 +34,7 @@ Worked example, Tier B: signal "online co-op up to four, playtest sign-ups open,
 
 ## 3. Deliver, branching on the contact path
 
-**Email found** (Contact Email on the Lead, or Email on the linked Contact, marked verified in Notes or entered by the operator): first search Gmail with `gmail_email` `search` `in:drafts to:<email>` and `in:sent to:<email>`; an existing draft or sent message means stop and report it. Then `gmail_email` `create_draft` to that address, subject = variant A's subject, body holding both variants:
+**Email found** (Contact Email on the Lead, or Email on the linked Contact, marked verified in Notes or entered by the operator): first search Gmail with `gmail_email` `search` `in:drafts to:<email>` and `in:sent to:<email>`; an existing draft or sent message means stop and report it. Then run `check_outreach_draft` with the lead name, tier, the evidence the opener rests on (Notes, Outreach Angles, the source excerpt) and both variants. It checks the voice rules and whether the opening claim is in the evidence. On `block`, fix the named rules and check again, at most twice; never work around it. On `pass` or `revise` (revise once if a warning is easy to fix), call `gmail_email` `create_draft` to that address, subject = variant A's subject, and `body` = exactly the `body` the check returned. A template draft with any other body is refused. The body holds both variants:
 
 ```
 ===== VARIANT A (blunt), subject: <A subject> =====
