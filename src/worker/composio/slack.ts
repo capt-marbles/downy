@@ -60,11 +60,17 @@ export class SlackConnection {
     private readonly now = Date.now,
   ) {}
   private async search(state?: SlackState) {
+    // The connection statuses only cover toolkits whose tools the search
+    // surfaces. Generic Slack wording returns the user-OAuth `slack` toolkit,
+    // so the use case must name the bot toolkit explicitly.
     const parsed = Search.safeParse(
       metaData(
         await this.call("COMPOSIO_SEARCH_TOOLS", {
           queries: [
-            { use_case: "List the channels in the connected Slack workspace" },
+            {
+              use_case:
+                "Using the slackbot toolkit, post a message to a Slack channel as a bot and list the workspace's channels",
+            },
           ],
           session: state?.sessionId
             ? { id: state.sessionId }
@@ -72,11 +78,25 @@ export class SlackConnection {
         }),
       ),
     );
-    if (!parsed.success) throw new Error("Unexpected Slack status response");
+    if (!parsed.success) {
+      console.warn("Slack setup diagnostic", {
+        stage: "search-shape",
+        issues: parsed.error.issues.length,
+      });
+      throw new Error("Unexpected Slack status response");
+    }
     const slack = parsed.data.toolkit_connection_statuses.find(
       (item) => item.toolkit === TOOLKIT,
     );
-    if (!slack) throw new Error("Slack status unavailable");
+    if (!slack) {
+      console.warn("Slack setup diagnostic", {
+        stage: "toolkit-missing",
+        toolkits: parsed.data.toolkit_connection_statuses.map(
+          (item) => item.toolkit,
+        ),
+      });
+      throw new Error("Slack status unavailable");
+    }
     return { slack, sessionId: parsed.data.session.id };
   }
   async status(refresh = false): Promise<SlackConnectStatus> {
