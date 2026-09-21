@@ -3,6 +3,7 @@ import type { AiProvider } from "../../lib/ai-providers";
 import type { TurnInventoryRecord } from "./turn-inventory";
 import { effectGateConfigFromEnv } from "./effect-gate";
 import { readEffectGateStats, type EffectGateStats } from "./effect-gate-stats";
+import { readRunLedgerStats, type RunLedgerStats } from "./run-ledger";
 
 export type ModelTokenUsage = {
   inputTokens: number;
@@ -23,6 +24,8 @@ export type ModelStatus = {
   inventory: TurnInventoryRecord;
   /** What the Jev effect gate cost and decided for this agent recently. */
   effectGate: EffectGateStats & { enabled: boolean; confidenceFloor: number };
+  /** Tool calls, metered spend and staged outcomes in the last 24 hours. */
+  ledger: RunLedgerStats;
   session: ModelTokenUsage & {
     estimatedCostUsd: number | null;
     costNote: string;
@@ -103,7 +106,7 @@ export async function buildModelStatus(args: {
   inventory?: TurnInventoryRecord | null;
   agentSlug: string;
 }): Promise<ModelStatus> {
-  const [provider, voiceProvider, gateStats] = await Promise.all([
+  const [provider, voiceProvider, gateStats, ledger] = await Promise.all([
     readAiProvider(args.db),
     readVoiceAiProvider(args.db),
     readEffectGateStats(args.db, args.agentSlug).catch(
@@ -111,6 +114,20 @@ export async function buildModelStatus(args: {
         windowHours: 24,
         sampled: 0,
         contexts: [],
+      }),
+    ),
+    readRunLedgerStats(args.db, args.agentSlug).catch(
+      (): RunLedgerStats => ({
+        windowHours: 24,
+        sampled: 0,
+        runs: 0,
+        toolCalls: 0,
+        failedCalls: 0,
+        replayedCalls: 0,
+        spendUsd: 0,
+        byKind: [],
+        byTool: [],
+        stagedActions: { succeeded: 0, failed: 0, unknown: 0, cancelled: 0 },
       }),
     ),
   ]);
@@ -127,6 +144,7 @@ export async function buildModelStatus(args: {
     voiceProvider,
     inventory: args.inventory ?? { chat: null, voice: null },
     effectGate: { ...gateStats, ...gateConfig },
+    ledger,
     session: {
       ...usage,
       estimatedCostUsd: pricing.cost,

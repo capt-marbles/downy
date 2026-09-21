@@ -119,6 +119,12 @@ import {
 } from "./build-system-prompt";
 import { bundleToolSet, withoutHidden } from "./tool-bundles";
 import {
+  ledgerToolSet,
+  recordRunEvent,
+  type LedgerDeps,
+  type RunKind,
+} from "./run-ledger";
+import {
   measureTurnInventory,
   TURN_INVENTORY_KEY,
   type TurnInventory,
@@ -585,6 +591,11 @@ export class DownyAgent extends Think {
       undefined,
     );
     const isVoiceTurn = latestUser?.id.startsWith("voice-request:") ?? false;
+    // One ledger run per turn: the voice request id for a lookup, a fresh
+    // id for a chat turn. Read at call time so the closure stays current.
+    this.#runId =
+      isVoiceTurn && latestUser ? latestUser.id : crypto.randomUUID();
+    this.#runKind = isVoiceTurn ? "voice" : "chat";
     // Voice gets a compact prompt: identity, skills, connections and plan,
     // without the chat preamble, tool guide, peers or bootstrap.
     const system = isVoiceTurn
@@ -740,6 +751,7 @@ export class DownyAgent extends Think {
         voiceTurn.activeTools,
         bundle.hidden,
       );
+      voiceTurn.tools = ledgerToolSet(voiceTurn.tools, this.#ledgerDeps());
       await this.#recordTurnInventory(
         measureTurnInventory({
           channel: "voice",
@@ -763,10 +775,13 @@ export class DownyAgent extends Think {
           : {}),
       };
     }
-    const chatTools = gateToolSet(bundle.tools, {
-      ...this.#effectGateDeps("chat"),
-      names: chatGateNames(bundle.tools),
-    });
+    const chatTools = ledgerToolSet(
+      gateToolSet(bundle.tools, {
+        ...this.#effectGateDeps("chat"),
+        names: chatGateNames(bundle.tools),
+      }),
+      this.#ledgerDeps(),
+    );
     const chatActiveTools = withoutHidden(
       toolRegistry.activeToolsWithMcpWrappers(ctx.tools, mcpTools),
       bundle.hidden,
@@ -800,6 +815,18 @@ export class DownyAgent extends Think {
           }
         : {}),
       activeTools: chatActiveTools,
+    };
+  }
+
+  #runId = "";
+  #runKind: RunKind = "chat";
+
+  #ledgerDeps(): LedgerDeps {
+    return {
+      agentSlug: this.name,
+      runId: () => this.#runId,
+      runKind: () => this.#runKind,
+      record: (event) => recordRunEvent(this.env.DB, event),
     };
   }
 
@@ -1599,6 +1626,27 @@ export class DownyAgent extends Think {
     const outcome = await this.#executeStagedAction(action);
     const finished = finishedStagedAction(action, outcome, Date.now());
     await this.ctx.storage.put(stagedActionKey(action.id), finished);
+    recordRunEvent(this.env.DB, {
+      agentSlug: this.name,
+      runId: finished.id,
+      runKind: finished.source,
+      event: "staged_action",
+      name: finished.payload.kind,
+      state:
+        finished.state === "succeeded" ||
+        finished.state === "failed" ||
+        finished.state === "cancelled"
+          ? finished.state
+          : "unknown",
+      costUsd: null,
+      replayed: false,
+      elapsedMs: Math.max(
+        0,
+        (finished.finishedAt ?? Date.now()) -
+          (finished.confirmedAt ?? Date.now()),
+      ),
+      summary: finished.error ?? finished.result?.receipt ?? null,
+    });
     await this.#deliverStagedActionReceipt(finished);
     return finished;
   }

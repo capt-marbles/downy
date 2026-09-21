@@ -24,6 +24,7 @@ import {
 } from "./build-system-prompt";
 import type { ActivePlan } from "./tools/todo-write";
 import { readOnlyActiveTools, readOnlyToolSet } from "./read-only-tools";
+import { ledgerToolSet, recordRunEvent, type LedgerDeps } from "./run-ledger";
 import {
   chatGateNames,
   effectGateConfigFromEnv,
@@ -223,6 +224,13 @@ export class ChildAgent extends Think {
       ...mcpTools,
       ...this.#grantedTools(meta, parent),
     };
+    const ledger: LedgerDeps = {
+      agentSlug: meta.parentName,
+      runId: () => meta.taskId,
+      runKind: () =>
+        meta.kind.startsWith("scheduled:") ? "scheduled" : "background",
+      record: (event) => recordRunEvent(this.env.DB, event),
+    };
     const gate = (context: EffectGateContext): EffectGateDeps => ({
       run: (request) => runJev(this.env.AI, request),
       config: effectGateConfigFromEnv(this.env),
@@ -232,10 +240,13 @@ export class ChildAgent extends Think {
     if (!readOnly)
       return {
         system,
-        tools: gateToolSet(tools, {
-          ...gate("background"),
-          names: chatGateNames(tools),
-        }),
+        tools: ledgerToolSet(
+          gateToolSet(tools, {
+            ...gate("background"),
+            names: chatGateNames(tools),
+          }),
+          ledger,
+        ),
         model: getModelFor(this.env, aiProvider),
       };
     // Hide blocked schemas and block their executors: Think merges overrides
@@ -247,10 +258,13 @@ export class ChildAgent extends Think {
     const activeTools = readOnlyActiveTools({ ...ctx.tools, ...tools });
     return {
       system,
-      tools: gateToolSet(readOnlyToolSet(tools), {
-        ...gate("background-read-only"),
-        names: activeTools,
-      }),
+      tools: ledgerToolSet(
+        gateToolSet(readOnlyToolSet(tools), {
+          ...gate("background-read-only"),
+          names: activeTools,
+        }),
+        ledger,
+      ),
       // Think's auto-registered workspace tools (list/find/grep) live in
       // ctx.tools, not in the set built here.
       activeTools,

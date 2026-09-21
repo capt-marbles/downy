@@ -157,6 +157,18 @@ it("loads skills, model status and servers for the active agent when headers are
       sampled: 0,
       contexts: [],
     },
+    ledger: {
+      windowHours: 24,
+      sampled: 0,
+      runs: 0,
+      toolCalls: 0,
+      failedCalls: 0,
+      replayedCalls: 0,
+      spendUsd: 0,
+      byKind: [],
+      byTool: [],
+      stagedActions: { succeeded: 0, failed: 0, unknown: 0, cancelled: 0 },
+    },
     lastTurn: null,
     session: {
       inputTokens: 0,

@@ -233,6 +233,37 @@ export const ModelStatusSchema = z.object({
       }),
     ),
   }),
+  ledger: z.object({
+    windowHours: z.number(),
+    sampled: z.number(),
+    runs: z.number(),
+    toolCalls: z.number(),
+    failedCalls: z.number(),
+    replayedCalls: z.number(),
+    spendUsd: z.number(),
+    byKind: z.array(
+      z.object({
+        kind: z.enum(["chat", "voice", "background", "scheduled"]),
+        runs: z.number(),
+        toolCalls: z.number(),
+        spendUsd: z.number(),
+      }),
+    ),
+    byTool: z.array(
+      z.object({
+        name: z.string(),
+        calls: z.number(),
+        failed: z.number(),
+        spendUsd: z.number(),
+      }),
+    ),
+    stagedActions: z.object({
+      succeeded: z.number(),
+      failed: z.number(),
+      unknown: z.number(),
+      cancelled: z.number(),
+    }),
+  }),
   lastTurn: z
     .object({
       requestId: z.string(),

@@ -643,6 +643,36 @@ export function ModelStatusSection() {
             </div>
           ) : null}
           <div className="mt-2 border-t border-base-300/60 pt-1.5 text-[10px] text-base-content/45">
+            <div
+              className="flex items-center justify-between gap-2"
+              title={
+                status.ledger.byTool.length
+                  ? `By spend: ${status.ledger.byTool.map((entry) => `${entry.name} ${entry.calls}× $${entry.spendUsd.toFixed(3)}`).join(", ")}`
+                  : undefined
+              }
+            >
+              <span>
+                {status.ledger.windowHours}h: {status.ledger.runs} runs ·{" "}
+                {status.ledger.toolCalls} tool calls
+                {status.ledger.failedCalls ? (
+                  <span className="text-warning">
+                    {" "}
+                    · {status.ledger.failedCalls} failed
+                  </span>
+                ) : null}
+                {status.ledger.stagedActions.unknown ? (
+                  <span className="text-warning">
+                    {" "}
+                    · {status.ledger.stagedActions.unknown} unknown outcome
+                  </span>
+                ) : null}
+              </span>
+              <span className="font-mono">
+                metered ${status.ledger.spendUsd.toFixed(3)}
+              </span>
+            </div>
+          </div>
+          <div className="mt-2 border-t border-base-300/60 pt-1.5 text-[10px] text-base-content/45">
             {!status.effectGate.enabled ? (
               <div>Effect gate off</div>
             ) : status.effectGate.contexts.length === 0 ? (
