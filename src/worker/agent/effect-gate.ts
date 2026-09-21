@@ -24,6 +24,7 @@ import { DESTRUCTIVE_MCP_CONFIRMATION } from "./mcp-proxy";
 
 export const EFFECT_CLASSES = [
   "read_only",
+  "metered_read",
   "workspace_write",
   "proposal_only",
   "external_effect",
@@ -35,10 +36,11 @@ const EffectClassSchema = z.enum(EFFECT_CLASSES);
 // Least to most risky. Used when the model is uncertain between two classes.
 const RISK: Record<EffectClass, number> = {
   read_only: 0,
-  workspace_write: 1,
-  proposal_only: 2,
-  external_effect: 3,
-  destructive: 4,
+  metered_read: 1,
+  workspace_write: 2,
+  proposal_only: 3,
+  external_effect: 4,
+  destructive: 5,
 };
 
 const BLOCKED_EFFECTS: ReadonlySet<EffectClass> = new Set([
@@ -49,12 +51,14 @@ const BLOCKED_EFFECTS: ReadonlySet<EffectClass> = new Set([
 const EFFECT_CRITERIA: Record<EffectClass, string> = {
   read_only:
     "Only reads, lists, searches or fetches ordinary content; nothing outside the assistant changes",
+  metered_read:
+    "Looks up data through a paid API or tool catalog: spends a small prepaid balance per call but changes nothing else anywhere",
   workspace_write:
     "Creates or changes files, notes or plans inside the assistant's own workspace only",
   proposal_only:
     "Creates a proposal or draft that a human must confirm before anything happens",
   external_effect:
-    "Causes an effect outside the workspace: sends, schedules, submits, triggers, connects, pays, or acts on the user's machine or accounts",
+    "Causes an effect outside the workspace: sends, posts, schedules, submits, triggers, connects, purchases, or acts on the user's machine or accounts",
   destructive:
     "Removes, disconnects or overwrites something that is hard to restore",
 };
@@ -82,6 +86,7 @@ const STATE_NOTES = [
   "Any HTTP method other than GET is an external effect.",
   "A proposal or draft that a human must confirm before it takes effect is proposal_only.",
   "Reading, listing, grepping or searching, and fetching ordinary informational pages, are read_only.",
+  "Calling a paid data endpoint (enrichment, email finding, search) that only returns data is metered_read, even though it spends balance. Using such a catalog to post, send, publish or generate content for others is an external effect.",
 ];
 
 /** Chat tools whose declared purpose is to read; the gate checks their arguments. */

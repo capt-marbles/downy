@@ -1,6 +1,6 @@
 ---
 name: gameye-lead-sourcing
-description: Gameye daily lead sourcing from the open web. Exa discovery → typed Jev qualification → exact Airtable dedupe → propose new Leads records as a card → contact staging → batch summary. Use when asked to run lead sourcing, find new studios, or refresh the lead batch.
+description: Gameye daily lead sourcing from the open web. Exa discovery → typed Jev qualification → exact Airtable dedupe → propose new Leads records as a card → Treg contact enrichment → batch summary. Use when asked to run lead sourcing, find new studios, or refresh the lead batch.
 ---
 
 Gameye sells dedicated game-server hosting and orchestration. The goal is to find studios building ONLINE MULTIPLAYER games approaching a playtest, beta, early access or launch, qualify them, dedupe against the CRM, and propose the new qualified leads for the operator to confirm. Nothing is written to Airtable, Slack or email without a confirmed card. Report every step with counts.
@@ -45,10 +45,18 @@ Kind `airtable_create_records`, `baseId` and `tableId` as above, `tableLabel: "L
 
 Say the card is waiting in chat. Nothing is created until the operator taps Confirm. Use list_staged_actions to learn the outcome; an `unknown` outcome means check the table for the Batch ID before proposing again.
 
-## 5. Stage contacts without spending credits
+## 5. Stage a contact through Treg, cheaply
 
-If an Apollo MCP server is connected (a tool whose name contains `apollo` and `people` and `search`), run its free people search with the studio name to identify the best contact: CTO, backend or game programmer, technical designer; else founder, producer or head of production. Put the recommended name, title and Apollo id in that lead's Notes on the card. Never call a match, enrich or email-verify action: those cost credits and need explicit approval. Never write an unverified email into Contact Email. If Apollo is not connected, say so once and set Enrichment Status to `"Pending"` unchanged.
+Contact and company enrichment goes through the Treg tool catalog, connected to this bot as an MCP server at `https://treg.to/mcp/` (ask the operator to run connect*mcp_server if its tools, named `tool_treg*\*`, are absent). Treg spends a small prepaid balance per call and returns the provider's data; it never sends or posts on our behalf. Only call routed read endpoints (`treg.people.search`, `treg.people.email.find`, `treg.companies.enrich`) or `exa.people.search`. Never call an endpoint that posts, publishes, generates media or sends messages.
+
+Per kept lead with a resolvable domain, in this order, and stop when a step misses:
+
+1. `tool_treg_call` `treg.companies.enrich` with `{ "domain": "studio.example" }`: headcount and funding for the Notes. Skip if the verdict already had funding evidence.
+2. `tool_treg_call` `treg.people.search` with `{ "company_domain": "studio.example", "title": "CTO OR technical director OR lead engineer OR founder", "limit": 3 }`. `limit` is the price dial; never raise it above 5. Pick the most technical senior person; else founder, producer or head of production.
+3. `tool_treg_call` `treg.people.email.find` with `{ "first_name": "…", "last_name": "…", "domain": "studio.example" }` only for that one person. A miss is normal for small studios; do not try other names.
+
+Record the recommended contact, title, LinkedIn URL if returned, and the `cost_usd` of each call in that lead's Notes on the card. Keep total spend under about five cents per lead and say the batch total in the summary. Never write an email into Contact Email unless the provider marked it verified; otherwise leave it in Notes. If Treg returns 402 the balance is out: report it and continue without enrichment; do not retry. If a call times out, do not repeat it: repeat only with the same `idempotency_key`, which replays free. Treg is not connected: say so once and set Enrichment Status to `"Pending"`.
 
 ## 6. Summary
 
-Date and batch id; candidates per query; qualified, needs review, dropped; created versus skipped as dupes, naming the dupes; each proposed lead with tier, one-line server angle and recommended contact; the Leads table link https://airtable.com/appZgInlaiE12FCu7/tblqqYLjWgLj87m25. End with: "Reply 'enrich today's batch' to run Apollo enrichment and email verification on the N staged contacts (about N credits)." On a zero-lead day say so plainly. Posting this digest to Slack is not available from Downy yet; the summary in chat is the record.
+Date and batch id; candidates per query; qualified, needs review, dropped; created versus skipped as dupes, naming the dupes; each proposed lead with tier, one-line server angle and recommended contact; the Leads table link https://airtable.com/appZgInlaiE12FCu7/tblqqYLjWgLj87m25. State the Treg spend for the batch. If any lead was left unenriched, end with: "Reply 'enrich today's batch' to run Treg enrichment on the N remaining leads (about $0.05 each)." On a zero-lead day say so plainly. Posting this digest to Slack is not available from Downy yet; the summary in chat is the record.

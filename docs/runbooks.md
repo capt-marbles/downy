@@ -111,7 +111,14 @@ floor, or when the type is `unclear`, the lead is `needs_review` rather than
 kept or dropped. Evaluator failures are returned per candidate as
 `unavailable`; the tool writes nothing.
 
+Contact and company enrichment goes through the Treg tool catalog, connected
+per bot as an MCP server (`https://treg.to/mcp/`). The skill limits calls to
+routed read endpoints (`treg.people.search`, `treg.people.email.find`,
+`treg.companies.enrich`, `exa.people.search`) and about five cents per lead.
+The effect gate classifies those calls `metered_read` and lets them run; a Treg
+call that would post, publish or generate is `external_effect` and blocked.
+Apollo is not used.
+
 Not yet available from Downy: the Slack digest (no Slack connection type
-exists; the chat summary is the record), unattended scheduled runs (background
-workers hold no Composio grants), and paid Apollo enrichment. Free Apollo people
-search works when an Apollo MCP server is connected to the bot.
+exists; the chat summary is the record) and unattended scheduled runs
+(background workers hold no Composio grants).

@@ -135,6 +135,57 @@ it("assumes the riskier of the top two classes when uncertain", () => {
   ).toEqual({ effect: "external_effect", uncertain: false });
 });
 
+it("allows a metered data lookup and records it as its own class", async () => {
+  const run = vi.fn<JevRunner>(async () =>
+    answer({ metered_read: 0.7, external_effect: 0.25 }, 0.55),
+  );
+  const decisions: EffectDecision[] = [];
+  const tools = gateToolSet(fixture(["tool_treg_call"]), {
+    names: ["tool_treg_call"],
+    run,
+    config,
+    onDecision: (d) => decisions.push(d),
+  });
+  // Uncertain between metered_read and external_effect still assumes the
+  // riskier reading and blocks: spending is fine, acting is not, and the
+  // model must be sure which one this is.
+  await expect(
+    tools.tool_treg_call.execute?.(
+      { endpoint_id: "treg.companies.enrich", params: { domain: "a.gg" } },
+      call,
+    ),
+  ).rejects.toThrow(/Blocked before running/);
+  expect(decisions[0]).toMatchObject({
+    state: "blocked",
+    effect: "external_effect",
+    uncertain: true,
+  });
+  // A confident metered read runs.
+  run.mockResolvedValueOnce(
+    answer({ metered_read: 0.9, read_only: 0.1 }, 0.85),
+  );
+  await expect(
+    tools.tool_treg_call.execute?.(
+      { endpoint_id: "treg.companies.enrich", params: { domain: "a.gg" } },
+      call,
+    ),
+  ).resolves.toMatchObject({ ran: "tool_treg_call" });
+  expect(decisions[1]).toMatchObject({
+    state: "allowed",
+    effect: "metered_read",
+  });
+  expect(
+    decideEffect(
+      {
+        choice: "metered_read",
+        confidence: 0.8,
+        probabilities: { metered_read: 0.9, read_only: 0.1 },
+      },
+      0.6,
+    ),
+  ).toEqual({ effect: "metered_read", uncertain: false });
+});
+
 it("fails open when the evaluator errors, times out, or answers off-menu", async () => {
   const cases: JevRunner[] = [
     vi.fn<JevRunner>(async () => {

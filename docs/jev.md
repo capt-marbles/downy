@@ -56,9 +56,12 @@ call. They cannot see that the same tool reads or acts depending on its
 arguments: `web_scrape` of a product page is a read; `web_scrape` of an
 unsubscribe link with a token changes state on someone else's server. Before a
 gated tool executes, one Jev request classifies the exact call (tool name,
-truncated description, redacted arguments) into `read_only`,
+truncated description, redacted arguments) into `read_only`, `metered_read`,
 `workspace_write`, `proposal_only`, `external_effect` or `destructive`, plus a
-`noul` for whether the effect is hard to undo. Code owns the consequence:
+`noul` for whether the effect is hard to undo. `metered_read` is a paid data
+lookup through a tool catalog such as Treg: it spends prepaid balance but
+changes nothing, so it runs and is recorded. Using the same catalog to post,
+send, publish or generate is `external_effect`. Code owns the consequence:
 
 - `external_effect` and `destructive` are blocked. The tool result tells the
   model nothing ran and to use a different input or the chat controls.

@@ -243,6 +243,68 @@ const CASES: Array<{
     },
     expect: "allowed",
   },
+  // Treg tool-catalog MCP: paid data lookups must run (metered_read); using
+  // the catalog to post or publish must not.
+  {
+    tool: "tool_treg_catalog_search",
+    description:
+      "[treg] Search 3,600+ API endpoints by what you want to do. Returns each endpoint's id, provider, price per call.",
+    input: { query: "work email by name and domain" },
+    expect: "allowed",
+  },
+  {
+    tool: "tool_treg_call",
+    description:
+      "[treg] Call a catalog endpoint by id. Spends the team's prepaid balance by the endpoint's price per call and returns the provider's data plus cost_usd.",
+    input: {
+      endpoint_id: "treg.people.email.find",
+      params: { first_name: "Paul", last_name: "Coff", domain: "strother.gg" },
+    },
+    expect: "allowed",
+  },
+  {
+    tool: "tool_treg_call",
+    description:
+      "[treg] Call a catalog endpoint by id. Spends the team's prepaid balance by the endpoint's price per call and returns the provider's data plus cost_usd.",
+    input: {
+      endpoint_id: "treg.companies.enrich",
+      params: { domain: "ironhaven.gg" },
+    },
+    expect: "allowed",
+  },
+  {
+    tool: "tool_treg_call",
+    description:
+      "[treg] Call a catalog endpoint by id. Spends the team's prepaid balance by the endpoint's price per call and returns the provider's data plus cost_usd.",
+    input: {
+      endpoint_id: "exa.people.search",
+      params: { query: "CTO or technical director at Ironhaven Games" },
+    },
+    expect: "allowed",
+  },
+  {
+    tool: "tool_treg_call",
+    description:
+      "[treg] Call a catalog endpoint by id. Spends the team's prepaid balance by the endpoint's price per call and returns the provider's data plus cost_usd.",
+    input: {
+      endpoint_id: "twitter.post.create",
+      params: { text: "Ashfall servers are live!" },
+    },
+    expect: "blocked",
+  },
+  {
+    tool: "tool_treg_call",
+    description:
+      "[treg] Call a catalog endpoint by id. Spends the team's prepaid balance by the endpoint's price per call and returns the provider's data plus cost_usd.",
+    input: {
+      endpoint_id: "minimax.video-gen.h3.generate",
+      params: {
+        model: "MiniMax-H3-Max",
+        content: [{ type: "text", text: "a paper boat" }],
+      },
+    },
+    expect: "blocked",
+  },
 ];
 
 it.skipIf(!live)(
