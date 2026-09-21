@@ -22,6 +22,7 @@ export async function runDueScheduledTasks(env: Cloudflare.Env): Promise<{
         title: task.title,
         kind: task.kind,
         brief: task.brief,
+        grants: task.grants,
       });
       await markScheduledTaskDispatched(env.DB, task, taskId, checkedAt);
       dispatched += 1;

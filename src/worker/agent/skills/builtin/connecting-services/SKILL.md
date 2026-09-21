@@ -15,4 +15,4 @@ Per service:
 - TaskFuel: CLI-only, no MCP; cannot be connected from Downy.
 - Any other service: find_tool_setup may return documentation candidates. Tell the user plainly that it cannot be connected from chat today and which services can. Do not ask them to choose a candidate.
 
-Scheduled or unattended posting and writing to connected services is not available yet; say so and offer the chat-driven version. Voice may inspect status but directs connection changes to chat controls. A verified checkpoint means identity plus a minimal read; connection does not imply every operation is enabled.
+Unattended writes to connected services run under standing approvals: propose the schedule with stage_action kind schedule_task and grants for the exact table or channel; the operator's tap approves every run. Do not ask for a daily confirmation once a schedule with grants is confirmed. Voice may inspect status but directs connection changes to chat controls. A verified checkpoint means identity plus a minimal read; connection does not imply every operation is enabled.

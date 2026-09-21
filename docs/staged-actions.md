@@ -74,3 +74,22 @@ instructions repeat that a spoken yes does not confirm.
 - Sending email, CRM writes, publishing. The kinds above are the only
   executors; adding one means adding an executor with the same
   confirmed/failed/unknown contract, not widening a payload.
+
+## Standing approvals for scheduled runs
+
+A `schedule_task` proposal may carry `grants`: `airtable_create_records` for one
+base and table, or `slack_post_message` for one channel (at most five). The card
+lists them under "Standing approval for every run", so the operator's tap
+approves the schedule and those actions together. The plain `schedule_task`
+tool never accepts grants; only a confirmed card can create them.
+
+A scheduled worker whose task carries grants gets `stage_action`,
+`list_staged_actions`, and read tools for the approved services
+(`airtable_records` reads, `slack_channels`). Its proposals are created with
+`source: "scheduled"`. When a grant covers the proposal, exactly the same base
+and table or the same channel, the parent confirms it at once with
+`confirmedBy: { scheduleId, scheduleTitle }`, runs it through the ordinary
+single-flight executor, and posts a receipt that begins "Run under your
+standing approval for …". A proposal no grant covers stays a card for the
+operator. Grants are stored on the schedule (`grants_json`) and copied onto
+each run's background-task record; a worker never widens its own approvals.

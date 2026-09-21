@@ -3,9 +3,11 @@ import {
   cancelledStagedAction,
   confirmedStagedAction,
   finishedStagedAction,
+  grantConfirmedStagedAction,
   isStagedActionOpen,
   newStagedAction,
   stagedActionChatText,
+  stagedActionConfirmationLabel,
   StagedActionPayloadSchema,
   StagedActionSchema,
 } from "./staged-actions";
@@ -210,4 +212,78 @@ it("describes a Slack post by channel label and shows the exact text", () => {
   expect(text).toContain("Slack post to #agent-leads");
   expect(text).toContain("batch downy-exa-2026-09-20");
   expect(text).toContain("not yet run");
+});
+
+it("shows the standing approvals on a schedule card and confirms scheduled proposals under them", () => {
+  const schedule = StagedActionPayloadSchema.parse({
+    kind: "schedule_task",
+    scheduleTask: {
+      title: "Daily lead sourcing",
+      kind: "lead-sourcing",
+      brief: "Read the gameye-lead-sourcing skill and run it end to end.",
+      scheduleType: "daily",
+      timeOfDay: "10:00",
+      timezone: "America/Chicago",
+      grants: [
+        {
+          kind: "slack_post_message",
+          channel: "C0A1NHZ5QF2",
+          channelLabel: "#agent-leads",
+        },
+      ],
+    },
+  });
+  const text = stagedActionChatText(
+    newStagedAction(ID, REV, "chat", schedule, 1_000),
+  );
+  expect(text).toContain("Standing approval for every run:");
+  expect(text).toContain("post to Slack #agent-leads");
+
+  const post = newStagedAction(
+    ID,
+    REV,
+    "scheduled",
+    {
+      kind: "slack_post_message",
+      slackPostMessage: {
+        channel: "C0A1NHZ5QF2",
+        channelLabel: "#agent-leads",
+        text: "digest",
+      },
+    },
+    1_000,
+  );
+  expect(post.confirmedBy).toBeNull();
+  const confirmed = grantConfirmedStagedAction(
+    post,
+    { id: "sched-1", title: "Daily lead sourcing" },
+    OP,
+    2_000,
+  );
+  expect(confirmed).toMatchObject({
+    state: "executing",
+    operationId: OP,
+    confirmedRevision: REV,
+    confirmedBy: {
+      scheduleId: "sched-1",
+      scheduleTitle: "Daily lead sourcing",
+    },
+  });
+  expect(stagedActionConfirmationLabel(confirmed)).toContain(
+    "standing approval for “Daily lead sourcing”",
+  );
+  expect(
+    stagedActionConfirmationLabel(confirmedStagedAction(post, REV, OP, 2_000)),
+  ).toBe("Confirmed");
+  expect(() =>
+    grantConfirmedStagedAction(
+      confirmed,
+      { id: "sched-1", title: "x" },
+      OP,
+      3_000,
+    ),
+  ).toThrow(/cannot be confirmed again/);
+  // Records written before confirmedBy existed still parse.
+  const { confirmedBy: _omit, ...legacy } = post;
+  expect(StagedActionSchema.parse(legacy).confirmedBy).toBeNull();
 });

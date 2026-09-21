@@ -15,7 +15,6 @@ it("renders code-owned truth about what can be connected", () => {
   expect(section).toContain("**Slack**: secure card in chat");
   expect(section).toContain("**TaskFuel**: cannot be connected");
   expect(section).toContain("connect_mcp_server (https://treg.to/mcp/)");
-  expect(section).toContain(
-    "unattended posting or writing to a connected service is not available",
-  );
+  expect(section).toContain("standing approvals");
+  expect(section).toContain("no per-run confirmation is needed");
 });

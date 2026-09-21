@@ -60,3 +60,12 @@ Record the recommended contact, title, LinkedIn URL if returned, and the `cost_u
 ## 6. Summary
 
 Date and batch id; candidates per query; qualified, needs review, dropped; created versus skipped as dupes, naming the dupes; each proposed lead with tier, one-line server angle and recommended contact; the Leads table link https://airtable.com/appZgInlaiE12FCu7/tblqqYLjWgLj87m25. State the Treg spend for the batch. If any lead was left unenriched, end with: "Reply 'enrich today's batch' to run Treg enrichment on the N remaining leads (about $0.05 each)." On a zero-lead day say so plainly. If Slack is connected (slack_channels is available), also propose the same summary as a stage_action card of kind slack_post_message to the operator's lead channel (find its id with slack_channels; #agent-leads unless told otherwise), headed "✅ Gameye lead sourcing · batch downy-exa-YYYY-MM-DD". Post only after the Airtable card has been confirmed, so the digest reports what was actually created. If Slack is not connected, the summary in chat is the record.
+
+## 7. Scheduling this runbook
+
+When asked to run this daily, propose the schedule with stage_action kind schedule_task, never the plain schedule_task tool. Payload: title "Daily Gameye lead sourcing", kind "lead-sourcing", scheduleType "daily", timeOfDay and timezone as asked (default 10:00 America/Chicago), brief "Read the gameye-lead-sourcing skill and run it end to end. Standing approvals cover the Airtable Leads table and the Slack lead channel; proposals matching them run immediately.", and grants:
+
+- `{ "kind": "airtable_create_records", "baseId": "appZgInlaiE12FCu7", "tableId": "tblqqYLjWgLj87m25", "tableLabel": "Leads" }`
+- `{ "kind": "slack_post_message", "channel": "<channel id from slack_channels>", "channelLabel": "#agent-leads" }` when Slack is connected
+
+The operator's tap on that card is the approval for every run; do not ask for a daily confirmation afterwards. In a scheduled run, use the channel id from the standing approval in the Slack proposal so it matches; a proposal that does not match a grant becomes a card the operator must tap.

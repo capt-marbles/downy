@@ -133,6 +133,7 @@ call that would post, publish or generate is `external_effect` and blocked.
 Apollo is not used.
 
 With Slack connected, the skill proposes the digest as a `slack_post_message`
-card after the Airtable card is confirmed. Not yet available: unattended
-scheduled runs (background workers hold no Composio grants), so the daily
-cadence still needs a per-task grant model.
+card after the Airtable card is confirmed. For the daily cadence the skill
+proposes a `schedule_task` card carrying standing approvals for the Leads table
+and the lead channel; once the operator confirms it, each run creates records
+and posts the digest without a per-run tap (see docs/staged-actions.md).

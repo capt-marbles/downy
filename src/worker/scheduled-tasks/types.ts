@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StandingGrantsSchema } from "../../lib/standing-grants";
 
 export const ScheduleTypeSchema = z.enum(["interval", "daily", "weekly"]);
 export type ScheduleType = z.infer<typeof ScheduleTypeSchema>;
@@ -29,6 +30,8 @@ export const ScheduledTaskSchema = z.object({
   runCount: z.number(),
   enabled: z.boolean(),
   lastError: z.string().nullable(),
+  // Standing approvals granted when the operator confirmed the schedule card.
+  grants: StandingGrantsSchema.default([]),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -54,6 +57,7 @@ export const CreateScheduledTaskInputSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6).optional(),
   nextDueAt: z.number().int().positive().optional(),
   enabled: z.boolean().optional(),
+  grants: StandingGrantsSchema.optional(),
 });
 export type CreateScheduledTaskInput = z.input<
   typeof CreateScheduledTaskInputSchema

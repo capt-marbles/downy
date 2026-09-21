@@ -1,4 +1,12 @@
 import { createRequestLocalHandsActionTool } from "./tools/local-hands";
+import { tool } from "ai";
+import {
+  createListStagedActionsTool,
+  createStageActionTool,
+} from "./tools/staged-actions";
+import type { StandingGrant } from "../../lib/standing-grants";
+import { AirtableReadActionSchema } from "../../lib/airtable-connect";
+import { SlackReadActionSchema } from "../../lib/slack-connect";
 import { Think } from "@cloudflare/think";
 import type { Workspace } from "@cloudflare/shell";
 import { getAgentByName } from "agents";
@@ -34,6 +42,10 @@ type BackgroundTaskMeta = {
   brief: string;
   // "read-only" workers are dispatched from voice: no writes, MCP, or hands.
   access?: "full" | "read-only";
+  // Scheduled runs carry the operator's standing approvals from the card.
+  scheduleId?: string;
+  scheduleTitle?: string;
+  grants?: StandingGrant[];
   startedAt: number;
 };
 
@@ -209,6 +221,7 @@ export class ChildAgent extends Think {
         scheduled: meta.kind.startsWith("scheduled:"),
       }),
       ...mcpTools,
+      ...this.#grantedTools(meta, parent),
     };
     const gate = (context: EffectGateContext): EffectGateDeps => ({
       run: (request) => runJev(this.env.AI, request),
@@ -243,6 +256,57 @@ export class ChildAgent extends Think {
       activeTools,
       model: getModelFor(this.env, aiProvider),
     };
+  }
+
+  /**
+   * Tools a scheduled run gets from its standing approvals. Reads of the
+   * approved service go through the parent under the same schema as chat;
+   * writes are proposals the parent confirms itself when a grant covers them.
+   * A task without grants gets none of these.
+   */
+  #grantedTools(
+    meta: BackgroundTaskMeta,
+    parent: DurableObjectStub<DownyAgent>,
+  ): ToolSet {
+    const grants = meta.grants ?? [];
+    if (!grants.length) return {};
+    const tools: ToolSet = {
+      stage_action: createStageActionTool({
+        stage: (payload) => parent.stageActionForChild(meta.taskId, payload),
+      }),
+      list_staged_actions: createListStagedActionsTool({
+        list: () => parent.listStagedActions(),
+      }),
+    };
+    if (grants.some((grant) => grant.kind === "airtable_create_records"))
+      tools.airtable_records = tool({
+        description:
+          "Read the Airtable base this scheduled task is approved for: list bases, get a schema, list records with filterByFormula. Reads only; propose new records with stage_action kind airtable_create_records, which runs immediately when it matches this task's standing approval.",
+        inputSchema: AirtableReadActionSchema,
+        execute: async (input) =>
+          JSON.parse(
+            await parent.executeConnectedReadForChild(
+              meta.taskId,
+              "airtable",
+              input,
+            ),
+          ) as unknown,
+      });
+    if (grants.some((grant) => grant.kind === "slack_post_message"))
+      tools.slack_channels = tool({
+        description:
+          "List Slack channels for this bot's workspace. Reads only; propose a post with stage_action kind slack_post_message, which runs immediately when it matches this task's standing approval.",
+        inputSchema: SlackReadActionSchema,
+        execute: async (input) =>
+          JSON.parse(
+            await parent.executeConnectedReadForChild(
+              meta.taskId,
+              "slack",
+              input,
+            ),
+          ) as unknown,
+      });
+    return tools;
   }
 
   // Persist (or clear) the latest `todo_write` plan on this child's own DO

@@ -17,6 +17,7 @@ import {
 import {
   AirtableActionSchema,
   AirtableCreateRecordsResultSchema,
+  AirtableReadActionSchema,
   isAirtableConnectRequest,
   type AirtableCreateRecords,
   type AirtableReadAction,
@@ -29,6 +30,11 @@ import {
   type GmailAction,
   type GmailConnectStatus,
 } from "../../lib/gmail-connect";
+import {
+  describeGrant,
+  grantCovers,
+  type StandingGrant,
+} from "../../lib/standing-grants";
 import {
   SlackPostResultSchema,
   SlackReadActionSchema,
@@ -134,6 +140,7 @@ import {
 import { readUserFile } from "../db/profile";
 import {
   BACKGROUND_TASK_UPDATED_TYPE,
+  BackgroundTaskRecordSchema,
   type BackgroundTaskRecord,
 } from "./background-task-types";
 import { ignoreClientCancels } from "./ignore-client-cancels";
@@ -1664,14 +1671,15 @@ export class DownyAgent extends Think {
     const id = `staged-action-receipt:${action.id}:${action.state}`;
     if (this.session.getMessage(id)) return;
     const title = stagedActionChatText(action).split("\n")[0];
+    const by = stagedActionConfirmationLabel(action);
     const text =
       action.state === "cancelled"
         ? `Cancelled: ${title}. Nothing ran.`
         : action.state === "succeeded"
-          ? `Confirmed and done: ${title}. ${action.result?.receipt ?? ""}${action.result?.url ? ` [Open](${action.result.url})` : ""}`
+          ? `${by} and done: ${title}. ${action.result?.receipt ?? ""}${action.result?.url ? ` [Open](${action.result.url})` : ""}`
           : action.state === "failed"
-            ? `Confirmed, but it failed: ${title}. ${action.error ?? ""}`
-            : `Confirmed, outcome unknown: ${title}. ${action.error ?? ""}`;
+            ? `${by}, but it failed: ${title}. ${action.error ?? ""}`
+            : `${by}, outcome unknown: ${title}. ${action.error ?? ""}`;
     await this.session.appendMessage({
       id,
       role: "assistant",
@@ -2337,15 +2345,23 @@ export class DownyAgent extends Think {
     title: string;
     kind: string;
     brief: string;
+    grants?: StandingGrant[];
   }): Promise<{ taskId: string }> {
     const taskId = crypto.randomUUID();
-    const brief = `Scheduled task: ${args.title}\nSchedule id: ${args.scheduleId}\n\n${args.brief}`;
+    const grants = args.grants ?? [];
+    const approvals = grants.length
+      ? `\n\nStanding approvals for this run (confirmed by the operator on the schedule card): ${grants.map(describeGrant).join("; ")}. A stage_action proposal that matches one of these executes immediately and returns its receipt; anything else becomes a card the operator must tap.`
+      : "";
+    const brief = `Scheduled task: ${args.title}\nSchedule id: ${args.scheduleId}${approvals}\n\n${args.brief}`;
     const record: BackgroundTaskRecord = {
       id: taskId,
       kind: `scheduled:${args.kind}`,
       brief,
       status: "running",
       spawnedAt: Date.now(),
+      scheduleId: args.scheduleId,
+      scheduleTitle: args.title,
+      ...(grants.length ? { grants } : {}),
     };
     await this.ctx.storage.put(backgroundTaskKey(taskId), record);
     this.#broadcastBackgroundTaskUpdate(record);
@@ -2355,8 +2371,86 @@ export class DownyAgent extends Think {
       taskId,
       kind: record.kind,
       brief,
+      scheduleId: args.scheduleId,
+      scheduleTitle: args.title,
+      grants,
     });
     return { taskId };
+  }
+
+  async #scheduledTaskRecord(taskId: string) {
+    const record = BackgroundTaskRecordSchema.safeParse(
+      await this.ctx.storage.get(backgroundTaskKey(taskId)),
+    );
+    if (!record.success || !record.data.scheduleId)
+      throw new Error("Unknown scheduled task");
+    return record.data;
+  }
+
+  /**
+   * Connected-service reads for a scheduled worker. Only tasks the operator
+   * scheduled with a standing grant for that service may read it; the read
+   * itself runs through the same grant owner and schema as the chat tool.
+   */
+  async executeConnectedReadForChild(
+    taskId: string,
+    service: "airtable" | "slack",
+    input: unknown,
+  ): Promise<string> {
+    const record = await this.#scheduledTaskRecord(taskId);
+    const kind =
+      service === "airtable" ? "airtable_create_records" : "slack_post_message";
+    if (!record.grants?.some((grant) => grant.kind === kind))
+      throw new Error(`This scheduled task has no ${service} approval`);
+    if (service === "airtable") {
+      const owner = await this.ctx.storage.get<string>("airtable-owner");
+      if (!owner) throw new Error("Airtable is not connected for this bot");
+      return (await getAgentStub(this.env, owner)).executeComposioAirtable(
+        AirtableReadActionSchema.parse(input),
+      );
+    }
+    const owner = await this.ctx.storage.get<string>("slack-owner");
+    if (!owner) throw new Error("Slack is not connected for this bot");
+    return JSON.stringify(
+      await (
+        await getAgentStub(this.env, owner)
+      ).executeComposioSlack(SlackReadActionSchema.parse(input)),
+    );
+  }
+
+  /**
+   * A scheduled worker's proposal. Covered by a standing grant on its
+   * schedule: confirmed and executed at once, with a receipt naming the
+   * approval. Otherwise it stays a card for the operator, like any other.
+   */
+  async stageActionForChild(
+    taskId: string,
+    payload: StagedActionPayload,
+  ): Promise<StagedAction> {
+    const record = await this.#scheduledTaskRecord(taskId);
+    const action = await this.createStagedAction(payload, "scheduled");
+    const covered = (record.grants ?? []).some((grant) =>
+      grantCovers(grant, payload),
+    );
+    if (!covered) return action;
+    const decided = await this.ctx.storage.transaction(async (txn) => {
+      const current = StagedActionSchema.parse(
+        await txn.get(stagedActionKey(action.id)),
+      );
+      const confirmed = grantConfirmedStagedAction(
+        current,
+        { id: record.scheduleId ?? "", title: record.scheduleTitle ?? "" },
+        crypto.randomUUID(),
+        Date.now(),
+      );
+      await txn.put(stagedActionKey(action.id), confirmed);
+      return confirmed;
+    });
+    const run = this.#runStagedAction(decided).finally(() => {
+      this.#stagedActionRuns.delete(action.id);
+    });
+    this.#stagedActionRuns.set(action.id, run);
+    return run;
   }
 
   // ChildAgent calls these over RPC — a child can't open its own MCP
@@ -3462,8 +3556,10 @@ import {
   cancelledStagedAction,
   confirmedStagedAction,
   finishedStagedAction,
+  grantConfirmedStagedAction,
   newStagedAction,
   stagedActionChatText,
+  stagedActionConfirmationLabel,
   StagedActionError,
   StagedActionSchema,
   type StagedAction,

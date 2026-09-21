@@ -26,6 +26,7 @@ type ScheduledTaskRow = {
   run_count: number;
   enabled: number;
   last_error: string | null;
+  grants_json: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -48,6 +49,7 @@ function rowToTask(row: ScheduledTaskRow): ScheduledTask {
     runCount: row.run_count,
     enabled: row.enabled !== 0,
     lastError: row.last_error,
+    grants: row.grants_json ? (JSON.parse(row.grants_json) as unknown) : [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
@@ -69,8 +71,8 @@ export async function createScheduledTask(
     .prepare(
       `INSERT INTO scheduled_tasks (
         id, agent_slug, title, kind, brief, schedule_type, interval_minutes,
-        time_of_day, day_of_week, next_due_at, enabled, created_at, updated_at, timezone
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        time_of_day, day_of_week, next_due_at, enabled, created_at, updated_at, timezone, grants_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -87,6 +89,7 @@ export async function createScheduledTask(
       now,
       now,
       parsed.timezone,
+      parsed.grants?.length ? JSON.stringify(parsed.grants) : null,
     )
     .run();
   const task = await getScheduledTask(db, id);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StandingGrantsSchema } from "../../lib/standing-grants";
 
 export const BackgroundTaskRecordSchema = z.object({
   id: z.string(),
@@ -11,6 +12,10 @@ export const BackgroundTaskRecordSchema = z.object({
   spawnedAt: z.number(),
   completedAt: z.number().optional(),
   artifactPath: z.string().optional(),
+  // Scheduled runs: the schedule and the standing approvals it carries.
+  scheduleId: z.string().optional(),
+  scheduleTitle: z.string().optional(),
+  grants: StandingGrantsSchema.optional(),
 });
 export type BackgroundTaskRecord = z.infer<typeof BackgroundTaskRecordSchema>;
 

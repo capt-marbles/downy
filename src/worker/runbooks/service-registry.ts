@@ -111,6 +111,6 @@ export function renderConnectionsSection(): string {
     "",
     ...lines,
     "",
-    "Scheduled and background workers hold no account access: unattended posting or writing to a connected service is not available yet. Say so when asked for it, and offer the chat-driven version instead.",
+    "Unattended runs work through standing approvals. To schedule a task that writes to a connected service (create Airtable records, post to Slack), propose it with stage_action kind schedule_task and include grants naming the exact base and table or channel; the operator's tap on that card approves those actions for every run, so no per-run confirmation is needed. In the run, a proposal that matches a grant executes immediately and leaves a receipt naming the approval. A scheduled task without grants can only read and write the workspace. Never use the plain schedule_task tool for a task that needs connected writes.",
   ].join("\n");
 }

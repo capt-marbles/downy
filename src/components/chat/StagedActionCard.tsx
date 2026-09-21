@@ -96,7 +96,13 @@ export default function StagedActionCard({
       <p className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-primary">
         <ClipboardCheck size={14} />
         Proposed {STAGED_ACTION_LABELS[action.payload.kind]}
-        {action.source === "voice" ? " · from your call" : ""}
+        {action.source === "voice"
+          ? " · from your call"
+          : action.source === "scheduled"
+            ? action.confirmedBy && action.confirmedBy !== "operator"
+              ? ` · ran under your standing approval for “${action.confirmedBy.scheduleTitle}”`
+              : " · from a scheduled run, needs your tap"
+            : ""}
       </p>
       <h2 className="text-base font-semibold">{title}</h2>
       <dl className="mt-3 grid min-w-0 gap-2 text-sm">
