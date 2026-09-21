@@ -18,6 +18,7 @@ import VoiceCallPanel from "./VoiceCallPanel";
 import BrowserResearchPanel from "./BrowserResearchPanel";
 import MessageView, { turnHasSideEffects } from "./MessageView";
 import TodoList from "./TodoList";
+import TurnReceipts from "./TurnReceipts";
 import VpcConnectivityWarning from "./VpcConnectivityWarning";
 
 // Short status label for the "agent is working" chip above the input. The
@@ -436,6 +437,7 @@ export default function ChatPage() {
 
         <div className="mx-auto w-full max-w-5xl flex-shrink-0 px-4 pb-4">
           {showVpcWarning ? <VpcConnectivityWarning /> : null}
+          <TurnReceipts messages={messages} working={isWorking} />
           {isWorking ? <TodoList messages={messages} /> : null}
           {currentActivity ? (
             <div className="px-3 pb-1 text-[11px] italic text-base-content/50">

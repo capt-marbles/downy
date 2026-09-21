@@ -452,12 +452,19 @@ export class DownyAgent extends Think {
     };
   }
 
+  // A todo_write plan is a per-turn checklist. It is cleared when the turn
+  // ends unless the turn dispatched a background task, in which case the
+  // plan follows that task until the worker reports back.
+  #dispatchedInTurn = false;
+
   #backgroundTaskDispatchDeps(): BackgroundTaskDispatchDeps {
     return {
       namespace: this.env.ChildAgent,
       parentName: this.name,
-      putRecord: (id, record) =>
-        this.ctx.storage.put(backgroundTaskKey(id), record),
+      putRecord: (id, record) => {
+        this.#dispatchedInTurn = true;
+        return this.ctx.storage.put(backgroundTaskKey(id), record);
+      },
       broadcastUpdate: (record) => {
         this.#broadcastBackgroundTaskUpdate(record);
       },
@@ -598,6 +605,7 @@ export class DownyAgent extends Think {
     this.#runId =
       isVoiceTurn && latestUser ? latestUser.id : crypto.randomUUID();
     this.#runKind = isVoiceTurn ? "voice" : "chat";
+    this.#dispatchedInTurn = false;
     // Voice gets a compact prompt: identity, skills, connections and plan,
     // without the chat preamble, tool guide, peers or bootstrap.
     const prompt = isVoiceTurn
@@ -957,6 +965,12 @@ export class DownyAgent extends Think {
       assistantReasoningLength: assistantState.reasoningLength,
       warning,
     });
+    if (
+      !result.continuation &&
+      result.status !== "aborted" &&
+      !this.#dispatchedInTurn
+    )
+      void this.#setActivePlan(null);
     void this.#recordTurnDiagnostic({
       requestId: result.requestId,
       status: result.status,

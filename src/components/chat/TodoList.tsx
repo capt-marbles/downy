@@ -27,13 +27,19 @@ const TodoOutputSchema = z.object({
       status: TodoStatusSchema,
     }),
   ),
+  // A rejected list comes back with its error alongside the items.
+  error: z.undefined().optional(),
 });
 type TodoOutput = z.infer<typeof TodoOutputSchema>;
 
+// Only the current turn's list: a checklist an earlier turn left unfinished
+// is not this turn's plan, and a later turn cannot be working through it.
 function findLatestTodoOutput(messages: UIMessage[]): TodoOutput | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (!msg || msg.role !== "assistant") continue;
+    if (!msg) continue;
+    if (msg.role === "user") return null;
+    if (msg.role !== "assistant") continue;
     const parts = msg.parts;
     for (let j = parts.length - 1; j >= 0; j--) {
       const part = parts[j] as {

@@ -91,7 +91,7 @@ Shared parent/child tools are built in `src/worker/agent/tool-registry.ts`.
 - `read_peer_agent` reads another agent's workspace or identity files via DO-to-DO RPC.
 - Skill tools: `list_skills`, `read_skill`, `list_skill_files` for inspection; `create_skill`, `update_skill`, `delete_skill` for authoring.
 - File tools: fixed `write`, `move`, `copy`, plus the protected `read`/`edit`/`delete` overrides that block `identity/USER.md` writes from drifting into R2.
-- `todo_write` persists the active checklist into DO storage; it's surfaced back into the next turn's prompt.
+- `todo_write` persists the active checklist into DO storage and into the current turn's prompt. It is a per-turn scratchpad: the agent clears it when the turn ends unless the turn dispatched a background task, and the chat box shows it only when the current turn wrote it. The default progress box is the receipts strip, one row per tool call of the current turn derived from tool results, which cannot go stale or claim work that did not run.
 - Think auto-registers `list`/`find`/`grep` and the per-agent workspace tools off each agent's `workspace` property.
 
 Parent-only tools live on `DownyAgent`:
