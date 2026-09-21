@@ -35,10 +35,10 @@ Worked example, Tier B: signal "online co-op up to four, playtest sign-ups open,
 **Email found** (Contact Email on the Lead, or Email on the linked Contact, marked verified in Notes or entered by the operator): first search Gmail with `gmail_email` `search` `in:drafts to:<email>` and `in:sent to:<email>`; an existing draft or sent message means stop and report it. Then `gmail_email` `create_draft` to that address, subject = variant A's subject, body holding both variants:
 
 ```
-===== VARIANT A (blunt) — subject: <A subject> =====
+===== VARIANT A (blunt), subject: <A subject> =====
 <A body>
 
-===== VARIANT B (contrarian) — subject: <B subject> =====
+===== VARIANT B (contrarian), subject: <B subject> =====
 <B body>
 
 (keep one, delete the other and these markers, then send)
@@ -62,7 +62,7 @@ Then propose the alert with `stage_action` kind `slack_post_message` to the oper
 Email found:
 
 ```
-<@UJB0175DM> :email: *Draft ready — <Studio>*  (<Tier> · fit <score>)
+<@UJB0175DM> :email: *Draft ready: <Studio>*  (<Tier> · fit <score>)
 *Contact:* <Name>, <Title>  <email>
 *Signal:* <one line + source>
 Email draft (A/B) is in your Gmail Drafts. *CRM:* https://airtable.com/appZgInlaiE12FCu7/tblqqYLjWgLj87m25/<recId>
@@ -71,10 +71,10 @@ Email draft (A/B) is in your Gmail Drafts. *CRM:* https://airtable.com/appZgInla
 No email:
 
 ```
-<@UJB0175DM> :speech_balloon: *DM to send — <Studio>*  (<Tier> · fit <score>)
+<@UJB0175DM> :speech_balloon: *DM to send: <Studio>*  (<Tier> · fit <score>)
 *Signal:* <one line + source>
 *LinkedIn:* <url>   *X:* <@handle / url>
-*— DM to send —*
+*DM to send:*
 <LinkedIn or X DM text>
 *CRM:* https://airtable.com/appZgInlaiE12FCu7/tblqqYLjWgLj87m25/<recId>
 ```
