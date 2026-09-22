@@ -166,17 +166,87 @@ it("shows a sound activation control when autoplay is blocked", async () => {
   expect(view.needsPlayback).toBe(false);
 });
 
-it("ends instead of listening in a background tab or reconnecting on its own", async () => {
+it("pauses in a background tab, resumes on return, and hangs up only after the grace period", async () => {
   await client.start();
   documentEvents.hidden = true;
   documentEvents.dispatchEvent(new Event("visibilitychange"));
   await vi.advanceTimersByTimeAsync(0);
+  expect(view.state).toBe("live");
+  expect(view.paused).toBe(true);
+  expect(view.muted).toBe(true);
+  expect(track.enabled).toBe(false);
+  expect(track.stop).not.toHaveBeenCalled();
+  documentEvents.hidden = false;
+  documentEvents.dispatchEvent(new Event("visibilitychange"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(view.paused).toBe(false);
+  expect(view.muted).toBe(false);
+  expect(track.enabled).toBe(true);
+  // A manual mute survives a background trip.
+  client.mute();
+  documentEvents.hidden = true;
+  documentEvents.dispatchEvent(new Event("visibilitychange"));
+  documentEvents.hidden = false;
+  documentEvents.dispatchEvent(new Event("visibilitychange"));
+  expect(view.muted).toBe(true);
+  client.mute();
+  // Three minutes hidden ends the call; nothing reconnects on its own.
+  documentEvents.hidden = true;
+  documentEvents.dispatchEvent(new Event("visibilitychange"));
+  await vi.advanceTimersByTimeAsync(3 * 60_000);
   expect(view.state).toBe("ended");
+  expect(view.canReconnect).toBe(true);
   expect(track.stop).toHaveBeenCalled();
   documentEvents.hidden = false;
   documentEvents.dispatchEvent(new Event("visibilitychange"));
   await vi.advanceTimersByTimeAsync(60_000);
   expect(Peer.instances).toHaveLength(1);
+});
+
+it("rides out a transient WebRTC disconnect and tolerates a few missed heartbeats", async () => {
+  await client.start();
+  const peer = Peer.instances[0];
+  peer.connectionState = "disconnected";
+  peer.dispatchEvent(new Event("connectionstatechange"));
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(view.state).toBe("live");
+  peer.connectionState = "connected";
+  peer.dispatchEvent(new Event("connectionstatechange"));
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(view.state).toBe("live");
+  // Three failed heartbeats stay inside the server lease; the fourth ends it.
+  let failures = 0;
+  fetcher.mockImplementation(async (_url: string, options?: RequestInit) => {
+    if (typeof options?.body !== "string")
+      return Response.json({ configured: true });
+    const body = VoiceCommandSchema.parse(JSON.parse(options.body));
+    if (body.command === "heartbeat") {
+      failures += 1;
+      throw new Error("offline");
+    }
+    return Response.json({
+      callId: body.callId,
+      state: body.command === "end" ? "closed" : "active",
+      startedAt: Date.now(),
+      expiresAt: Date.now() + 900_000,
+      reason: null,
+      working: false,
+      ...(body.command === "start" ? { sdp: "answer" } : {}),
+    });
+  });
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(failures).toBe(3);
+  expect(view.state).toBe("live");
+  await vi.advanceTimersByTimeAsync(10_000 + 6_000);
+  expect(view.state).toBe("ended");
+  expect(view.canReconnect).toBe(true);
+  // A disconnect that never recovers ends the call after the grace period.
+  await client.start();
+  const second = Peer.instances[1];
+  second.connectionState = "disconnected";
+  second.dispatchEvent(new Event("connectionstatechange"));
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(view.state).toBe("ended");
 });
 
 it("stops the mic immediately but keeps WebRTC open until the final close event", async () => {

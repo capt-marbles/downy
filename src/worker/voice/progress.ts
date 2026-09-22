@@ -98,3 +98,38 @@ export function voiceChecklistNote(outstanding: string[]): string | null {
   if (!outstanding.length) return null;
   return `working through ${outstanding.length} request${outstanding.length === 1 ? "" : "s"}: ${outstanding.map((t, i) => `${i + 1}) ${t.slice(0, 60)}`).join("; ")}`;
 }
+
+/**
+ * Coalesces progress notes per lookup (or per call, for notes with no
+ * delegation) and flushes them as one bounded commentary after a short
+ * delay, so the voice hears what is happening without a flood of events.
+ */
+export class ProgressBuffer {
+  private pending = new Map<string, string[]>();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  constructor(
+    private readonly flush: (delegationId: string | null, text: string) => void,
+    private readonly delayMs = 1500,
+  ) {}
+  add(delegationId: string | null, note: string): void {
+    const key = delegationId ?? "";
+    const notes = this.pending.get(key) ?? [];
+    if (notes.length < 8) notes.push(note.slice(0, 200));
+    this.pending.set(key, notes);
+    this.timer ??= setTimeout(() => {
+      this.timer = undefined;
+      this.drain();
+    }, this.delayMs);
+  }
+  drain(): void {
+    for (const [key, notes] of this.pending)
+      this.flush(
+        key || null,
+        `Backend progress (not a result; the receipt comes separately): ${notes.join("; ")}.`,
+      );
+    this.pending.clear();
+  }
+  clear(): void {
+    this.pending.clear();
+  }
+}

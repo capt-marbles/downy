@@ -29,6 +29,7 @@ export default function VoiceCallPanel({
     error: null,
     maxMinutes: null,
     canReconnect: false,
+    paused: false,
   });
   const [now, setNow] = useState(Date.now());
   const config = useQuery({
@@ -84,11 +85,13 @@ export default function VoiceCallPanel({
                 ? "Connecting call…"
                 : view.state === "ending"
                   ? "Ending call…"
-                  : view.muted
-                    ? "Microphone muted"
-                    : view.working
-                      ? "Downy is looking that up · keep talking"
-                      : "Call connected · listening"}{" "}
+                  : view.paused
+                    ? "Paused while in the background"
+                    : view.muted
+                      ? "Microphone muted"
+                      : view.working
+                        ? "Downy is looking that up · keep talking"
+                        : "Call connected · listening"}{" "}
               <span className="text-base-content/50">{clock}</span>
             </span>
             <button
@@ -142,8 +145,8 @@ export default function VoiceCallPanel({
       {active ? (
         <p className="mt-1 text-xs text-base-content/50">
           OpenAI voice · captions saved in chat, no Downy audio recordings.
-          Calls end when you leave this screen. Changes and approvals stay in
-          chat.
+          Switching apps pauses the call for up to three minutes; come back to
+          resume. Changes and approvals stay in chat.
         </p>
       ) : null}
       {view.needsPlayback && active ? (

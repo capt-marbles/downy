@@ -18,7 +18,13 @@ export interface CallView {
   maxMinutes: number | null;
   /** The last call ended by an interruption; a tap may start a new one. */
   canReconnect: boolean;
+  /** Muted automatically while the app is in the background. */
+  paused: boolean;
 }
+
+const HIDDEN_GRACE_MS = 3 * 60_000;
+const DISCONNECT_GRACE_MS = 15_000;
+const HEARTBEAT_FAILURE_LIMIT = 4;
 
 const initialView = (): CallView => ({
   state: "idle",
@@ -30,6 +36,7 @@ const initialView = (): CallView => ({
   error: null,
   maxMinutes: null,
   canReconnect: false,
+  paused: false,
 });
 
 // Own all browser resources in one disposable object. React unmount, pagehide,
@@ -52,8 +59,36 @@ export class VoiceClient {
   private readonly onPageHide = () => {
     void this.end();
   };
+  // Switching apps or locking the phone hides the page. Mute instead of
+  // hanging up, keep heartbeats running, and hang up only after a bounded
+  // grace period so a glance at another app does not cost the call.
+  private hiddenTimer?: ReturnType<typeof setTimeout>;
+  private autoMuted = false;
+  private disconnectTimer?: ReturnType<typeof setTimeout>;
+  private heartbeatFailures = 0;
   private readonly onVisibility = () => {
-    if (document.hidden) void this.end();
+    if (document.hidden) {
+      if (this.view.state !== "live") return;
+      if (!this.view.muted) {
+        this.mute();
+        this.autoMuted = true;
+      }
+      this.update({ paused: true });
+      this.hiddenTimer ??= setTimeout(() => {
+        this.hiddenTimer = undefined;
+        void this.end(
+          "The call ended after three minutes in the background. Reconnect to start a new one.",
+          true,
+        );
+      }, HIDDEN_GRACE_MS);
+      return;
+    }
+    clearTimeout(this.hiddenTimer);
+    this.hiddenTimer = undefined;
+    if (this.view.state !== "live") return;
+    if (this.autoMuted && this.view.muted) this.mute();
+    this.autoMuted = false;
+    this.update({ paused: false });
   };
 
   constructor(
@@ -159,13 +194,34 @@ export class VoiceClient {
         void this.play();
       });
       pc.addEventListener("connectionstatechange", () => {
-        if (
-          pc.connectionState === "failed" ||
-          pc.connectionState === "disconnected"
-        )
+        if (generation !== this.generation) return;
+        if (pc.connectionState === "failed") {
+          clearTimeout(this.disconnectTimer);
           void this.interrupt(
             "Connection interrupted. Reconnect to start a new call.",
           );
+          return;
+        }
+        // "disconnected" is often transient (a network handoff on a phone);
+        // ICE usually recovers within seconds. Give it a bounded chance.
+        if (pc.connectionState === "disconnected") {
+          this.disconnectTimer ??= setTimeout(() => {
+            this.disconnectTimer = undefined;
+            if (
+              generation === this.generation &&
+              (pc.connectionState === "disconnected" ||
+                pc.connectionState === "failed")
+            )
+              void this.interrupt(
+                "Connection interrupted. Reconnect to start a new call.",
+              );
+          }, DISCONNECT_GRACE_MS);
+          return;
+        }
+        if (pc.connectionState === "connected") {
+          clearTimeout(this.disconnectTimer);
+          this.disconnectTimer = undefined;
+        }
       });
       for (const track of stream.getTracks()) pc.addTrack(track, stream);
       const channel = pc.createDataChannel("oai-events");
@@ -255,9 +311,17 @@ export class VoiceClient {
         await this.interrupt(result.reason ?? "Call ended");
         return;
       }
+      this.heartbeatFailures = 0;
       this.update({ working: result.working });
     } catch {
-      if (generation === this.generation)
+      // One lost request on a mobile network is not a lost call. The server
+      // lease is sixty seconds; three misses at ten-second spacing stay
+      // inside it, the fourth means the call really is gone.
+      this.heartbeatFailures += 1;
+      if (
+        generation === this.generation &&
+        this.heartbeatFailures >= HEARTBEAT_FAILURE_LIMIT
+      )
         await this.interrupt(
           "Connection lost. The call is ending; text chat is still available.",
         );
@@ -302,7 +366,13 @@ export class VoiceClient {
 
   async end(error: string | null = null, interrupted = false) {
     if (["ending", "ended", "idle"].includes(this.view.state)) return;
-    this.update({ state: "ending", error, canReconnect: false });
+    clearTimeout(this.hiddenTimer);
+    this.hiddenTimer = undefined;
+    clearTimeout(this.disconnectTimer);
+    this.disconnectTimer = undefined;
+    this.autoMuted = false;
+    this.heartbeatFailures = 0;
+    this.update({ state: "ending", error, canReconnect: false, paused: false });
     ++this.generation;
     const callId = this.callId;
     this.callId = undefined;

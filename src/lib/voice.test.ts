@@ -103,7 +103,7 @@ it("expires on the earliest of heartbeat, inactivity, provider expiry, and maxim
     expiresAt: 900_000,
   };
   expect(voiceDeadline(call)).toBe(60_000);
-  expect(voiceDeadline({ ...call, heartbeatAt: 100_000 })).toBe(120_000);
+  expect(voiceDeadline({ ...call, heartbeatAt: 100_000 })).toBe(160_000);
   expect(
     voiceDeadline({ ...call, heartbeatAt: 900_000, activityAt: 900_000 }),
   ).toBe(900_000);

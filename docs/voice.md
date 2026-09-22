@@ -117,11 +117,18 @@ Disabling voice on a subsequent deploy should follow ending any open calls.
   usual receipts. A hangup or leaving the screen does not offer it. Delegation IDs are recorded before dispatch; duplicates or
   worker recovery do not repeat the lookup.
 - **Mute** disables the microphone track immediately. **End call**, navigation,
-  tab backgrounding, and unmount release media tracks. Background/lock-screen
+  and unmount release media tracks. Backgrounding the app (switching apps,
+  locking the phone) mutes the call and keeps heartbeats running for up to
+  three minutes; returning unmutes unless you had muted by hand, and the
+  call ends after that grace period. A transient WebRTC disconnect gets 15
+  seconds to recover before the call ends; up to three consecutive missed
+  heartbeats are tolerated inside the sixty-second lease. Background/lock-screen
   listening is intentionally unsupported in this preview.
 - Maximum call length: 15 minutes by default; the operator can set
   `DOWNY_VOICE_MAX_MINUTES` (5–120) at deploy time, and the panel shows the
-  cap next to the clock. Inactivity: two minutes without input
+  cap next to the clock. Inactivity: three minutes without activity, where
+  caller input, Downy's own speech, a running lookup and backend progress all
+  count as activity; it is no longer two minutes without input
   transcript activity. Browser heartbeats renew a 60-second lease. A dedicated
   DO alarm closes abandoned calls independently of the agent's task scheduler.
 - Hangup sends `session.close`; the server waits for `session.closed`, retains

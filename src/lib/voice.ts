@@ -3,7 +3,9 @@ import { z } from "zod";
 export const VOICE_MODEL = "gpt-live-1";
 export const VOICE_MAX_MS = 15 * 60_000;
 export const VOICE_LEASE_MS = 60_000;
-export const VOICE_IDLE_MS = 2 * 60_000;
+// Idle means nobody spoke and nothing ran: caller input, Downy's own speech,
+// running lookups and progress all count as activity.
+export const VOICE_IDLE_MS = 3 * 60_000;
 
 export const VoiceCommandSchema = z.discriminatedUnion("command", [
   z

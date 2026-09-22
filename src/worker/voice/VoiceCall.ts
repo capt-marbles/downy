@@ -18,6 +18,8 @@ import {
 } from "./provider";
 import { voiceDeadline } from "./policy";
 import { voiceMaxMs } from "./limits";
+import { ProgressBuffer } from "./progress";
+import { deliverTranscripts, queueTranscript } from "./transcript-outbox";
 
 const LOOKUP_PREFIX = "voice-lookup:";
 const MAX_LOOKUPS = 60;
@@ -33,13 +35,6 @@ interface Lookup {
   /** Latest backend progress note while running; context, never a result. */
   progress?: string;
   progressCount?: number;
-}
-
-const TRANSCRIPT_PREFIX = "pending-transcript:";
-interface PendingTranscript {
-  callId: string;
-  slug: string;
-  text: string;
 }
 
 interface Call extends VoiceStatus {
@@ -99,16 +94,21 @@ export class VoiceCall extends DurableObject {
     };
   }
 
-  private progressBuffer = new Map<string, string[]>();
-  private progressTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly progressBuffer = new ProgressBuffer((delegationId, text) => {
+    if (this.call?.state !== "active") return;
+    for (const content of voiceChunks(text))
+      this.send({
+        type: "session.commentary.append",
+        delegation_id: delegationId,
+        content,
+      });
+  });
 
   /**
    * Backend progress for the active call: what a lookup did at its last
-   * step, a card created or settled in chat, research started. Notes are
-   * coalesced into one bounded commentary every 1.5 seconds and capped per
-   * lookup, so the voice can tell the caller what is happening without
-   * flooding the session. A note is never a completion; publishLookups
-   * still delivers the receipt.
+   * step, a card created or settled in chat, research started. Coalesced
+   * into one bounded commentary every 1.5 seconds and capped per lookup. A
+   * note is never a completion; publishLookups still delivers the receipt.
    */
   async progress(
     callId: string | null,
@@ -118,7 +118,6 @@ export class VoiceCall extends DurableObject {
     const call = this.call;
     if (!call || call.state !== "active") return;
     if (callId && callId !== call.callId) return;
-    const key = delegationId ? `${call.callId}:${delegationId}` : "call";
     const lookup = delegationId
       ? this.lookups.find(
           (entry) =>
@@ -131,33 +130,8 @@ export class VoiceCall extends DurableObject {
       lookup.progressCount = (lookup.progressCount ?? 0) + 1;
       await this.ctx.storage.put(lookup.key, lookup);
     }
-    const pending = this.progressBuffer.get(key) ?? [];
-    if (pending.length < 8) pending.push(note.slice(0, 200));
-    this.progressBuffer.set(key, pending);
-    this.progressTimer ??= setTimeout(() => {
-      this.progressTimer = undefined;
-      this.flushProgress();
-    }, 1500);
-  }
-
-  private flushProgress() {
-    const call = this.call;
-    if (!call || call.state !== "active") {
-      this.progressBuffer.clear();
-      return;
-    }
-    for (const [key, notes] of this.progressBuffer) {
-      const delegationId = key === "call" ? null : key.split(":")[1];
-      for (const content of voiceChunks(
-        `Backend progress (not a result; the receipt comes separately): ${notes.join("; ")}.`,
-      ))
-        this.send({
-          type: "session.commentary.append",
-          delegation_id: delegationId,
-          content,
-        });
-    }
-    this.progressBuffer.clear();
+    call.activityAt = Date.now();
+    this.progressBuffer.add(delegationId, note);
   }
 
   private async persist() {
@@ -282,6 +256,8 @@ export class VoiceCall extends DurableObject {
     if (this.call?.callId !== callId) return null;
     await this.flushTranscripts();
     if (this.call.state === "active") {
+      // A running lookup is activity: the caller is waiting, not absent.
+      if (this.call.working) this.call.activityAt = Date.now();
       // Check the OLD lease before extending it. Returning from a suspended
       // browser must not resurrect an expired call.
       if (
@@ -427,6 +403,9 @@ export class VoiceCall extends DurableObject {
       call.activityAt = Date.now();
       call.inputRevision++;
     }
+    // Downy speaking is activity too: a long answer must not read as idle.
+    if (event.type === "session.output_transcript.delta" && event.delta)
+      call.activityAt = Date.now();
     if (event.type === "session.started" && event.session?.expires_at)
       call.expiresAt = Math.min(
         call.expiresAt,
@@ -435,7 +414,7 @@ export class VoiceCall extends DurableObject {
     if (event.type === "session.closed") {
       // Save the outbox entry before marking closed or cancelling its alarm.
       // Recovery must still deliver captions if this isolate stops here.
-      await this.queueTranscript(call);
+      await queueTranscript(this.ctx.storage, call);
       call.usageSeconds = event.usage?.seconds;
       call.state = "closed";
       call.working = false;
@@ -673,66 +652,26 @@ export class VoiceCall extends DurableObject {
     const call = this.call;
     if (!call || (call.transcriptSaved && !final) || !call.captions.length)
       return;
-    // Durable outbox: closing the provider or starting another call must not
-    // discard captions when the agent is temporarily unavailable.
-    await this.queueTranscript(call);
+    await queueTranscript(this.ctx.storage, call);
     await this.flushTranscripts();
-  }
-
-  private async queueTranscript(call: Call) {
-    if (!call.captions.length) return;
-    await this.ctx.storage.put<PendingTranscript>(
-      `${TRANSCRIPT_PREFIX}${call.callId}`,
-      {
-        callId: call.callId,
-        slug: call.slug,
-        text: captionText(call.captions),
-      },
-    );
   }
 
   private async flushTranscripts(): Promise<void> {
     if (this.transcriptDelivery) return this.transcriptDelivery;
-    this.transcriptDelivery = this.deliverTranscripts();
+    this.transcriptDelivery = deliverTranscripts({
+      storage: this.ctx.storage,
+      env: this.env,
+      current: () => this.call,
+      markSaved: async () => {
+        if (this.call) this.call.transcriptSaved = true;
+        await this.persist();
+      },
+    });
     try {
       await this.transcriptDelivery;
     } finally {
       this.transcriptDelivery = undefined;
     }
-  }
-
-  private async deliverTranscripts() {
-    const pending = await this.ctx.storage.list<PendingTranscript>({
-      prefix: TRANSCRIPT_PREFIX,
-      limit: 10,
-    });
-    for (const [key, receipt] of pending) {
-      try {
-        const agent = await getAgentStub(this.env, receipt.slug);
-        await agent.saveVoiceTranscript(receipt.callId, receipt.text);
-        const latest = await this.ctx.storage.get<PendingTranscript>(key);
-        // A final caption may have superseded this snapshot during delivery.
-        if (latest?.text !== receipt.text) continue;
-        await this.ctx.storage.delete(key);
-        if (
-          this.call?.callId === receipt.callId &&
-          captionText(this.call.captions) === receipt.text
-        ) {
-          this.call.transcriptSaved = true;
-          await this.persist();
-        }
-      } catch {
-        // Retry the idempotent chat receipt, never the model/task itself.
-        console.warn("[voice] transcript delivery pending");
-      }
-    }
-    const remaining = await this.ctx.storage.list({
-      prefix: TRANSCRIPT_PREFIX,
-      limit: 1,
-    });
-    if (remaining.size) await this.ctx.storage.setAlarm(Date.now() + 15_000);
-    else if (this.call?.state === "closed" || this.call?.state === "error")
-      await this.ctx.storage.deleteAlarm();
   }
 
   override async alarm() {
