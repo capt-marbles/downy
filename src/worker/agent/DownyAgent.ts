@@ -998,6 +998,21 @@ export class DownyAgent extends Think {
       assistantReasoningLength: assistantState.reasoningLength,
       warning,
     });
+    // A turn that dies in the model leaves no tool rows; record the error so
+    // the ledger shows why a lookup produced nothing.
+    if (result.status === "error")
+      recordRunEvent(this.env.DB, {
+        agentSlug: this.name,
+        runId: this.#runId,
+        runKind: this.#runKind,
+        event: "tool_call",
+        name: "model_turn",
+        state: "failed",
+        costUsd: null,
+        replayed: false,
+        elapsedMs: this.#turnStartedAt ? now - this.#turnStartedAt : 0,
+        summary: (result.error ?? "turn error").slice(0, 300),
+      });
     if (
       !result.continuation &&
       result.status !== "aborted" &&

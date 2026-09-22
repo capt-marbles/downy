@@ -117,6 +117,40 @@ describe("cloud computer boundary", () => {
     ).rejects.toThrow("Reconnect ChatGPT");
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("retries a stopped step once on a fresh bridge and never more", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json({ error: "stopped" }, { status: 503 }),
+        )
+        .mockResolvedValueOnce(Response.json({ text: "hi", toolCalls: [] }));
+      const pending = cloudComputerModel(environment(fetch)).doGenerate({
+        prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      const result = await pending;
+      expect(result.content[0]).toEqual({ type: "text", text: "hi" });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      const twice = vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ error: "stopped" }, { status: 503 }),
+        );
+      const failing = cloudComputerModel(environment(twice)).doGenerate({
+        prompt: [],
+      });
+      const rejection = expect(failing).rejects.toThrow(
+        "could not complete this step",
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+      await rejection;
+      expect(twice).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("does not expose credential initialization or inference as browser endpoints", async () => {
     const fetch = vi.fn();
     const response = await handleCloudComputerRequest(

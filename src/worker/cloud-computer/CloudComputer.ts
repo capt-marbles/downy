@@ -147,7 +147,9 @@ export class CloudComputer extends withWorkspace(ComputerBase, (self) =>
           encoding: "utf8",
           timeoutMs: 0,
         });
-        for (let attempt = 0; attempt < 40; attempt++) {
+        // A fresh container after an image change can take well over the
+        // old ten seconds to start the bridge; a step waits up to a minute.
+        for (let attempt = 0; attempt < 240; attempt++) {
           try {
             bridgeReady = (await this.#port("/health")).ok;
           } catch {

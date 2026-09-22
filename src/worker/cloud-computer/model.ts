@@ -11,6 +11,8 @@ import { computerStub } from "./stub";
 // step and yields tool intent; only Think executes tools, with existing gates.
 // A fresh Codex thread per step also prevents a broader earlier tool grant from
 // leaking into the restricted voice path.
+const RETRY_DELAY_MS = 3000;
+
 export function cloudComputerModel(
   env: Env,
   provider: "cloud-computer" | "boat-computer" = "cloud-computer",
@@ -47,24 +49,35 @@ export function cloudComputerModel(
       throw new Error(
         "Forced tool choice is not supported by the cloud computer yet.",
       );
-    const response = await computerStub(env, provider).fetch(
-      new Request("https://computer.internal/step", {
-        method: "POST",
-        signal: options.abortSignal,
-        body: JSON.stringify({
-          id: crypto.randomUUID(),
-          model: modelId,
-          system: options.prompt
-            .filter((m) => m.role === "system")
-            .map((m) => m.content)
-            .join("\n\n"),
-          transcript: JSON.stringify(
-            options.prompt.filter((m) => m.role !== "system"),
-          ),
-          tools: choice?.type === "none" ? [] : tools,
+    const body = JSON.stringify({
+      id: crypto.randomUUID(),
+      model: modelId,
+      system: options.prompt
+        .filter((m) => m.role === "system")
+        .map((m) => m.content)
+        .join("\n\n"),
+      transcript: JSON.stringify(
+        options.prompt.filter((m) => m.role !== "system"),
+      ),
+      tools: choice?.type === "none" ? [] : tools,
+    });
+    const step = () =>
+      computerStub(env, provider).fetch(
+        new Request("https://computer.internal/step", {
+          method: "POST",
+          signal: options.abortSignal,
+          body,
         }),
-      }),
-    );
+      );
+    let response = await step();
+    // A 503 is the container stopping mid-step, typically right after a
+    // deploy replaced its image. The computer resets itself on that error,
+    // so one retry after a pause runs on a fresh bridge. Still no fallback.
+    if (response.status === 503) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      options.abortSignal?.throwIfAborted();
+      response = await step();
+    }
     if (!response.ok)
       throw new Error(
         response.status === 401
