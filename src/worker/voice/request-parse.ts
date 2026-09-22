@@ -17,6 +17,7 @@ import {
 const RUNBOOKS = [
   "outreach",
   "lead_sourcing",
+  "lead_prioritization",
   "pipeline_count",
   "connection_check",
   "research_lookup",
@@ -63,6 +64,8 @@ const RUNBOOK_CRITERIA: Record<Runbook, string> = {
     "Draft or send-for-review an email, cold outreach or a follow-up to a lead or contact",
   lead_sourcing:
     "Find, source, qualify or refresh new studios or leads from the web",
+  lead_prioritization:
+    "Pick, rank or prioritize the leads or records already in the CRM: the strongest, the best, the top few, who to work next",
   pipeline_count:
     "Count, total or summarise CRM pipeline records or stages in Airtable",
   connection_check:
@@ -216,6 +219,8 @@ export async function parseVoiceRequest(
 const RUNBOOK_HINTS: Partial<Record<Runbook, string>> = {
   outreach: "load the gameye-outreach skill and follow it",
   lead_sourcing: "load the gameye-lead-sourcing skill and follow it",
+  lead_prioritization:
+    "call prioritize_leads with the Leads base and table; do not page airtable_records",
   pipeline_count:
     "load reporting-crm-pipeline and use airtable_records pipeline_report",
   connection_check: "call list_mcp_servers and report what is connected",

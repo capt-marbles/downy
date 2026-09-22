@@ -1,4 +1,5 @@
 import {
+  projectSchema,
   readOffloadedAirtableRecords,
   readOffloadedAirtableSchema,
 } from "./airtable-schema";
@@ -48,6 +49,12 @@ export const AirtableStateSchema = z.object({
 });
 type State = z.infer<typeof AirtableStateSchema>;
 const VERIFY_TTL_MS = 10 * 60_000;
+const ARGUMENT_CODES: ReadonlySet<string> = new Set([
+  "unknown_field",
+  "invalid_arguments",
+  "not_found",
+  "rate_limited",
+]);
 export class AirtableConnection {
   constructor(
     private readonly call: ManagedCall,
@@ -409,7 +416,9 @@ export class AirtableConnection {
       });
   }
   private async readAction(action: AirtableReadAction) {
+    const startedAt = this.now();
     const { state, sessionId } = await this.verifiedIdentity();
+    const verifiedAt = this.now();
     const found = { sessionId };
     const slug =
       action.action === "list_bases"
@@ -432,25 +441,35 @@ export class AirtableConnection {
               sort: action.sort,
               view: action.view,
             };
+    const data: unknown = await this.execute(
+      found.sessionId,
+      state.accountId,
+      slug,
+      args,
+    ).catch(async (error: unknown) => {
+      const failure = airtableFailure(
+        error,
+        "provider_failure",
+        action.action === "get_schema"
+          ? "schema_read"
+          : action.action === "list_records"
+            ? "records_read"
+            : "bases_read",
+      );
+      // A rejected argument says nothing about the identity; only failures
+      // that could mean a changed account force the next read to re-verify.
+      if (!ARGUMENT_CODES.has(failure.code)) await this.forgetVerification();
+      throw failure;
+    });
     return {
       account: state.identity,
-      data: await this.execute(
-        found.sessionId,
-        state.accountId,
-        slug,
-        args,
-      ).catch(async (error: unknown) => {
-        await this.forgetVerification();
-        throw airtableFailure(
-          error,
-          "provider_failure",
-          action.action === "get_schema"
-            ? "schema_read"
-            : action.action === "list_records"
-              ? "records_read"
-              : "bases_read",
-        );
-      }),
+      data: slug === "AIRTABLE_GET_BASE_SCHEMA" ? projectSchema(data) : data,
+      // Where the time went, for the run ledger: verifying the account versus
+      // the Composio round trip itself.
+      timing: {
+        verifyMs: verifiedAt - startedAt,
+        executeMs: this.now() - verifiedAt,
+      },
     };
   }
 }

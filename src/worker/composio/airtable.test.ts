@@ -3,6 +3,10 @@ import { z } from "zod";
 import { expect, it, vi } from "vitest";
 import { AirtableConnection, type AirtableStateSchema } from "./airtable";
 import {
+  airtableErrorCode,
+  airtableRejectedField,
+} from "./airtable-diagnostics";
+import {
   AirtableActionSchema,
   isAirtableConnectRequest,
 } from "../../lib/airtable-connect";
@@ -110,6 +114,19 @@ function fixture() {
           { tool_slug: item.tool_slug, response: { successful: true } },
         ],
       });
+    if (
+      item.tool_slug === "AIRTABLE_LIST_RECORDS" &&
+      JSON.stringify(item.arguments.fields ?? []).includes("Ghost")
+    )
+      return envelope({
+        results: [
+          {
+            tool_slug: item.tool_slug,
+            error: 'Unknown field name: "Ghost". secret-sentinel',
+            response: { successful: false },
+          },
+        ],
+      });
     return envelope({
       results: [
         {
@@ -122,10 +139,31 @@ function fixture() {
                     id: `usr${item.account}`,
                     email: `${item.account}@example.com`,
                   }
-                : {
-                    records: [{ id: "rec1", fields: { Name: "Example" } }],
-                    offset: "next-page",
-                  },
+                : item.tool_slug === "AIRTABLE_GET_BASE_SCHEMA"
+                  ? {
+                      tables: [
+                        {
+                          id: "tblExample",
+                          name: "Leads",
+                          description: "raw detail",
+                          views: [{ id: "viw1" }],
+                          fields: [
+                            {
+                              id: "fldStage",
+                              name: "Stage",
+                              type: "singleSelect",
+                              options: {
+                                choices: [{ id: "sel1", name: "New" }],
+                              },
+                            },
+                          ],
+                        },
+                      ],
+                    }
+                  : {
+                      records: [{ id: "rec1", fields: { Name: "Example" } }],
+                      offset: "next-page",
+                    },
           },
         },
       ],
@@ -373,5 +411,49 @@ it("recovers a record page that Composio offloaded and forwards sort and view", 
   );
   expect(String(workbench?.[1].code_to_execute)).toContain(
     "AIRTABLE_LIST_RECORDS",
+  );
+});
+it("names a rejected field, keeps the verified identity, projects an inline schema and reports timing", async () => {
+  const f = fixture();
+  f.connect();
+  await f.make().start();
+  const schema = await f
+    .make()
+    .action({ action: "get_schema", baseId: "appExample" });
+  expect(schema.data).toEqual({
+    tables: [
+      {
+        id: "tblExample",
+        name: "Leads",
+        fields: [
+          {
+            id: "fldStage",
+            name: "Stage",
+            type: "singleSelect",
+            options: { choices: [{ name: "New" }] },
+          },
+        ],
+      },
+    ],
+  });
+  expect(Object.keys(schema.timing)).toEqual(["verifyMs", "executeMs"]);
+  const before = f.call.mock.calls.length;
+  const failure = await f
+    .make()
+    .action({
+      action: "list_records",
+      baseId: "appExample",
+      tableId: "tblExample",
+      fields: ["Ghost"],
+      limit: 20,
+    })
+    .catch((error: unknown) => error);
+  expect(airtableErrorCode(failure)).toBe("unknown_field");
+  expect(airtableRejectedField(failure)).toBe("Ghost");
+  expect(String(failure)).not.toContain("secret-sentinel");
+  // The next read reuses the verified session: no search, no profile call.
+  await f.make().action({ action: "list_bases" });
+  expect(f.call.mock.calls.slice(before).map(([name]) => name)).not.toContain(
+    "COMPOSIO_SEARCH_TOOLS",
   );
 });

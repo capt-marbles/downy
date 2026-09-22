@@ -142,7 +142,7 @@ export function ledgerToolSet(tools: ToolSet, deps: LedgerDeps): ToolSet {
                 elapsedMs: Date.now() - started,
                 summary: failure
                   ? withInput(failure, input)
-                  : withInput("", input) || null,
+                  : withInput(timingNote(result), input) || null,
               });
               return result;
             } catch (error) {
@@ -181,6 +181,17 @@ function withInput(message: string, input: unknown): string {
   return head
     ? `${head} | input: ${rendered.slice(0, 180)}`
     : `input: ${rendered.slice(0, 180)}`;
+}
+
+// Adapters may report where a call's time went; keep it beside the input.
+function timingNote(result: unknown): string {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return "";
+  const timing = toRecord(result).timing;
+  if (!timing || typeof timing !== "object" || Array.isArray(timing)) return "";
+  const parts = Object.entries(toRecord(timing))
+    .filter((entry): entry is [string, number] => typeof entry[1] === "number")
+    .map(([key, value]) => `${key}=${Math.round(value)}`);
+  return parts.length ? `timing: ${parts.join(" ")}` : "";
 }
 
 // Connected-service wrappers return `{ state: "failed", error }` instead of

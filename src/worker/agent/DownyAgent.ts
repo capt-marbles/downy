@@ -1,4 +1,6 @@
 import { airtableReadFailure } from "./airtable-read-failure";
+import { cachedSchemaRead } from "./airtable-schema-cache";
+import { createPrioritizeLeadsTool } from "./tools/prioritize-leads";
 import { createSafeGrepTool } from "./safe-grep";
 import { seedBuiltinSkills } from "./skills/builtin";
 import {
@@ -665,6 +667,25 @@ export class DownyAgent extends Think {
     });
     const gmailGrant = await this.ctx.storage.get<string>("gmail-owner");
     const airtableGrant = await this.ctx.storage.get<string>("airtable-owner");
+    // One schema read per base per ten minutes, shared by the tool and by
+    // the failed-read text that lists real field names.
+    const readSchema = (baseId: string) =>
+      cachedSchemaRead(this.ctx.storage, baseId, async () =>
+        (
+          await getAgentStub(this.env, airtableGrant ?? "")
+        ).executeComposioAirtable({ action: "get_schema", baseId }),
+      );
+    if (airtableGrant)
+      mcpTools.prioritize_leads = createPrioritizeLeadsTool({
+        readSchema,
+        readRecords: async (input): Promise<unknown> =>
+          JSON.parse(
+            await (
+              await getAgentStub(this.env, airtableGrant)
+            ).executeComposioAirtable(input),
+          ),
+        run: (request) => runJev(this.env.AI, request),
+      });
     if (airtableGrant)
       mcpTools.airtable_records = tool({
         description:
@@ -675,11 +696,17 @@ export class DownyAgent extends Think {
             const result =
               input.action === "pipeline_report"
                 ? JSON.stringify(await this.runPipelineReport(input))
-                : await (
-                    await getAgentStub(this.env, airtableGrant)
-                  ).executeComposioAirtable(input);
+                : input.action === "get_schema"
+                  ? await readSchema(input.baseId)
+                  : await (
+                      await getAgentStub(this.env, airtableGrant)
+                    ).executeComposioAirtable(input);
             return z
-              .object({ account: z.string(), data: z.unknown() })
+              .object({
+                account: z.string(),
+                data: z.unknown(),
+                timing: z.record(z.string(), z.number()).optional(),
+              })
               .parse(JSON.parse(result));
           } catch (error) {
             if (input.action === "pipeline_report") {
@@ -693,11 +720,7 @@ export class DownyAgent extends Think {
                   : "Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.",
               };
             }
-            return airtableReadFailure(error, input, async (baseId) =>
-              (
-                await getAgentStub(this.env, airtableGrant)
-              ).executeComposioAirtable({ action: "get_schema", baseId }),
-            );
+            return airtableReadFailure(error, input, readSchema);
           }
         },
       });

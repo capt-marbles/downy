@@ -46,10 +46,14 @@ const FIELD_NAME_MAX = 80;
 function rejectedFieldName(value: unknown): string | undefined {
   const text =
     value instanceof Error ? value.message : (JSON.stringify(value) ?? "");
-  const match = /unknown field name:?\s*\\?"([^"\\]{1,200})\\?"/i.exec(
+  // The name may sit behind one or more JSON escapes when the provider text
+  // is nested inside an MCP envelope.
+  const match = /unknown field names?:?\s*\\*"([^"\\]{1,200})\\*"/i.exec(
     text.slice(0, 50_000),
   );
   const name = match?.[1]?.replace(/[^\w .&/()'-]/g, "").trim();
+  if (!name && /unknown field/i.test(text))
+    console.warn("[airtable] unknown-field text without a recoverable name");
   return name ? name.slice(0, FIELD_NAME_MAX) : undefined;
 }
 const MESSAGE_PATTERN =

@@ -69,3 +69,7 @@ When asked to run this daily, propose the schedule with stage_action kind schedu
 - `{ "kind": "slack_post_message", "channel": "<channel id from slack_channels>", "channelLabel": "#agent-leads" }` when Slack is connected
 
 The operator's tap on that card is the approval for every run; do not ask for a daily confirmation afterwards. In a scheduled run, use the channel id from the standing approval in the Slack proposal so it matches; a proposal that does not match a grant becomes a card the operator must tap.
+
+## Prioritizing the leads we already have
+
+When asked which existing leads are strongest, which to work next, or for the top N, do not page the table. Call `prioritize_leads` with base `appZgInlaiE12FCu7`, table `tblqqYLjWgLj87m25`, the count asked for and, if the caller stated a preference, `criteria` in their words. It pages the whole table in code sorted by Fit Score, drops closed or lost statuses, ranks by Fit Score plus Tier, ICP Fit and Priority, judges finalists against the criteria with a typed model call, and returns the top few with reasons. Report them with their reasons and say how many open leads were ranked; if the result is marked partial, say the table has more rows than were read.

@@ -72,3 +72,18 @@ it("names the rejected field for an unknown field name and keeps it across the R
   expect(airtableRejectedField(odd)).toBe("bGame/b");
   expect(airtableRejectedField(airtableFailure(new Error("403")))).toBeNull();
 });
+it("recovers the field name from provider text nested inside an MCP envelope", () => {
+  const nested = airtableFailure({
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          results: [{ error: 'Unknown field name: "ICP Tier"' }],
+        }),
+      },
+    ],
+  });
+  expect(airtableErrorCode(nested)).toBe("unknown_field");
+  expect(airtableRejectedField(nested)).toBe("ICP Tier");
+});

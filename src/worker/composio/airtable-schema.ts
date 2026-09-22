@@ -23,6 +23,59 @@ const Schema = z.object({
 // Composio offloads large successful results even when sync_response_to_workbench
 // is false. Use only its returned JSON file, with a fixed read-only projection.
 // This is not an agent-exposed Python executor or permission to run app actions.
+// The raw base schema carries views, descriptions and every option; the
+// model needs table and field names, types and select choices. An inline
+// result is reduced to the same shape the offloaded projection produces, so
+// it stays small enough to remain inline and cheap to keep in the prompt.
+const RawSchema = z.object({
+  tables: z.array(
+    z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        fields: z.array(
+          z
+            .object({
+              id: z.string(),
+              name: z.string(),
+              type: z.string(),
+              options: z
+                .object({
+                  choices: z
+                    .array(z.object({ name: z.string() }).loose())
+                    .optional(),
+                })
+                .loose()
+                .optional(),
+            })
+            .loose(),
+        ),
+      })
+      .loose(),
+  ),
+});
+export function projectSchema(data: unknown): unknown {
+  const raw = RawSchema.safeParse(data);
+  if (!raw.success) return data;
+  return {
+    tables: raw.data.tables.map((table) => ({
+      id: table.id,
+      name: table.name,
+      fields: table.fields.map((field) => ({
+        id: field.id,
+        name: field.name,
+        type: field.type,
+        ...(field.options?.choices
+          ? {
+              options: {
+                choices: field.options.choices.map((c) => ({ name: c.name })),
+              },
+            }
+          : {}),
+      })),
+    })),
+  };
+}
 const RecordsSchema = z.object({
   records: z.array(
     z.object({

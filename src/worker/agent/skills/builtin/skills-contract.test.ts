@@ -18,6 +18,7 @@ const KNOWN_TOOLS = new Set([
   "gmail_email",
   "slack_channels",
   "qualify_leads",
+  "prioritize_leads",
   "check_outreach_draft",
   "stage_action",
   "list_staged_actions",
