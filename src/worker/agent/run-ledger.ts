@@ -140,7 +140,9 @@ export function ledgerToolSet(tools: ToolSet, deps: LedgerDeps): ToolSet {
                 costUsd: cost.costUsd,
                 replayed: cost.replayed,
                 elapsedMs: Date.now() - started,
-                summary: failure ? withInput(failure, input) : null,
+                summary: failure
+                  ? withInput(failure, input)
+                  : withInput("", input) || null,
               });
               return result;
             } catch (error) {
@@ -164,9 +166,9 @@ export function ledgerToolSet(tools: ToolSet, deps: LedgerDeps): ToolSet {
   );
 }
 
-// A failure is only diagnosable with its arguments. Keep a short, redacted
-// rendering (keys, tokens and secrets masked by the gate's redactor) on
-// failed rows only; successful rows never carry inputs.
+// A call is only diagnosable with its arguments (a slow read with no field
+// list, a page of 100). Keep a short, redacted rendering (keys, tokens and
+// secrets masked by the gate's redactor) on every row; results never appear.
 function withInput(message: string, input: unknown): string {
   let rendered = "";
   try {
@@ -175,7 +177,10 @@ function withInput(message: string, input: unknown): string {
     rendered = "";
   }
   const head = message.slice(0, 300);
-  return rendered ? `${head} | input: ${rendered.slice(0, 180)}` : head;
+  if (!rendered) return head;
+  return head
+    ? `${head} | input: ${rendered.slice(0, 180)}`
+    : `input: ${rendered.slice(0, 180)}`;
 }
 
 // Connected-service wrappers return `{ state: "failed", error }` instead of

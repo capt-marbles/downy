@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import {
+  compactPreview,
   externalizedPath,
   externalizeToolResults,
   shouldExternalize,
@@ -88,4 +89,32 @@ it("fails open when the save fails and keeps a stable path shape", async () => {
   expect(externalizedPath("weird name!", 0, "id")).toBe(
     "workspace/tool-output/1970-01-01/weird_name_-id.json",
   );
+});
+
+it("previews a record page as a table of every record with short cells", () => {
+  const long = "x".repeat(500);
+  const preview = compactPreview({
+    account: "owner",
+    data: {
+      records: [
+        {
+          id: "rec1",
+          fields: { "Lead Name": "Studio A", "Fit Score": 82, Signals: long },
+        },
+        {
+          id: "rec2",
+          fields: { "Lead Name": "Studio B", Tags: ["a", "b"], Bot: { x: 1 } },
+        },
+      ],
+      offset: "next",
+    },
+  });
+  expect(preview).toContain("2 record(s); more pages (offset present)");
+  expect(preview).toContain(
+    "Fields: Lead Name, Fit Score, Signals, Tags, Bot.",
+  );
+  expect(preview).toContain("rec1 | Studio A | 82 | xxxx");
+  expect(preview).toContain("rec2 | Studio B |  |  | a; b | […]");
+  expect(preview?.length).toBeLessThan(400);
+  expect(compactPreview({ text: long })).toBeNull();
 });

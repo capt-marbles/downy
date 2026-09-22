@@ -1,4 +1,5 @@
 import type { ToolCallOptions, ToolSet } from "ai";
+import { z } from "zod";
 import type { Workspace } from "@cloudflare/shell";
 
 /**
@@ -39,6 +40,60 @@ type ExternalizedResult = {
 
 export function shouldExternalize(name: string): boolean {
   return !NEVER_EXTERNALIZE.has(name);
+}
+
+// Airtable record pages are the common large result. A JSON head shows one
+// or two records with their long text; a table of every record with short
+// cells answers "which are the strongest" without a second read.
+const PREVIEW_ROWS = 40;
+const PREVIEW_CELL = 60;
+const RecordPage = z.object({
+  data: z.object({
+    records: z.array(
+      z.object({ id: z.string(), fields: z.record(z.string(), z.unknown()) }),
+    ),
+    offset: z.string().optional(),
+  }),
+});
+function cell(value: unknown): string {
+  const text =
+    typeof value === "string"
+      ? value
+      : typeof value === "number" || typeof value === "boolean"
+        ? String(value)
+        : Array.isArray(value)
+          ? value
+              .filter((v) => ["string", "number"].includes(typeof v))
+              .map(String)
+              .join("; ")
+          : value === null || value === undefined
+            ? ""
+            : "[…]";
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > PREVIEW_CELL
+    ? `${flat.slice(0, PREVIEW_CELL - 1)}…`
+    : flat;
+}
+export function compactPreview(result: unknown): string | null {
+  const page = RecordPage.safeParse(result);
+  if (!page.success) return null;
+  const { records, offset } = page.data.data;
+  const names = [
+    ...new Set(records.flatMap((record) => Object.keys(record.fields))),
+  ];
+  const lines = [
+    `${records.length} record(s)${offset ? "; more pages (offset present)" : ""}. Fields: ${names.join(", ")}.`,
+    `id | ${names.join(" | ")}`,
+    ...records
+      .slice(0, PREVIEW_ROWS)
+      .map(
+        (record) =>
+          `${record.id} | ${names.map((name) => cell(record.fields[name])).join(" | ")}`,
+      ),
+  ];
+  if (records.length > PREVIEW_ROWS)
+    lines.push(`… ${records.length - PREVIEW_ROWS} more in the file.`);
+  return lines.join("\n");
 }
 
 function serializeResult(result: unknown): string | null {
@@ -99,13 +154,14 @@ export function externalizeToolResults(
               });
               return result;
             }
+            const compact = compactPreview(result);
             const stub: ExternalizedResult = {
               externalized: true,
               tool: name,
               path,
               chars: text.length,
-              preview: text.slice(0, PREVIEW_CHARS),
-              note: `Full result (${text.length} chars) saved to ${path}. This preview is the first ${PREVIEW_CHARS} characters. Read the file only if the preview does not answer the question; do not paste it back into chat.`,
+              preview: compact ?? text.slice(0, PREVIEW_CHARS),
+              note: `Full result (${text.length} chars) saved to ${path}. ${compact ? "This preview is a table of every record with cells shortened." : `This preview is the first ${PREVIEW_CHARS} characters.`} Answer from the preview when it is enough. To search the file, call grep with include set to that exact path and one plain term per call (fixedString true); to read it, call read with offset and limit. Do not paste it back into chat.`,
             };
             return stub;
           },

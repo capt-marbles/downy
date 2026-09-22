@@ -1,4 +1,5 @@
 import { airtableReadFailure } from "./airtable-read-failure";
+import { createSafeGrepTool } from "./safe-grep";
 import { seedBuiltinSkills } from "./skills/builtin";
 import {
   runServiceSetup,
@@ -753,7 +754,11 @@ export class DownyAgent extends Think {
       });
     // Resolve authorized integrations before applying channel permissions.
     // Voice must see the same inventory as chat, including restored grants.
-    const availableTools = { ...ctx.tools, ...mcpTools };
+    const availableTools: ToolSet = {
+      ...ctx.tools,
+      grep: createSafeGrepTool(this.workspace),
+      ...mcpTools,
+    };
     if (isVoiceTurn)
       availableTools.stage_action = createStageActionTool({
         stage: (payload) => this.createStagedAction(payload, "voice"),

@@ -9,6 +9,7 @@ import { AirtableReadActionSchema } from "../../lib/airtable-connect";
 import { SlackReadActionSchema } from "../../lib/slack-connect";
 import { Think } from "@cloudflare/think";
 import type { Workspace } from "@cloudflare/shell";
+import { createSafeGrepTool } from "./safe-grep";
 import { getAgentByName } from "agents";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
 import type { Session } from "agents/experimental/memory/session";
@@ -259,6 +260,7 @@ export class ChildAgent extends Think {
     // The name allowlist is the hard floor; the effect gate then checks the
     // arguments of the tools that remain, so a scrape of an action URL
     // cannot slip through as a read.
+    tools.grep = createSafeGrepTool(this.workspace);
     const activeTools = readOnlyActiveTools({ ...ctx.tools, ...tools });
     return {
       system,

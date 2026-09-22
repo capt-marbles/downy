@@ -96,8 +96,8 @@ it("records each call's outcome, cost and elapsed time and rethrows failures", a
     },
     { name: "write", state: "failed" },
   ]);
-  // Failed rows carry a short redacted rendering of the arguments.
-  expect(events[0].summary).toBeNull();
+  // Every row carries a short redacted rendering of the arguments.
+  expect(events[0].summary).toMatch(/^input: /);
   expect(events[1].summary).toContain(
     "Gmail action did not return a verified result.",
   );
