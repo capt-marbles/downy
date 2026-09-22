@@ -38,8 +38,11 @@ export const SlackStateSchema = z.object({
   expiresAt: z.number().optional(),
   identity: z.string().nullable().default(null),
   checkedAt: z.number().nullable().default(null),
+  verifiedAt: z.number().optional(),
+  verifiedSessionId: z.string().optional(),
 });
 export type SlackState = z.infer<typeof SlackStateSchema>;
+const VERIFY_TTL_MS = 10 * 60_000;
 const Managed = z.object({
   results: z.record(
     z.string(),
@@ -311,6 +314,16 @@ export class SlackConnection {
       !state.identity
     )
       throw new Error("Connect Slack first");
+    if (
+      state.verifiedSessionId &&
+      typeof state.verifiedAt === "number" &&
+      this.now() - state.verifiedAt < VERIFY_TTL_MS
+    )
+      return {
+        sessionId: state.verifiedSessionId,
+        accountId: state.accountId,
+        identity: state.identity,
+      };
     const found = await this.search(state);
     if (
       !found.slack.has_active_connection ||
@@ -319,6 +332,11 @@ export class SlackConnection {
       )
     )
       throw new Error("Slack account changed; reconnect required");
+    await this.save({
+      ...state,
+      verifiedAt: this.now(),
+      verifiedSessionId: found.sessionId,
+    });
     return {
       sessionId: found.sessionId,
       accountId: state.accountId,

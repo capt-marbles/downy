@@ -12,6 +12,7 @@ import {
   type GmailConnectStatus,
 } from "../../lib/gmail-connect";
 
+const VERIFY_TTL_MS = 10 * 60_000;
 export const GmailStateSchema = z.object({
   state: z.enum([
     "not_connected",
@@ -28,6 +29,8 @@ export const GmailStateSchema = z.object({
   expiresAt: z.number().optional(),
   email: z.string().nullable().default(null),
   checkedAt: z.number().nullable().default(null),
+  verifiedAt: z.number().optional(),
+  verifiedSessionId: z.string().optional(),
 });
 export type GmailState = z.infer<typeof GmailStateSchema>;
 const Managed = z.object({
@@ -303,17 +306,33 @@ export class GmailConnection {
       !state.email
     )
       throw new Error("Connect Gmail first");
-    // Check the selected account before every action. Never silently switch to
+    // Check the selected account before acting. Never silently switch to
     // another mailbox when the Composio account's default connection changes.
-    const found = await this.search(state);
+    // The check is cached briefly; a failed action clears the cache.
+    let sessionId: string;
     if (
-      !found.gmail.has_active_connection ||
-      !activeAccounts(found.gmail).some(
-        (account) => account.id === state.accountId,
-      ) ||
-      (await this.profile(found.sessionId, state.accountId)) !== state.email
+      state.verifiedSessionId &&
+      typeof state.verifiedAt === "number" &&
+      this.now() - state.verifiedAt < VERIFY_TTL_MS
     )
-      throw new Error("Gmail account changed; reconnect required");
+      sessionId = state.verifiedSessionId;
+    else {
+      const found = await this.search(state);
+      if (
+        !found.gmail.has_active_connection ||
+        !activeAccounts(found.gmail).some(
+          (account) => account.id === state.accountId,
+        ) ||
+        (await this.profile(found.sessionId, state.accountId)) !== state.email
+      )
+        throw new Error("Gmail account changed; reconnect required");
+      sessionId = found.sessionId;
+      await this.save({
+        ...state,
+        verifiedAt: this.now(),
+        verifiedSessionId: sessionId,
+      });
+    }
     if (action.action === "create_draft") {
       // No retry: a timeout may mean a draft was created. The caller must search
       // Drafts to reconcile before trying again, rather than creating duplicates.
@@ -324,7 +343,7 @@ export class GmailConnection {
         })
         .parse(
           await this.execute(
-            found.sessionId,
+            sessionId,
             "GMAIL_CREATE_EMAIL_DRAFT",
             {
               user_id: "me",
@@ -347,7 +366,7 @@ export class GmailConnection {
       };
     }
     const result = await this.execute(
-      found.sessionId,
+      sessionId,
       action.action === "search"
         ? "GMAIL_FETCH_EMAILS"
         : "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",

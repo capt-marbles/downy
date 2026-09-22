@@ -37,8 +37,14 @@ export const AirtableStateSchema = z.object({
   redirectUrl: z.string().optional(),
   expiresAt: z.number().optional(),
   checkedAt: z.number().nullable(),
+  // Identity verification (account still present, same identity) is cached
+  // for a short window: every read otherwise costs two extra Composio round
+  // trips, which put voice lookups at 15 to 40 seconds per read.
+  verifiedAt: z.number().optional(),
+  verifiedSessionId: z.string().optional(),
 });
 type State = z.infer<typeof AirtableStateSchema>;
+const VERIFY_TTL_MS = 10 * 60_000;
 export class AirtableConnection {
   constructor(
     private readonly call: ManagedCall,
@@ -354,6 +360,17 @@ export class AirtableConnection {
     const state = await this.load();
     if (state?.state !== "ready" || !state.accountId || !state.identity)
       throw new Error("Connect Airtable first");
+    const ready = {
+      ...state,
+      accountId: state.accountId,
+      identity: state.identity,
+    };
+    if (
+      state.verifiedSessionId &&
+      typeof state.verifiedAt === "number" &&
+      this.now() - state.verifiedAt < VERIFY_TTL_MS
+    )
+      return { state: ready, sessionId: state.verifiedSessionId };
     const found = await this.search(state).catch((error: unknown) => {
       throw airtableFailure(error, "provider_failure", "discovery");
     });
@@ -366,27 +383,27 @@ export class AirtableConnection {
       )) !== state.identity
     )
       throw new Error("Airtable account changed; verify the connection card");
-    return {
-      state: { ...state, accountId: state.accountId, identity: state.identity },
-      sessionId: found.sessionId,
-    };
+    await this.save({
+      ...ready,
+      verifiedAt: this.now(),
+      verifiedSessionId: found.sessionId,
+    });
+    return { state: ready, sessionId: found.sessionId };
+  }
+
+  /** A failed action may mean the account changed: re-verify next time. */
+  private async forgetVerification() {
+    const state = await this.load();
+    if (state?.verifiedAt !== undefined)
+      await this.save({
+        ...state,
+        verifiedAt: undefined,
+        verifiedSessionId: undefined,
+      });
   }
   private async readAction(action: AirtableReadAction) {
-    const state = await this.load();
-    if (state?.state !== "ready" || !state.accountId || !state.identity)
-      throw new Error("Connect Airtable first");
-    const found = await this.search(state).catch((error: unknown) => {
-      throw airtableFailure(error, "provider_failure", "discovery");
-    });
-    if (
-      !found.accounts.some((account) => account.id === state.accountId) ||
-      (await this.profile(found.sessionId, state.accountId).catch(
-        (error: unknown) => {
-          throw airtableFailure(error, "provider_failure", "identity_read");
-        },
-      )) !== state.identity
-    )
-      throw new Error("Airtable account changed; verify the connection card");
+    const { state, sessionId } = await this.verifiedIdentity();
+    const found = { sessionId };
     const slug =
       action.action === "list_bases"
         ? "AIRTABLE_LIST_BASES"
@@ -413,7 +430,8 @@ export class AirtableConnection {
         state.accountId,
         slug,
         args,
-      ).catch((error: unknown) => {
+      ).catch(async (error: unknown) => {
+        await this.forgetVerification();
         throw airtableFailure(
           error,
           "provider_failure",

@@ -285,6 +285,14 @@ it("draft creation cannot send or switch mailboxes and uses the verified account
     }).success,
   ).toBe(false);
   f.changeAccount();
+  // A recent identity check is reused, so the next read does not re-verify.
+  const before = f.calls.length;
+  await f.make().action({ action: "search", query: "", limit: 10 });
+  expect(f.calls.slice(before).map((c) => c.name)).not.toContain(
+    "COMPOSIO_SEARCH_TOOLS",
+  );
+  // Once the check ages out, the mailbox change is caught before acting.
+  f.advance(11 * 60_000);
   await expect(
     f.make().action({ action: "search", query: "", limit: 10 }),
   ).rejects.toThrow("account changed");

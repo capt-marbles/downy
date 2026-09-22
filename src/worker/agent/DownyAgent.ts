@@ -693,7 +693,7 @@ export class DownyAgent extends Think {
               phase,
               error: ["timeout", "temporarily_unavailable"].includes(code)
                 ? "Airtable is temporarily unavailable. The read did not complete after bounded recovery. This does not establish an authorization problem; do not ask the user to reconnect solely because of this error."
-                : "Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.",
+                : `Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.${input.action === "list_records" && input.fields?.length ? " A single wrong field name makes Airtable reject the whole read: call get_schema and use the exact field names or field IDs from it." : ""}`,
             };
           }
         },

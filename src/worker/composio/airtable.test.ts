@@ -210,6 +210,14 @@ it("multiple accounts require a choice; execution stays pinned and paginates bou
     "maxRecords",
   );
   f.connect(["one"]);
+  // A recent identity check is reused, so the next read does not re-verify.
+  const before = f.call.mock.calls.length;
+  await f.make().action({ action: "list_bases" });
+  expect(f.call.mock.calls.slice(before).map(([name]) => name)).not.toContain(
+    "COMPOSIO_SEARCH_TOOLS",
+  );
+  // Once the check ages out, the account change is caught before acting.
+  f.expire();
   await expect(f.make().action({ action: "list_bases" })).rejects.toThrow(
     "account changed",
   );
