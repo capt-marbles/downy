@@ -636,3 +636,90 @@ it("acknowledges dispatched research once, keeps the lookup open, and announces 
   expect((await f.call.heartbeat("one"))?.working).toBe(false);
   expect(mocks.lookup).toHaveBeenCalledTimes(1);
 });
+
+it("forwards backend progress as coalesced commentary and keeps the last note for a later call", async () => {
+  let finish!: (answer: string) => void;
+  mocks.lookup.mockReturnValue(
+    new Promise<string>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const f = fixture();
+  await f.ready();
+  await f.call.start("research", "one", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Draft outreach for Studio A",
+    end_ms: 100,
+  });
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "draft", target: "client" },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  // Nothing has happened yet: no progress sent.
+  const before = sentEvents(f.socket).filter(
+    (event) => event.type === "session.commentary.append",
+  ).length;
+  await f.call.progress("one", "draft", "loaded the runbook");
+  await f.call.progress("one", "draft", "read Airtable");
+  await f.call.progress("other-call", "draft", "must be dropped");
+  await f.call.progress(null, null, "a card is waiting in chat for your tap");
+  expect(
+    sentEvents(f.socket).filter((e) => e.type === "session.commentary.append"),
+  ).toHaveLength(before);
+  await vi.advanceTimersByTimeAsync(1500);
+  const progress = sentEvents(f.socket)
+    .filter((e) => e.type === "session.commentary.append")
+    .slice(before);
+  expect(progress).toHaveLength(2);
+  expect(progress[0].delegation_id).toBe("draft");
+  expect(progress[0].content).toContain("not a result");
+  expect(progress[0].content).toContain("loaded the runbook; read Airtable");
+  expect(progress[0].content).not.toContain("must be dropped");
+  expect(progress[1].delegation_id).toBeNull();
+  expect(progress[1].content).toContain("a card is waiting in chat");
+  // The lookup remembers its last note; a new call sees it as context.
+  await f.call.end("one");
+  f.socket.event({ type: "session.closed" });
+  await vi.advanceTimersByTimeAsync(0);
+  const next = new Socket();
+  mocks.attach.mockResolvedValue(next);
+  await f.call.start("research", "two", "offer");
+  expect(mocks.create.mock.calls.at(-1)?.[2]).toContain(
+    "last progress note: read Airtable",
+  );
+  finish("Draft saved.");
+  await f.drain();
+});
+
+it("ignores progress when no call is active and caps notes per lookup", async () => {
+  const f = fixture();
+  await f.ready();
+  await f.call.progress("one", "draft", "nothing to send to");
+  expect(f.storage.put).not.toHaveBeenCalled();
+  await f.call.start("research", "one", "offer");
+  f.socket.event({
+    type: "session.input_transcript.delta",
+    delta: "Count records",
+    end_ms: 100,
+  });
+  mocks.lookup.mockReturnValue(new Promise<string>(() => {}));
+  f.socket.event({
+    type: "session.delegation.created",
+    delegation: { id: "count", target: "client" },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  for (let i = 0; i < 40; i++)
+    await f.call.progress("one", "count", `step ${i}`);
+  await vi.advanceTimersByTimeAsync(1500);
+  const lookup = [...f.records.values()].find(
+    (value): value is { progressCount: number; progress: string } =>
+      !!value &&
+      typeof value === "object" &&
+      "progressCount" in value &&
+      typeof (value as { progressCount: unknown }).progressCount === "number",
+  );
+  expect(lookup?.progressCount).toBe(25);
+  expect(lookup?.progress).toBe("step 24");
+});

@@ -89,6 +89,15 @@ Disabling voice on a subsequent deploy should follow ending any open calls.
   below the confidence floor are withheld, and a slow or failed parse leaves
   the message as before. Each parse is recorded in the run ledger as
   `voice_request_parse` with its answers and latency.
+- The call hears the turn as it happens. Each finished step of a voice
+  lookup sends a one-line progress note (the runbook was loaded, an Airtable
+  read failed, a Gmail draft was saved, a card is waiting), as do the parse
+  checklist, cards created or settled in chat while the call is open, and
+  research dispatches. The coordinator coalesces notes into one commentary
+  every 1.5 seconds, caps them at 25 per lookup, and marks every note as not
+  a result; the completion receipt is still delivered separately and is the
+  only thing spoken as final. A lookup still running when a new call starts
+  carries its last note into that call's opening context.
 - Calls listen while speaking. Interrupt naturally. Lookups run through Downy's
   existing inference queue, with at most twelve model steps per lookup and thirty
   delegations per call. Completion receipts identify their original request,

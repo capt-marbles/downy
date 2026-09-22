@@ -922,6 +922,10 @@ export class DownyAgent extends Think {
       chunksThisTurn: this.#chunkCount,
       msSinceTurnStart: Date.now() - this.#turnStartedAt,
     });
+    if (this.#voiceTurn && ctx.toolResults.length) {
+      const notes = voiceProgressNotesForStep(ctx.toolResults);
+      if (notes.length) this.#voiceProgress(notes.join("; "));
+    }
     if (ctx.toolCalls.length !== ctx.toolResults.length) {
       console.warn("[agent] step ended with mismatched tool calls / results", {
         toolCalls: ctx.toolCalls,
@@ -1193,6 +1197,22 @@ export class DownyAgent extends Think {
 
   // A `pending` result means read-only research was dispatched: the caller
   // heard an acknowledgement, and `getVoiceTaskResult` reports the finish.
+  // The lookup a voice turn belongs to, while it runs, so step outcomes and
+  // card events reach the call as they happen rather than at the end.
+  #voiceTurn: { callId: string; delegationId: string } | null = null;
+
+  #voiceProgress(note: string, delegation: boolean = true): void {
+    const turn = this.#voiceTurn;
+    const stub = this.env.VoiceCall.getByName(this.name);
+    void stub
+      .progress(
+        delegation && turn ? turn.callId : null,
+        delegation && turn ? turn.delegationId : null,
+        note,
+      )
+      .catch(() => undefined);
+  }
+
   async runVoiceTurn(
     callId: string,
     delegationId: string,
@@ -1202,6 +1222,7 @@ export class DownyAgent extends Think {
     if (this.#voicePending.has(id))
       return "This lookup is already running; check the chat for its result.";
     this.#voicePending.add(id);
+    this.#voiceTurn = { callId, delegationId };
     try {
       return await this.#runVoiceTurnOnce(callId, delegationId, transcript, id);
     } catch (error) {
@@ -1212,6 +1233,7 @@ export class DownyAgent extends Think {
       throw error;
     } finally {
       this.#voicePending.delete(id);
+      this.#voiceTurn = null;
     }
   }
 
@@ -1267,6 +1289,10 @@ export class DownyAgent extends Think {
         : `outstanding=${parse.outstanding.length} runbook=${parse.runbook ?? "-"}(${parse.runbookConfidence?.toFixed(2) ?? "-"}) scope=${parse.scope ?? "-"}(${parse.scopeConfidence?.toFixed(2) ?? "-"}) model=${parse.model ?? "-"}`,
     });
     const checklist = renderVoiceRequestParse(parse);
+    const checklistNote = voiceChecklistNote(
+      parse.skipped ? [] : parse.outstanding,
+    );
+    if (checklistNote) this.#voiceProgress(checklistNote);
     const submitted = await this.saveMessages([
       {
         id,
@@ -1597,6 +1623,14 @@ export class DownyAgent extends Think {
         messages: this.messages,
       }),
     );
+    // A card created outside the voice turn (chat, a scheduled worker) is
+    // still news to an open call. Cards from the voice turn itself are
+    // reported by their tool result.
+    if (!this.#voiceTurn)
+      this.#voiceProgress(
+        `a card is waiting in chat for your tap: ${describeStagedAction(action.payload).title.slice(0, 80)}`,
+        false,
+      );
     return action;
   }
 
@@ -2005,6 +2039,9 @@ export class DownyAgent extends Think {
         messages: this.messages,
       }),
     );
+    // Card outcomes reach an open call too: the tap happened in chat, but
+    // the caller is the one waiting on it.
+    this.#voiceProgress(`card outcome: ${text.slice(0, 160)}`, false);
   }
 
   #pilotChoicePending: Promise<PilotChoice> | null = null;
@@ -3875,6 +3912,10 @@ import {
   parseVoiceRequest,
   renderVoiceRequestParse,
 } from "../voice/request-parse";
+import {
+  voiceChecklistNote,
+  voiceProgressNotesForStep,
+} from "../voice/progress";
 import { createCheckOutreachDraftTool } from "./tools/check-outreach-draft";
 import {
   isOutreachTemplate,
@@ -3883,6 +3924,7 @@ import {
 import {
   cancelledStagedAction,
   confirmedStagedAction,
+  describeStagedAction,
   finishedStagedAction,
   grantConfirmedStagedAction,
   newStagedAction,

@@ -30,6 +30,9 @@ interface Lookup {
   request: string;
   state: "running" | "finished" | "unknown";
   answer?: string;
+  /** Latest backend progress note while running; context, never a result. */
+  progress?: string;
+  progressCount?: number;
 }
 
 const TRANSCRIPT_PREFIX = "pending-transcript:";
@@ -94,6 +97,67 @@ export class VoiceCall extends DurableObject {
       working: call.working,
       ...(sdp ? { sdp } : {}),
     };
+  }
+
+  private progressBuffer = new Map<string, string[]>();
+  private progressTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Backend progress for the active call: what a lookup did at its last
+   * step, a card created or settled in chat, research started. Notes are
+   * coalesced into one bounded commentary every 1.5 seconds and capped per
+   * lookup, so the voice can tell the caller what is happening without
+   * flooding the session. A note is never a completion; publishLookups
+   * still delivers the receipt.
+   */
+  async progress(
+    callId: string | null,
+    delegationId: string | null,
+    note: string,
+  ): Promise<void> {
+    const call = this.call;
+    if (!call || call.state !== "active") return;
+    if (callId && callId !== call.callId) return;
+    const key = delegationId ? `${call.callId}:${delegationId}` : "call";
+    const lookup = delegationId
+      ? this.lookups.find(
+          (entry) =>
+            entry.callId === call.callId && entry.delegationId === delegationId,
+        )
+      : undefined;
+    if (lookup) {
+      if ((lookup.progressCount ?? 0) >= 25) return;
+      lookup.progress = note.slice(0, 200);
+      lookup.progressCount = (lookup.progressCount ?? 0) + 1;
+      await this.ctx.storage.put(lookup.key, lookup);
+    }
+    const pending = this.progressBuffer.get(key) ?? [];
+    if (pending.length < 8) pending.push(note.slice(0, 200));
+    this.progressBuffer.set(key, pending);
+    this.progressTimer ??= setTimeout(() => {
+      this.progressTimer = undefined;
+      this.flushProgress();
+    }, 1500);
+  }
+
+  private flushProgress() {
+    const call = this.call;
+    if (!call || call.state !== "active") {
+      this.progressBuffer.clear();
+      return;
+    }
+    for (const [key, notes] of this.progressBuffer) {
+      const delegationId = key === "call" ? null : key.split(":")[1];
+      for (const content of voiceChunks(
+        `Backend progress (not a result; the receipt comes separately): ${notes.join("; ")}.`,
+      ))
+        this.send({
+          type: "session.commentary.append",
+          delegation_id: delegationId,
+          content,
+        });
+    }
+    this.progressBuffer.clear();
   }
 
   private async persist() {
@@ -444,7 +508,7 @@ export class VoiceCall extends DurableObject {
   }
 
   private lookupText(lookup: Lookup) {
-    return `Backend lookup ${lookup.callId}/${lookup.delegationId}: ${lookup.state}. Original request context: ${lookup.request}\n${lookup.answer ?? "Submitted; no final result received yet. This is not evidence of ongoing progress."}`;
+    return `Backend lookup ${lookup.callId}/${lookup.delegationId}: ${lookup.state}. Original request context: ${lookup.request}\n${lookup.answer ?? (lookup.progress ? `Submitted; last progress note: ${lookup.progress}. No final result yet.` : "Submitted; no final result received yet. This is not evidence of ongoing progress.")}`;
   }
 
   private async refreshLookups() {
