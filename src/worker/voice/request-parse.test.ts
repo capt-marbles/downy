@@ -57,6 +57,7 @@ it("hands the model every outstanding ask, the runbook and the scope, and asks o
     expect(keys).toEqual([
       "runbook",
       "scope",
+      "stop",
       ...[0, 1, 2, 3, 4, 5].map((i) => `turn_${i}`),
     ]);
     const state = z
@@ -143,4 +144,42 @@ it("withholds low-confidence hints, falls back to the latest turn, and fails ope
     }),
   ).toMatchObject({ skipped: "no caller turns" });
   expect(failing).toHaveBeenCalledTimes(1);
+});
+const down = async () => {
+  throw new Error("jev unavailable");
+};
+it("flags a spoken stop from Jev, never from a status question, and falls back to a plain stop when Jev is down", async () => {
+  const stopping = `${transcript}\nDowny: Still reading the leads table.\nYou: I think there's another issue at play, so let's stop there`;
+  const run = vi.fn(async (request: JevRequest) => {
+    const stop = z
+      .object({ instructions: z.string() })
+      .parse(request.questions.stop);
+    expect(stop.instructions).toContain("callerTurns[5]");
+    return answers({ stop: { type: "noul", noul: 0.91 } });
+  });
+  const parse = await parseVoiceRequest(run, {
+    transcript: stopping,
+    previousAnswers: [],
+  });
+  expect(parse.stopRequested).toBe(true);
+  expect(parse.stopConfidence).toBe(0.91);
+  const status = await parseVoiceRequest(
+    async () => answers({ stop: { type: "noul", noul: 0.12 } }),
+    {
+      transcript: `${transcript}\nYou: What's the status`,
+      previousAnswers: [],
+    },
+  );
+  expect(status.stopRequested).toBe(false);
+  const fallback = await parseVoiceRequest(down, {
+    transcript: `${transcript}\nYou: Okay, stop there.`,
+    previousAnswers: [],
+  });
+  expect(fallback.skipped).toBe("jev unavailable");
+  expect(fallback.stopRequested).toBe(true);
+  const notStop = await parseVoiceRequest(down, {
+    transcript: `${transcript}\nYou: Don't stop, keep going with the leads`,
+    previousAnswers: [],
+  });
+  expect(notStop.stopRequested).toBe(false);
 });

@@ -157,6 +157,7 @@ export const WriteRequestBodySchema = z.object({ content: z.string() });
 export const RevertLastTurnResponseSchema = z.object({
   deletedCount: z.number(),
 });
+export const StopTurnResponseSchema = z.object({ stopped: z.boolean() });
 
 export const EditLastMessageResponseSchema = z.object({
   replaced: z.boolean(),

@@ -89,6 +89,24 @@ Disabling voice on a subsequent deploy should follow ending any open calls.
   below the confidence floor are withheld, and a slow or failed parse leaves
   the message as before. Each parse is recorded in the run ledger as
   `voice_request_parse` with its answers and latency.
+- A spoken stop halts the work. The same parse asks one more yes/no
+  question: does the caller's latest turn ask to stop, cancel or abandon the
+  work in progress? When it does and a lookup is in flight, the backend
+  aborts that turn instead of starting another and answers with a receipt of
+  what had already happened (a draft saved, a card staged) rather than a
+  summary. The voice model is told to delegate a stop at once, since
+  acknowledging it aloud stops nothing. When Jev is unavailable only a short,
+  unambiguous "stop" on its own counts. Chat has the same path: the Stop
+  button asks the agent to abort its turn, because the protocol cancel alone
+  is deliberately ignored so that a closed tab never ends a turn. Each stop is
+  a `turn_stopped` row in the run ledger.
+- Airtable from a call reads one small page. The voice policy caps
+  `list_records` at 25 rows, the voice rules say to pass a fields list and a
+  sort with a limit of 5 to 10 for the top or newest records, and a rejected
+  field name comes back with the table's real field names so the retry does
+  not guess again. Larger pages that Composio stores in a file are recovered
+  through the same sandbox projection used for schemas, with cell values
+  trimmed.
 - The call hears the turn as it happens. Each finished step of a voice
   lookup sends a one-line progress note (the runbook was loaded, an Airtable
   read failed, a Gmail draft was saved, a card is waiting), as do the parse

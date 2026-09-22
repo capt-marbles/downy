@@ -249,7 +249,7 @@ it("advertises and executes authorized Airtable reads from the resolved turn inv
       baseId: "appCRM",
       tableId: "tblLeads",
       fields: ["Stage"],
-      limit: 100,
+      limit: 20,
       offset: "opaque/page-two",
     },
   ]) {
@@ -261,7 +261,17 @@ it("advertises and executes authorized Airtable reads from the resolved turn inv
     );
     expect(execute).toHaveBeenLastCalledWith(input, options);
   }
-  expect(execute).toHaveBeenCalledTimes(4);
+  // A call cannot digest a large page: the read is clamped to 25 rows.
+  const large = {
+    action: "list_records",
+    baseId: "appCRM",
+    tableId: "tblLeads",
+    fields: ["Stage"],
+    limit: 100,
+  };
+  await turn.tools.airtable_records.execute?.(large, options);
+  expect(execute).toHaveBeenLastCalledWith({ ...large, limit: 25 }, options);
+  expect(execute).toHaveBeenCalledTimes(5);
   for (const name of [
     "tool_airtable_update",
     "request_credential",
@@ -270,7 +280,7 @@ it("advertises and executes authorized Airtable reads from the resolved turn inv
     await expect(turn.tools[name].execute?.({}, options)).rejects.toThrow(
       "This action did not run",
     );
-  expect(execute).toHaveBeenCalledTimes(4);
+  expect(execute).toHaveBeenCalledTimes(5);
 });
 
 it("does not synthesize Airtable access when the bot has no authorized tool", () => {

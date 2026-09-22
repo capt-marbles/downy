@@ -82,3 +82,13 @@ Other service discovery first uses the signed-in Composio catalog when a bot
 has an associated OAuth owner. Project API-key and vendor-documentation lookup
 remain fallbacks. Discovery alone does not authorize an app or imply its setup
 card is implemented; Gmail and Airtable currently have the OAuth account cards.
+
+Reads accept `fields`, `filterByFormula`, `sort` (up to three real fields)
+and `view`, with `limit` up to 100. Airtable rejects the whole read for one
+unknown field name; the adapter keeps that name (and nothing else from the
+provider text) so the tool result can list the table's actual fields from
+the schema. Composio offloads large successful pages to a file; both schema
+and record reads recover such a file through a fixed sandbox projection, and
+record cells are trimmed to scalars. Identity verification is cached for
+ten minutes across Airtable, Gmail and Slack so a read is one round trip; a
+failed action clears the cache.

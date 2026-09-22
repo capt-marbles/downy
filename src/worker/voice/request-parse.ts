@@ -35,6 +35,9 @@ type VoiceRequestParse = {
   runbookConfidence: number | null;
   scope: Scope | null;
   scopeConfidence: number | null;
+  /** The caller's latest turn asks to stop the work in progress. */
+  stopRequested: boolean;
+  stopConfidence: number | null;
   model: string | null;
   /** Why no hints were produced, when that happened. */
   skipped: string | null;
@@ -50,6 +53,10 @@ const TURN_CHARS = 300;
 const DEFAULT_DEADLINE_MS = 2500;
 const DEFAULT_FLOOR = 0.6;
 const OUTSTANDING_FLOOR = 0.6;
+const STOP_FLOOR = 0.75;
+// Used only when Jev is unavailable: a short, unambiguous stop on its own.
+const STOP_FALLBACK =
+  /^(?:ok(?:ay)?[,.]?\s*)?(?:please\s+)?(?:stop|cancel|abort|never mind|forget it)(?:\s+(?:that|it|there|now|for now|the (?:lookup|task|search|work)))?[.!]?$/i;
 
 const RUNBOOK_CRITERIA: Record<Runbook, string> = {
   outreach:
@@ -103,11 +110,15 @@ export async function parseVoiceRequest(
     runbookConfidence: null,
     scope: null,
     scopeConfidence: null,
+    stopRequested: false,
+    stopConfidence: null,
     model: null,
     skipped: null,
   };
   const turns = callerTurns(args.transcript);
   if (turns.length === 0) return { ...empty, skipped: "no caller turns" };
+  const last = turns[turns.length - 1];
+  const fallbackStop = STOP_FALLBACK.test(last.trim());
   const floor = args.confidenceFloor ?? DEFAULT_FLOOR;
   const questions: Record<string, JevQuestion> = {
     runbook: {
@@ -121,6 +132,15 @@ export async function parseVoiceRequest(
       instructions:
         "How many items (leads, records, drafts) did the caller ask for across the still-unanswered requests in `callerTurns`? Prefer the caller's latest wording when a later turn narrows or widens an earlier one.",
       criteria: SCOPE_CRITERIA,
+    },
+    stop: {
+      type: "noul",
+      instructions: `Does the caller's latest turn \`callerTurns[${turns.length - 1}]\` ask to stop, cancel, pause or abandon the work currently in progress? A status question, a correction or an added request is not a stop.`,
+      criteria: {
+        true: "The caller wants the current work halted now",
+        false:
+          "The caller asks about progress, changes the request, adds one, or says something else",
+      },
     },
   };
   turns.forEach((_turn, i) => {
@@ -154,9 +174,11 @@ export async function parseVoiceRequest(
   } catch (error) {
     return {
       ...empty,
+      stopRequested: fallbackStop,
       skipped: error instanceof Error ? error.message : "parse failed",
     };
   }
+  const stop = response.answers.stop;
   const outstanding = turns.filter((_, i) => {
     const answer = response.answers[`turn_${i}`];
     return answer?.type === "noul" && answer.noul >= OUTSTANDING_FLOOR;
@@ -183,6 +205,9 @@ export async function parseVoiceRequest(
         ? scopeChoice
         : null,
     scopeConfidence: scope?.type === "choice" ? scope.confidence : null,
+    stopRequested:
+      stop?.type === "noul" ? stop.noul >= STOP_FLOOR : fallbackStop,
+    stopConfidence: stop?.type === "noul" ? stop.noul : null,
     model: response.model,
     skipped: null,
   };

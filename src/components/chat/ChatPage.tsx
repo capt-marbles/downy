@@ -9,6 +9,7 @@ import {
   editLastMessage,
   revertLastMessage,
   startBootstrap,
+  stopTurn,
 } from "../../lib/api-client";
 import { useCurrentAgentSlug } from "../../lib/agents";
 import { alertDialog, confirmDialog } from "../ui/dialog";
@@ -245,8 +246,11 @@ export default function ChatPage() {
         stack: new Error().stack,
       });
     }
+    // The server ignores the protocol cancel (a closed tab must not end a
+    // turn), so an explicit Stop also asks the agent to abort its turn.
+    void stopTurn(slug).catch(() => undefined);
     void stop();
-  }, [stop, status, isStreaming]);
+  }, [stop, status, isStreaming, slug]);
 
   const visibleMessages = useMemo(
     () => messages.filter((m) => !isSyntheticMessage(m)),

@@ -3,6 +3,7 @@ import {
   airtableFailure,
   airtableDiagnostic,
   airtableErrorCode,
+  airtableRejectedField,
   schemaReadSummary,
 } from "./airtable-diagnostics";
 it.each([
@@ -47,4 +48,27 @@ it("preserves a timeout code and safe phase after crossing the DO RPC boundary",
   expect(airtableErrorCode(rpcError)).toBe("timeout");
   expect(airtableDiagnostic(rpcError)?.phase).toBe("schema_read");
   expect(error.message).not.toContain("secret-sentinel");
+});
+it("names the rejected field for an unknown field name and keeps it across the RPC boundary", () => {
+  const error = airtableFailure(
+    {
+      successful: false,
+      error:
+        'Unknown field name: "ICP Tier". Field names are case-sensitive. secret-sentinel',
+      data: { status_code: 422 },
+    },
+    "provider_failure",
+    "records_read",
+  );
+  expect(airtableErrorCode(error)).toBe("unknown_field");
+  expect(airtableRejectedField(error)).toBe("ICP Tier");
+  expect(error.message).not.toContain("secret-sentinel");
+  const crossed = new Error(error.message);
+  expect(airtableErrorCode(crossed)).toBe("unknown_field");
+  expect(airtableRejectedField(crossed)).toBe("ICP Tier");
+  expect(airtableDiagnostic(crossed)).toEqual({ phase: "records_read" });
+  // Names are reduced to plain characters and bounded; other failures carry none.
+  const odd = airtableFailure(new Error('Unknown field name: "<b>Game</b>\n"'));
+  expect(airtableRejectedField(odd)).toBe("bGame/b");
+  expect(airtableRejectedField(airtableFailure(new Error("403")))).toBeNull();
 });

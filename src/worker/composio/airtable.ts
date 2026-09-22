@@ -1,4 +1,7 @@
-import { readOffloadedAirtableSchema } from "./airtable-schema";
+import {
+  readOffloadedAirtableRecords,
+  readOffloadedAirtableSchema,
+} from "./airtable-schema";
 import {
   airtableFailure,
   airtableDiagnostic,
@@ -123,16 +126,20 @@ export class AirtableConnection {
       const success = z
         .object({ successful: z.literal(true) })
         .safeParse(item.response);
-      if (
-        slug === "AIRTABLE_GET_BASE_SCHEMA" &&
-        success.success &&
-        data.remote_file_info
-      )
-        return readOffloadedAirtableSchema(
-          this.call,
-          sessionId,
-          data.remote_file_info,
-        );
+      if (success.success && data.remote_file_info) {
+        if (slug === "AIRTABLE_GET_BASE_SCHEMA")
+          return readOffloadedAirtableSchema(
+            this.call,
+            sessionId,
+            data.remote_file_info,
+          );
+        if (slug === "AIRTABLE_LIST_RECORDS")
+          return readOffloadedAirtableRecords(
+            this.call,
+            sessionId,
+            data.remote_file_info,
+          );
+      }
       throw airtableFailure(
         { ...data, response: item.response },
         "response_invalid",
@@ -422,6 +429,8 @@ export class AirtableConnection {
               offset: action.offset,
               fields: action.fields,
               filterByFormula: action.filterByFormula,
+              sort: action.sort,
+              view: action.view,
             };
     return {
       account: state.identity,

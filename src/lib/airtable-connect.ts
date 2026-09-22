@@ -23,6 +23,26 @@ export const AirtableReadActionSchema = z.discriminatedUnion("action", [
         .max(100),
       filterByFormula: z.string().max(4000).optional(),
       fields: z.array(z.string().min(1).max(200)).max(30).optional(),
+      sort: z
+        .array(
+          z
+            .object({
+              field: z.string().min(1).max(200),
+              direction: z.enum(["asc", "desc"]).default("desc"),
+            })
+            .strict(),
+        )
+        .max(3)
+        .optional()
+        .describe(
+          "Order by real table fields, first entry first. With a small limit this returns the top records directly instead of scanning pages.",
+        ),
+      view: z
+        .string()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe("A view name or ID whose filter and order apply."),
       limit: z
         .number()
         .int()

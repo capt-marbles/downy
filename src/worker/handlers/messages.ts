@@ -20,6 +20,13 @@ export async function handleMessagesRequest(
       const result = await stub.revertLastTurn();
       return json(result);
     }
+    if (url.pathname === "/api/messages/stop") {
+      if (request.method !== "POST")
+        return json({ error: "Method not allowed" }, 405);
+      const stub = await getActiveAgentStub(request, env);
+      const result = await stub.stopTurn("chat");
+      return json(result);
+    }
     if (url.pathname === "/api/messages/edit") {
       if (request.method !== "POST")
         return json({ error: "Method not allowed" }, 405);

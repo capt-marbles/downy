@@ -1,7 +1,4 @@
-import {
-  airtableErrorCode,
-  airtableDiagnostic,
-} from "../composio/airtable-diagnostics";
+import { airtableReadFailure } from "./airtable-read-failure";
 import { seedBuiltinSkills } from "./skills/builtin";
 import {
   runServiceSetup,
@@ -172,7 +169,11 @@ import {
   BackgroundTaskRecordSchema,
   type BackgroundTaskRecord,
 } from "./background-task-types";
-import { ignoreClientCancels } from "./ignore-client-cancels";
+import {
+  abortActiveTurns,
+  hasActiveTurn,
+  ignoreClientCancels,
+} from "./ignore-client-cancels";
 import {
   createConnectCloudflareMcpServerTool,
   createConnectMcpServerTool,
@@ -666,7 +667,7 @@ export class DownyAgent extends Think {
     if (airtableGrant)
       mcpTools.airtable_records = tool({
         description:
-          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. Use returned offset for pagination. For complete stage counts use pipeline_report after inspecting the schema; resume partial results with reportId. This tool only reads. To add records, dedupe here first, then propose them with stage_action kind airtable_create_records; to change existing records, read them here to get their rec… ids and current values, then propose only the fields that change with stage_action kind airtable_update_records (null clears a field). The operator confirms the card and the write goes through the same Airtable connection. Deletes are not available.",
+          "Read the Airtable account authorized for this bot. List bases, inspect a base schema, then list records using exact table IDs and field names. For the top or newest records, pass a fields list, sort on a real field and a small limit; use returned offset for pagination only when every record is needed. For complete stage counts use pipeline_report after inspecting the schema; resume partial results with reportId. This tool only reads. To add records, dedupe here first, then propose them with stage_action kind airtable_create_records; to change existing records, read them here to get their rec… ids and current values, then propose only the fields that change with stage_action kind airtable_update_records (null clears a field). The operator confirms the card and the write goes through the same Airtable connection. Deletes are not available.",
         inputSchema: AirtableActionSchema,
         execute: async (input) => {
           try {
@@ -680,21 +681,22 @@ export class DownyAgent extends Think {
               .object({ account: z.string(), data: z.unknown() })
               .parse(JSON.parse(result));
           } catch (error) {
-            const { code, phase } =
-              input.action === "pipeline_report"
-                ? pipelineFailure(error)
-                : {
-                    code: airtableErrorCode(error),
-                    phase: airtableDiagnostic(error)?.phase,
-                  };
-            return {
-              state: "failed",
-              code,
-              phase,
-              error: ["timeout", "temporarily_unavailable"].includes(code)
-                ? "Airtable is temporarily unavailable. The read did not complete after bounded recovery. This does not establish an authorization problem; do not ask the user to reconnect solely because of this error."
-                : `Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.${input.action === "list_records" && input.fields?.length ? " A single wrong field name makes Airtable reject the whole read: call get_schema and use the exact field names or field IDs from it." : ""}`,
-            };
+            if (input.action === "pipeline_report") {
+              const { code, phase } = pipelineFailure(error);
+              return {
+                state: "failed",
+                code,
+                phase,
+                error: ["timeout", "temporarily_unavailable"].includes(code)
+                  ? "Airtable is temporarily unavailable. The read did not complete after bounded recovery. This does not establish an authorization problem; do not ask the user to reconnect solely because of this error."
+                  : "Airtable did not return a verified result. Check its connection card, base/table access, and schema; no records were changed.",
+              };
+            }
+            return airtableReadFailure(error, input, async (baseId) =>
+              (
+                await getAgentStub(this.env, airtableGrant)
+              ).executeComposioAirtable({ action: "get_schema", baseId }),
+            );
           }
         },
       });
@@ -1112,6 +1114,43 @@ export class DownyAgent extends Think {
 
   #voicePending = new Set<string>();
 
+  // The one deliberate stop. Client cancels are ignored (a closed tab must not
+  // kill a turn); a spoken "stop" or the chat Stop button lands here instead.
+  #stoppedAt = 0;
+  async stopTurn(source: "voice" | "chat"): Promise<{ stopped: boolean }> {
+    const count = abortActiveTurns(this);
+    if (count === 0) return { stopped: false };
+    this.#stoppedAt = Date.now();
+    recordRunEvent(this.env.DB, {
+      agentSlug: this.name,
+      runId: this.#runId,
+      runKind: this.#runKind,
+      event: "tool_call",
+      name: "turn_stopped",
+      state: "cancelled",
+      costUsd: null,
+      replayed: false,
+      elapsedMs: 0,
+      summary: `source=${source} turns=${count}`,
+    });
+    this.#voiceProgress(
+      `Stopped at the ${source === "voice" ? "caller's" : "user's"} request; no further steps will run.`,
+    );
+    return { stopped: true };
+  }
+
+  #stoppedAnswer(turn: UIMessage[]): string {
+    const outcome = voiceTurnOutcome(turn);
+    const before = [
+      outcome.draftUrls.length ? "a Gmail draft was already saved" : "",
+      outcome.stagedActionIds.length
+        ? "a proposal card was already placed in chat"
+        : "",
+      outcome.savedPaths.length ? "a file was already saved" : "",
+    ].filter(Boolean);
+    return `Stopped at your request.${before.length ? ` Before the stop, ${before.join(" and ")}.` : ""} Nothing else was changed.`;
+  }
+
   async getVoiceTaskResult(
     callId: string,
     delegationId: string,
@@ -1288,6 +1327,15 @@ export class DownyAgent extends Think {
         ? parse.skipped
         : `outstanding=${parse.outstanding.length} runbook=${parse.runbook ?? "-"}(${parse.runbookConfidence?.toFixed(2) ?? "-"}) scope=${parse.scope ?? "-"}(${parse.scopeConfidence?.toFixed(2) ?? "-"}) model=${parse.model ?? "-"}`,
     });
+    // A spoken stop halts the lookup in flight instead of starting another.
+    if (parse.stopRequested && hasActiveTurn(this)) {
+      const { stopped } = await this.stopTurn("voice");
+      const answer = stopped
+        ? "Stopped the running lookup. Nothing further will run; anything already saved or staged is in chat."
+        : "Nothing is running right now.";
+      await this.ctx.storage.put(key, answer);
+      return answer;
+    }
     const checklist = renderVoiceRequestParse(parse);
     const checklistNote = voiceChecklistNote(
       parse.skipped ? [] : parse.outstanding,
@@ -1315,6 +1363,13 @@ export class DownyAgent extends Think {
     const after = this.messages.slice(index + 1);
     const nextUser = after.findIndex((message) => message.role === "user");
     const turn = nextUser < 0 ? after : after.slice(0, nextUser);
+    // An explicit stop aborts the stream; the turn then holds only what ran
+    // before it, so the answer is the receipt of that, never a summary.
+    if (this.#stoppedAt >= parseStarted) {
+      const stopped = this.#stoppedAnswer(turn);
+      await this.ctx.storage.put(key, stopped);
+      return stopped;
+    }
     const outcome = voiceTurnOutcome(turn);
     const answer = outcome.text;
     if (outcome.unverifiedFileClaim) {

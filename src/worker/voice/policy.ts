@@ -1,4 +1,6 @@
 import { AirtableActionSchema } from "../../lib/airtable-connect";
+
+const VOICE_PAGE_MAX = 25;
 import { GmailActionSchema } from "../../lib/gmail-connect";
 import { VOICE_IDLE_MS, VOICE_LEASE_MS, VOICE_MAX_MS } from "../../lib/voice";
 import { tool, type ToolSet } from "ai";
@@ -136,10 +138,14 @@ export function voiceToolSet(
           ].includes(input.action)
         )
           throw new Error("Voice only permits Airtable reads.");
-        const result: unknown = await execute(
-          AirtableActionSchema.parse(input),
-          options,
-        );
+        // A call cannot digest a large page; keep reads small so the result
+        // returns inline instead of being offloaded.
+        const parsed = AirtableActionSchema.parse(input);
+        const bounded =
+          parsed.action === "list_records"
+            ? { ...parsed, limit: Math.min(parsed.limit, VOICE_PAGE_MAX) }
+            : parsed;
+        const result: unknown = await execute(bounded, options);
         return result;
       },
     });

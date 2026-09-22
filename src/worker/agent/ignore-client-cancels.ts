@@ -38,3 +38,26 @@ function getLiveAborts(instance: unknown): object {
   }
   return rawAborts;
 }
+
+/**
+ * Abort every in-flight turn on this agent. This is the one deliberate stop:
+ * a caller saying "stop" on a call or the user pressing Stop in chat. It uses
+ * `destroyAll`, which stays wired for exactly such explicit intents.
+ * Returns how many turns were in flight.
+ */
+export function abortActiveTurns(instance: object): number {
+  const aborts = getLiveAborts(instance);
+  const size: unknown = Reflect.get(aborts, "size");
+  const count = typeof size === "number" ? size : 0;
+  if (count > 0) {
+    const destroyAll: unknown = Reflect.get(aborts, "destroyAll");
+    if (typeof destroyAll === "function") Reflect.apply(destroyAll, aborts, []);
+  }
+  return count;
+}
+
+/** Whether any turn is in flight right now. */
+export function hasActiveTurn(instance: object): boolean {
+  const size: unknown = Reflect.get(getLiveAborts(instance), "size");
+  return typeof size === "number" && size > 0;
+}

@@ -21,6 +21,7 @@ import {
   ReadUserFileResponseSchema,
   ReadWorkspaceFileResponseSchema,
   RevertLastTurnResponseSchema,
+  StopTurnResponseSchema,
   SystemStatusResponseSchema,
   type SystemStatus,
   type BackgroundTaskRecord,
@@ -369,6 +370,15 @@ export async function listSkills(slug: string): Promise<SkillSummary[]> {
  * message that followed). Side effects (file writes, MCP calls, spawned
  * tasks) are not rolled back — callers should warn the user when relevant.
  */
+/** Stop the turn in flight on the server; the client-side cancel alone is ignored there. */
+export async function stopTurn(slug: string): Promise<{ stopped: boolean }> {
+  return request(
+    "/api/messages/stop",
+    StopTurnResponseSchema,
+    withSlugHeader(slug, { method: "POST" }),
+  );
+}
+
 export async function revertLastMessage(
   slug: string,
 ): Promise<{ deletedCount: number }> {

@@ -23,11 +23,78 @@ const Schema = z.object({
 // Composio offloads large successful results even when sync_response_to_workbench
 // is false. Use only its returned JSON file, with a fixed read-only projection.
 // This is not an agent-exposed Python executor or permission to run app actions.
-export async function readOffloadedAirtableSchema(
+const RecordsSchema = z.object({
+  records: z.array(
+    z.object({
+      id: z.string(),
+      createdTime: z.string().optional(),
+      fields: z.record(z.string(), z.unknown()),
+    }),
+  ),
+  offset: z.string().optional(),
+});
+// Projections run inside Composio's sandbox over the offloaded file only and
+// print one gzip+base64 JSON document, bounded before and after transfer.
+const SCHEMA_PROJECTION = `tables = []
+for t in r['data']['tables']:
+    fields = []
+    for f in t['fields']:
+        item = {k: f[k] for k in ('id', 'name', 'type')}
+        if 'choices' in f.get('options', {}):
+            item['options'] = {'choices': [{'name': c['name']} for c in f['options']['choices']]}
+        fields.append(item)
+    tables.append({'id': t['id'], 'name': t['name'], 'fields': fields})
+out = {'tables': tables}`;
+// Records keep scalar cell values, trimmed; attachments, lookups and formula
+// error objects are dropped rather than expanded.
+const RECORDS_PROJECTION = `records = []
+for rec in r['data']['records']:
+    fields = {}
+    for k, v in rec.get('fields', {}).items():
+        if isinstance(v, str):
+            fields[k] = v[:400]
+        elif isinstance(v, (int, float, bool)) or v is None:
+            fields[k] = v
+        elif isinstance(v, list):
+            fields[k] = [x[:200] if isinstance(x, str) else x for x in v[:20] if isinstance(x, (str, int, float, bool))]
+    item = {'id': rec['id'], 'fields': fields}
+    if isinstance(rec.get('createdTime'), str):
+        item['createdTime'] = rec['createdTime']
+    records.append(item)
+out = {'records': records}
+if isinstance(r['data'].get('offset'), str):
+    out['offset'] = r['data']['offset']`;
+
+export function readOffloadedAirtableSchema(
   call: ManagedCall,
   sessionId: string,
   remoteInfo: unknown,
 ) {
+  return readOffloaded(call, sessionId, remoteInfo, {
+    slug: "AIRTABLE_GET_BASE_SCHEMA",
+    projection: SCHEMA_PROJECTION,
+    step: "READING_AIRTABLE_SCHEMA",
+    schema: Schema,
+  });
+}
+export function readOffloadedAirtableRecords(
+  call: ManagedCall,
+  sessionId: string,
+  remoteInfo: unknown,
+) {
+  return readOffloaded(call, sessionId, remoteInfo, {
+    slug: "AIRTABLE_LIST_RECORDS",
+    projection: RECORDS_PROJECTION,
+    step: "READING_AIRTABLE_RECORDS",
+    schema: RecordsSchema,
+  });
+}
+async function readOffloaded<S extends z.ZodType>(
+  call: ManagedCall,
+  sessionId: string,
+  remoteInfo: unknown,
+  options: { slug: string; projection: string; step: string; schema: S },
+): Promise<z.infer<S>> {
   const info = z
     .object({
       file_path: z
@@ -56,26 +123,18 @@ with open(p, 'rb') as f:
 if isinstance(doc, dict) and 'data' in doc and 'results' not in doc:
     doc = doc['data']
 items = doc if isinstance(doc, list) else doc['results']
-assert len(items) == 1 and items[0]['tool_slug'] == 'AIRTABLE_GET_BASE_SCHEMA'
+assert len(items) == 1 and items[0]['tool_slug'] == ${JSON.stringify(options.slug)}
 assert not items[0].get('error')
 r = items[0]['response']
 assert r['successful'] is True and not r.get('error')
-tables = []
-for t in r['data']['tables']:
-    fields = []
-    for f in t['fields']:
-        item = {k: f[k] for k in ('id', 'name', 'type')}
-        if 'choices' in f.get('options', {}):
-            item['options'] = {'choices': [{'name': c['name']} for c in f['options']['choices']]}
-        fields.append(item)
-    tables.append({'id': t['id'], 'name': t['name'], 'fields': fields})
-payload = json.dumps({'tables': tables}, separators=(',', ':')).encode()
+${options.projection}
+payload = json.dumps(out, separators=(',', ':')).encode()
 assert len(payload) <= 1048576
 print(json.dumps({'schema_gzip_base64': base64.b64encode(gzip.compress(payload)).decode()}))`;
   const raw = await call("COMPOSIO_REMOTE_WORKBENCH", {
     session_id: sessionId,
     code_to_execute: code,
-    current_step: "READING_AIRTABLE_SCHEMA",
+    current_step: options.step,
   });
   const data = z
     .object({
@@ -120,5 +179,5 @@ print(json.dumps({'schema_gzip_base64': base64.b64encode(gzip.compress(payload))
     output.set(chunk, offset);
     offset += chunk.length;
   }
-  return Schema.parse(JSON.parse(new TextDecoder().decode(output)));
+  return options.schema.parse(JSON.parse(new TextDecoder().decode(output)));
 }

@@ -45,6 +45,21 @@ function fixture() {
           },
         },
       });
+    if (
+      name === "COMPOSIO_REMOTE_WORKBENCH" &&
+      String(args.code_to_execute).includes("AIRTABLE_LIST_RECORDS")
+    )
+      return envelope({
+        stdout: JSON.stringify({
+          schema_gzip_base64: gzipSync(
+            JSON.stringify({
+              records: [{ id: "recOffloaded1", fields: { Name: "Big page" } }],
+              offset: "offloaded-next",
+            }),
+          ).toString("base64"),
+        }),
+        stderr: "",
+      });
     if (name === "COMPOSIO_REMOTE_WORKBENCH")
       return envelope({
         stdout: JSON.stringify({
@@ -83,7 +98,12 @@ function fixture() {
           },
         ],
       });
-    if (offload && item.tool_slug === "AIRTABLE_GET_BASE_SCHEMA")
+    if (
+      offload &&
+      ["AIRTABLE_GET_BASE_SCHEMA", "AIRTABLE_LIST_RECORDS"].includes(
+        item.tool_slug,
+      )
+    )
       return envelope({
         remote_file_info: { file_path: "/mnt/files/response.json" },
         results: [
@@ -315,3 +335,43 @@ it.each([
     expect(JSON.stringify(result)).not.toContain("secret-sentinel");
   },
 );
+it("recovers a record page that Composio offloaded and forwards sort and view", async () => {
+  const f = fixture();
+  f.connect();
+  await f.make().start();
+  f.offload();
+  const result = await f.make().action({
+    action: "list_records",
+    baseId: "appExample",
+    tableId: "tblExample",
+    sort: [{ field: "Fit Score", direction: "desc" }],
+    view: "Grid view",
+    limit: 5,
+  });
+  expect(result.data).toEqual({
+    records: [{ id: "recOffloaded1", fields: { Name: "Big page" } }],
+    offset: "offloaded-next",
+  });
+  const execute = f.call.mock.calls.find(
+    ([name, args]) =>
+      name === "COMPOSIO_MULTI_EXECUTE_TOOL" &&
+      JSON.stringify(args).includes("AIRTABLE_LIST_RECORDS"),
+  );
+  expect(execute?.[1]).toMatchObject({
+    tools: [
+      {
+        arguments: {
+          pageSize: 5,
+          sort: [{ field: "Fit Score", direction: "desc" }],
+          view: "Grid view",
+        },
+      },
+    ],
+  });
+  const workbench = f.call.mock.calls.find(
+    ([name]) => name === "COMPOSIO_REMOTE_WORKBENCH",
+  );
+  expect(String(workbench?.[1].code_to_execute)).toContain(
+    "AIRTABLE_LIST_RECORDS",
+  );
+});

@@ -1,5 +1,6 @@
 import { z } from "zod";
 const codes = [
+  "unknown_field",
   "permission_denied",
   "invalid_arguments",
   "tool_unavailable",
@@ -30,12 +31,29 @@ class AirtableReadError extends Error {
   constructor(
     readonly code: (typeof codes)[number],
     readonly diagnostic?: ReturnType<typeof responseShape>,
+    /** The rejected field name, for unknown_field only; never provider text. */
+    readonly field?: string,
   ) {
     super(
-      `Airtable action failed: ${code} [${diagnostic?.phase ?? "provider"}]`,
+      `Airtable action failed: ${code} [${diagnostic?.phase ?? "provider"}]${field ? ` field=${field}` : ""}`,
     );
   }
 }
+// Airtable names the one field it rejected. That name is the caller's own
+// input echoed back, not provider text, so it may travel with the code once
+// reduced to plain characters and a bounded length.
+const FIELD_NAME_MAX = 80;
+function rejectedFieldName(value: unknown): string | undefined {
+  const text =
+    value instanceof Error ? value.message : (JSON.stringify(value) ?? "");
+  const match = /unknown field name:?\s*\\?"([^"\\]{1,200})\\?"/i.exec(
+    text.slice(0, 50_000),
+  );
+  const name = match?.[1]?.replace(/[^\w .&/()'-]/g, "").trim();
+  return name ? name.slice(0, FIELD_NAME_MAX) : undefined;
+}
+const MESSAGE_PATTERN =
+  /Airtable action failed: (\w+)(?: \[(\w+)\])?(?: field=(.{1,80}))?$/;
 // Provider errors may echo authorization values. Inspect internally, emit only
 // a fixed code: never forward their text, payload, request, URL or credentials.
 export function airtableFailure(
@@ -46,7 +64,18 @@ export function airtableFailure(
   if (value instanceof AirtableReadError)
     return value.diagnostic?.phase !== "provider"
       ? value
-      : new AirtableReadError(value.code, responseShape(value, phase));
+      : new AirtableReadError(
+          value.code,
+          responseShape(value, phase),
+          value.field,
+        );
+  const field = rejectedFieldName(value);
+  if (field)
+    return new AirtableReadError(
+      "unknown_field",
+      responseShape(value, phase),
+      field,
+    );
   const text = (
     value instanceof Error ? value.message : (JSON.stringify(value) ?? "")
   )
@@ -85,15 +114,14 @@ export function airtableErrorCode(error: unknown) {
   if (error instanceof AirtableReadError) return error.code;
   // DO RPC preserves the message, not the Error subclass.
   const message = error instanceof Error ? error.message : "";
-  return (
-    codes.find(
-      (code) =>
-        message.endsWith(`Airtable action failed: ${code}`) ||
-        phases.some((phase) =>
-          message.endsWith(`Airtable action failed: ${code} [${phase}]`),
-        ),
-    ) ?? "provider_failure"
-  );
+  const code = MESSAGE_PATTERN.exec(message)?.[1];
+  return codes.find((candidate) => candidate === code) ?? "provider_failure";
+}
+/** The field Airtable rejected, when the failure was an unknown field name. */
+export function airtableRejectedField(error: unknown): string | null {
+  if (error instanceof AirtableReadError) return error.field ?? null;
+  const message = error instanceof Error ? error.message : "";
+  return MESSAGE_PATTERN.exec(message)?.[3] ?? null;
 }
 function responseShape(value: unknown, phase: Phase) {
   const item = z
@@ -132,12 +160,9 @@ function responseShape(value: unknown, phase: Phase) {
 export function airtableDiagnostic(error: unknown) {
   if (error instanceof AirtableReadError) return error.diagnostic;
   const message = error instanceof Error ? error.message : "";
-  const phase = phases.find((candidate) =>
-    codes.some((code) =>
-      message.endsWith(`Airtable action failed: ${code} [${candidate}]`),
-    ),
-  );
-  return phase ? { phase } : undefined;
+  const phase = MESSAGE_PATTERN.exec(message)?.[2];
+  const known = phases.find((candidate) => candidate === phase);
+  return known ? { phase: known } : undefined;
 }
 export function schemaReadSummary(data: unknown) {
   const parsed = z
