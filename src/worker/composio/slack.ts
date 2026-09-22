@@ -328,7 +328,29 @@ export class SlackConnection {
   async action(input: SlackReadAction) {
     const action = SlackReadActionSchema.parse(input);
     const { sessionId, accountId, identity } = await this.verified();
-    const data = z
+    const raw = await this.execute(
+      sessionId,
+      SLUG.listChannels,
+      {
+        limit: action.limit,
+        types: "public_channel,private_channel",
+        exclude_archived: true,
+        ...(action.cursor ? { cursor: action.cursor } : {}),
+      },
+      accountId,
+    );
+    // Composio stores a large listing in a file even with inline responses
+    // requested. Say so plainly; a Zod error loses its detail crossing the
+    // Durable Object RPC boundary.
+    if (
+      raw &&
+      typeof raw === "object" &&
+      ("file_path" in raw || "storedInFile" in raw || "outputFilePath" in raw)
+    )
+      throw new Error(
+        "Slack channel list too large to return inline; use a smaller limit and page with cursor",
+      );
+    const parsed = z
       .object({
         channels: z.array(
           z.object({
@@ -342,19 +364,10 @@ export class SlackConnection {
           .object({ next_cursor: z.string().optional() })
           .optional(),
       })
-      .parse(
-        await this.execute(
-          sessionId,
-          SLUG.listChannels,
-          {
-            limit: action.limit,
-            types: "public_channel,private_channel",
-            exclude_archived: true,
-            ...(action.cursor ? { cursor: action.cursor } : {}),
-          },
-          accountId,
-        ),
-      );
+      .safeParse(raw);
+    if (!parsed.success)
+      throw new Error("Slack channel list had an unexpected shape");
+    const data = parsed.data;
     return {
       account: identity,
       channels: data.channels.map((channel) => ({

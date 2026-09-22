@@ -26,7 +26,9 @@ export const SlackReadActionSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("list_channels"),
-      limit: z.number().int().min(1).max(200).default(100),
+      // Composio stores listings above roughly 100 channels in a file
+      // instead of returning them inline; page with `cursor` instead.
+      limit: z.number().int().min(1).max(100).default(100),
       cursor: z.string().max(500).optional(),
     })
     .strict(),

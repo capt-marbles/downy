@@ -88,14 +88,22 @@ it("resolves the channel by id or name across pages and requires membership", as
       nextCursor: null,
     },
   ];
-  const list = vi.fn(async (action: { cursor?: string }) =>
-    action.cursor === "p2" ? pages[1] : pages[0],
-  );
+  const list = vi.fn(async (action: { cursor?: string; limit?: number }) => {
+    expect(action.limit).toBe(100);
+    return action.cursor === "p2" ? pages[1] : pages[0];
+  });
   expect(await verifySlackChannel(list, "#Agent-Leads")).toEqual({ ok: true });
   expect(await verifySlackChannel(list, "C0A1NHZ5QF2")).toEqual({ ok: true });
   expect((await verifySlackChannel(list, "random")).ok).toBe(false);
   expect((await verifySlackChannel(list, "random")).ok).toBe(false);
   expect((await verifySlackChannel(list, "#missing")).ok).toBe(false);
-  list.mockRejectedValueOnce(new Error("down"));
-  expect((await verifySlackChannel(list, "general")).ok).toBe(false);
+  list.mockRejectedValueOnce(
+    new Error("Slack channel list too large to return inline"),
+  );
+  const failed = await verifySlackChannel(list, "general");
+  expect(failed).toEqual({
+    ok: false,
+    reason:
+      "the channel list could not be re-read from Slack just now (Slack channel list too large to return inline)",
+  });
 });

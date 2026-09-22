@@ -733,7 +733,7 @@ export class DownyAgent extends Think {
     if (slackGrant)
       mcpTools.slack_channels = tool({
         description:
-          "List channels in the Slack workspace connected to this bot (id, name, private, member). Read-only. To post a message, propose it with stage_action kind slack_post_message; the operator confirms the card and Downy posts as its app. Downy never reads messages.",
+          "List channels in the Slack workspace connected to this bot (id, name, private, member), 100 per page; pass the returned nextCursor for more. Read-only. To post a message, propose it with stage_action kind slack_post_message; the operator confirms the card and Downy posts as its app. Downy never reads messages.",
         inputSchema: SlackReadActionSchema,
         execute: async (input) => {
           try {

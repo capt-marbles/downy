@@ -92,9 +92,11 @@ export async function verifySlackChannel(
   let cursor: string | undefined;
   try {
     for (let page = 0; page < 5; page++) {
+      // 100 per page is the size that stays inline; Composio stores larger
+      // listings in a file, which the adapter cannot read as a channel list.
       const result = await list({
         action: "list_channels",
-        limit: 200,
+        limit: 100,
         ...(cursor ? { cursor } : {}),
       });
       const match = result.channels.find(
@@ -111,10 +113,10 @@ export async function verifySlackChannel(
       if (!result.nextCursor) break;
       cursor = result.nextCursor;
     }
-  } catch {
+  } catch (error) {
     return {
       ok: false,
-      reason: "the channel list could not be re-read from Slack just now",
+      reason: `the channel list could not be re-read from Slack just now (${error instanceof Error && error.message ? error.message : "no detail"})`,
     };
   }
   return {
