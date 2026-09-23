@@ -81,6 +81,30 @@ export const StagedActionPayloadSchema = z.discriminatedUnion("kind", [
       airtableUpdateRecords: AirtableUpdateRecordsPayloadSchema,
     })
     .strict(),
+  // Operator-only relaxations of outreach safety. No model tool can do either.
+  z
+    .object({
+      kind: z.literal("outreach_unsuppress"),
+      outreachUnsuppress: z
+        .object({
+          address: z.string().min(3).max(320),
+          reason: z.string().min(1).max(300),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("outreach_abandon"),
+      outreachAbandon: z
+        .object({
+          attemptId: z.uuid(),
+          recipient: z.string().email().max(320),
+          subject: z.string().min(1).max(500),
+        })
+        .strict(),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal("slack_post_message"),
@@ -155,6 +179,8 @@ export const STAGED_ACTION_LABELS: Record<StagedActionKind, string> = {
   airtable_create_records: "Airtable records",
   airtable_update_records: "Airtable update",
   slack_post_message: "Slack post",
+  outreach_unsuppress: "Allow contact",
+  outreach_abandon: "Abandon draft attempt",
 };
 
 export function newStagedAction(
@@ -311,6 +337,28 @@ export function describeStagedAction(payload: StagedActionPayload): {
         `Subject: ${draft.subject}`,
         ...(draft.threadId ? [`Reply in thread ${draft.threadId}`] : []),
         `Body:\n${draft.body}`,
+      ],
+    };
+  }
+  if (payload.kind === "outreach_unsuppress") {
+    const lift = payload.outreachUnsuppress;
+    return {
+      title: `Allow drafting to ${lift.address} again`,
+      lines: [
+        `Removes ${lift.address} from the do-not-contact list.`,
+        `Why: ${lift.reason}`,
+        "Only confirm if they asked to hear from you again or the entry was a mistake.",
+      ],
+    };
+  }
+  if (payload.kind === "outreach_abandon") {
+    const abandon = payload.outreachAbandon;
+    return {
+      title: `Abandon the unresolved draft to ${abandon.recipient}`,
+      lines: [
+        `Attempt ${abandon.attemptId}: “${abandon.subject}”`,
+        "Its outcome is unknown: Gmail may or may not have created the draft. Check Gmail Drafts first.",
+        "After this, a new draft to this recipient is allowed and may duplicate one that already exists.",
       ],
     };
   }

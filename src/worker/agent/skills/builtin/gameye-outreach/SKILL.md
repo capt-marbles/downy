@@ -13,6 +13,8 @@ Scope: ONE lead per request. If the operator names no lead ("pick an old one"), 
 
 Base `appZgInlaiE12FCu7`, Leads table `tblqqYLjWgLj87m25`, Contacts table `tblXVK9F4tZfvy4jj`. Find the Lead with `airtable_records` `list_records` and one formula on a distinctive token, lowercase: `FIND("distinctive studio name", LOWER({Lead Name}))` or on `{Domain}`. Read these fields: Lead Name, Company, Domain, Tier, Fit Score, Status, Contact Email, Outreach Angles, Notes, Contacts. If the Lead links a Contact, read it too: Contact Name, Email, Job Title, LinkedIn Profile, X/Twitter, Contact Stage, Outreach Drafts. Keep the `rec…` ids; every write below needs them.
 
+Opt-outs are permanent: when a lead or contact asks not to be contacted, replies with an unsubscribe, or an email bounces, call `outreach_safety` `suppress` with the address (or `@domain` for the whole company) and the reason before anything else. Every Gmail draft is checked in code against that list and the recipient's Gmail history; a `blocked` result is final for this request, so report its reason.
+
 Stop and say so when: the lead is not found (offer the closest names from the search); Status or Contact Stage is already `Draft Ready`, `Draft Ready (manual DM)`, `Contacted`, `Replied`, `Meeting`, `Won` or `Lost` and the operator did not ask for a follow-up; or the Lead is marked as an exclusion (platform-owned studio, vendor, crypto or web3). Never re-draft a lead that already has drafts; point at the existing draft set instead.
 
 If the Notes lack a concrete signal, `web_scrape` the source URL in the Notes once. One or two lookups only; this is a drafting task, not research.

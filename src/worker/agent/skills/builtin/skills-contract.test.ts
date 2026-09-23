@@ -20,6 +20,7 @@ const KNOWN_TOOLS = new Set([
   "qualify_leads",
   "prioritize_leads",
   "check_outreach_draft",
+  "outreach_safety",
   "stage_action",
   "list_staged_actions",
   "schedule_task",

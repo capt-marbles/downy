@@ -1,4 +1,10 @@
 import { airtableReadFailure } from "./airtable-read-failure";
+import {
+  guardedCreateDraft,
+  normalizeAddress,
+  OutreachSafety,
+} from "./outreach-safety";
+import { createOutreachSafetyTool } from "./tools/outreach-safety";
 import { cachedSchemaRead } from "./airtable-schema-cache";
 import { createPrioritizeLeadsTool } from "./tools/prioritize-leads";
 import { createSafeGrepTool } from "./safe-grep";
@@ -725,9 +731,11 @@ export class DownyAgent extends Think {
         },
       });
     if (gmailGrant)
+      mcpTools.outreach_safety = createOutreachSafetyTool(this.env.DB);
+    if (gmailGrant)
       mcpTools.gmail_email = tool({
         description:
-          "Search/read the Gmail account authorized for this bot, or create a Gmail draft when requested. Drafts are saved for the user to send. Sending, forwarding, deleting and mailbox changes are unavailable. A draft timeout has unknown outcome: search Drafts before retrying.",
+          "Search/read the Gmail account authorized for this bot, or create a Gmail draft when requested. Drafts are saved for the user to send. Sending, forwarding, deleting and mailbox changes are unavailable. Every draft is checked in code first: a do-not-contact entry, an existing draft, an unresolved earlier attempt, a bounce, or prior contact without the thread to continue returns state blocked with the reason, and nothing is drafted; report the reason instead of working around it. A follow-up must pass the threadId of the thread you sent; after the prospect writes back, only a reply in their thread is allowed. A draft timeout has unknown outcome: the next draft to that address stays blocked until Gmail shows the draft or the operator abandons the attempt.",
         inputSchema: GmailActionSchema,
         execute: async (input) => {
           // A template outreach draft must carry the body the QA tool
@@ -1887,6 +1895,44 @@ export class DownyAgent extends Think {
     action: StagedAction,
   ): Promise<Parameters<typeof finishedStagedAction>[1]> {
     const { payload } = action;
+    if (payload.kind === "outreach_unsuppress") {
+      const { address } = payload.outreachUnsuppress;
+      const removed = await new OutreachSafety(this.env.DB)
+        .unsuppress(address)
+        .catch(() => false);
+      return removed
+        ? {
+            state: "succeeded",
+            result: {
+              receipt: `${address} is no longer on the do-not-contact list. Drafts to it are checked as usual.`,
+            },
+          }
+        : {
+            state: "failed",
+            error: `${address} was not on the do-not-contact list. Nothing changed.`,
+          };
+    }
+    if (payload.kind === "outreach_abandon") {
+      const { attemptId, recipient } = payload.outreachAbandon;
+      const safety = new OutreachSafety(this.env.DB);
+      const attempt = await safety.attempt(attemptId);
+      if (!attempt || attempt.recipient !== normalizeAddress(recipient))
+        return {
+          state: "failed",
+          error: `No draft attempt ${attemptId} to ${recipient} was found. Nothing changed.`,
+        };
+      return (await safety.abandon(attemptId))
+        ? {
+            state: "succeeded",
+            result: {
+              receipt: `Abandoned the unresolved draft attempt to ${recipient}. A new draft is allowed; check Drafts for a duplicate.`,
+            },
+          }
+        : {
+            state: "failed",
+            error: `The attempt to ${recipient} is already ${attempt.state}. Nothing changed.`,
+          };
+    }
     if (payload.kind === "gmail_draft") {
       const gmailGrant = await this.ctx.storage.get<string>("gmail-owner");
       if (!gmailGrant)
@@ -1896,6 +1942,18 @@ export class DownyAgent extends Think {
             "Gmail is not connected for this bot. Nothing was drafted. Connect Gmail, then propose again.",
         };
       try {
+        const raw = await (
+          await getAgentStub(this.env, gmailGrant)
+        ).executeComposioGmail({
+          action: "create_draft",
+          ...payload.gmailDraft,
+        });
+        // The outreach guard refused before any Gmail write: nothing exists.
+        const refused = z
+          .object({ state: z.literal("blocked"), reason: z.string() })
+          .safeParse(raw);
+        if (refused.success)
+          return { state: "failed", error: refused.data.reason };
         const result = z
           .object({
             state: z.literal("draft_created"),
@@ -1903,14 +1961,7 @@ export class DownyAgent extends Think {
             draftId: z.string(),
             url: z.string().url(),
           })
-          .parse(
-            await (
-              await getAgentStub(this.env, gmailGrant)
-            ).executeComposioGmail({
-              action: "create_draft",
-              ...payload.gmailDraft,
-            }),
-          );
+          .parse(raw);
         return {
           state: "succeeded",
           result: {
@@ -3476,7 +3527,17 @@ export class DownyAgent extends Think {
     return this.withComposioOAuth((oauth) => oauth.selectGmail(accountId));
   }
   async executeComposioGmail(input: GmailAction) {
-    return this.withComposioOAuth((oauth) => oauth.gmailAction(input));
+    if (input.action !== "create_draft")
+      return this.withComposioOAuth((oauth) => oauth.gmailAction(input));
+    // Every draft, from chat, voice, a card or a schedule, passes the
+    // outreach guard here, in the grant owner, where the model cannot skip it.
+    return guardedCreateDraft(new OutreachSafety(this.env.DB), input, {
+      search: (query) =>
+        this.withComposioOAuth((oauth) =>
+          oauth.gmailAction({ action: "search", query, limit: 10 }),
+        ),
+      create: () => this.withComposioOAuth((oauth) => oauth.gmailAction(input)),
+    });
   }
   async getComposioSlackStatus(refresh = false) {
     return this.withComposioOAuth((oauth) => oauth.slackStatus(refresh));

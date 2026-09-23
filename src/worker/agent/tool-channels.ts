@@ -36,6 +36,8 @@ const TOOL_CHANNELS: Readonly<Record<string, ToolChannelSpec>> = {
   qualify_leads: { voice: true },
   prioritize_leads: { voice: true },
   check_outreach_draft: { voice: true },
+  // Reads the do-not-contact list and adds to it; removal is card-only.
+  outreach_safety: { voice: true },
   stage_action: { voice: true },
   list_staged_actions: { voice: true },
   create_bot: { voice: true },

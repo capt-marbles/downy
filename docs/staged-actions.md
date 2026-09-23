@@ -28,6 +28,12 @@ the card afterwards on the same device.
   because the patch may have applied. Unlisted fields are untouched. A
   standing grant of the same kind covers it for scheduled runs; a create
   grant does not.
+- `outreach_unsuppress`: an address or `@domain` and the reason. Removes it
+  from the do-not-contact list. Operator-only: no model tool can lift a
+  suppression.
+- `outreach_abandon`: an unresolved draft attempt's id, recipient and
+  subject. Closes an attempt whose outcome is unknown so a new draft to that
+  recipient is allowed, accepting that it may duplicate one that exists.
 - `slack_post_message`: channel id or name, a `channelLabel` for the card, and
   the exact text. Runs `SLACKBOT_SEND_MESSAGE` once through the bot's Slack
   grant, posting as the Downy app; never retried, and a timeout is `unknown`.
@@ -112,3 +118,32 @@ single-flight executor, and posts a receipt that begins "Run under your
 standing approval for …". A proposal no grant covers stays a card for the
 operator. Grants are stored on the schedule (`grants_json`) and copied onto
 each run's background-task record; a worker never widens its own approvals.
+
+## Outreach safety
+
+Adapted from Village's send rules for a draft-only agent. Every Gmail draft,
+whether from `gmail_email`, a `gmail_draft` card, voice or a schedule, runs
+through `guardedCreateDraft` in the Gmail grant owner
+(`src/worker/agent/outreach-safety.ts`), so the model cannot route around it.
+A refused draft returns `state: "blocked"` with the reason; nothing is drafted.
+
+- **Suppressions** (`outreach_suppressions`): `opt_out`, `do_not_contact`,
+  `bounced` or `manual`, on an address or a whole `@domain`. The model adds
+  them with `outreach_safety` `suppress`; only an `outreach_unsuppress` card
+  removes one.
+- **Recipient history from Gmail, not memory:** an existing draft blocks a
+  second. A cold draft to someone already emailed is refused; a follow-up must
+  pass the `threadId` of a thread sent to them. Once they have written, only a
+  reply in one of their threads is allowed. A bounce blocks the draft and adds
+  a `bounced` suppression.
+- **Attempt before the call** (`outreach_draft_attempts`): each allowed draft
+  is recorded as `intent` before Gmail is called, then settled as `drafted`,
+  `failed` (the call never happened) or `unknown` (it may have). The database
+  admits one open attempt per recipient. An `unknown` attempt blocks further
+  drafts to that recipient until Gmail shows exactly one draft with its
+  subject, which resolves it, or the operator confirms `outreach_abandon`.
+- **Unverifiable is a block:** if Gmail history cannot be read or has an
+  unexpected shape, the draft is refused rather than assumed safe.
+
+Standing grants cannot cover these rules: grants match exact kinds, and no
+grant kind exists for drafts, `outreach_unsuppress` or `outreach_abandon`.
